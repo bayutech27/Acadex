@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex - Create School</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Acadex</h1>
+      <h2>Create your school</h2>
+      <form id="signupForm">
+        <input type="text" id="schoolName" placeholder="School Name" required>
+        <input type="text" id="schoolSlug" placeholder="School URL (slug)" required>
+        <input type="email" id="email" placeholder="Admin Email" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Create School</button>
+      </form>
+      <div class="links">
+        <a href="index.html">Already have an account? Login</a>
+      </div>
+      <div id="message" class="message"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initSignupPage } from './js/auth.js';
+    initSignupPage();
+  </script>
+</body>
+</html>

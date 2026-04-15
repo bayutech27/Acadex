@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Students</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    /* Additional styles for student management */
+    .filter-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .filter-btn {
+      background: #e2e8f0;
+      color: #2d3748;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-btn.active {
+      background: #667eea;
+      color: white;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 550px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .modal-header h2 {
+      margin: 0;
+    }
+    .close-modal {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #718096;
+    }
+    .form-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    select[multiple] {
+      height: 120px;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .status-active {
+      background: #c6f6d5;
+      color: #22543d;
+    }
+    .status-inactive {
+      background: #fed7d7;
+      color: #742a2a;
+    }
+    .status-graduated {
+      background: #bee3f8;
+      color: #2c5282;
+    }
+    .status-select {
+      padding: 4px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      font-size: 0.8rem;
+    }
+    /* Passport preview in modal */
+    .passport-preview {
+      margin-top: 8px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #e2e8f0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    /* Passport thumbnail in student list */
+    .student-passport {
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      background: #f8fafc;
+      display: block;
+      margin: 0 auto;
+    }
+    /* Table container for horizontal scroll on small screens */
+    .table-container {
+      overflow-x: auto;
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+    /* Fixed table layout to respect column widths */
+    .data-table {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      min-width: 800px;
+    }
+    /* Define column widths (adjust as needed) */
+    .data-table th:nth-child(1),
+    .data-table td:nth-child(1) {
+      width: 60px;  /* Photo */
+      text-align: center;
+    }
+    .data-table th:nth-child(2),
+    .data-table td:nth-child(2) {
+      width: 120px; /* Admission No */
+    }
+    .data-table th:nth-child(3),
+    .data-table td:nth-child(3) {
+      width: 160px; /* Name */
+    }
+    .data-table th:nth-child(4),
+    .data-table td:nth-child(4) {
+      width: 180px; /* Email */
+    }
+    .data-table th:nth-child(5),
+    .data-table td:nth-child(5) {
+      width: 100px; /* Class */
+    }
+    .data-table th:nth-child(6),
+    .data-table td:nth-child(6) {
+      width: auto;  /* Subjects - takes remaining space */
+      min-width: 180px;
+    }
+    .data-table th:nth-child(7),
+    .data-table td:nth-child(7) {
+      width: 100px; /* Status */
+    }
+    .data-table th:nth-child(8),
+    .data-table td:nth-child(8) {
+      width: 130px; /* Actions */
+    }
+
+    .data-table th, .data-table td {
+      padding: 10px 8px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: middle;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      white-space: normal;
+    }
+    /* Ensure subjects column wraps long text */
+    .data-table td:nth-child(6) {
+      word-break: break-word;
+      white-space: normal;
+    }
+    /* Action buttons stay on one line */
+    .data-table td:last-child {
+      white-space: nowrap;
+    }
+    .data-table td:last-child button {
+      margin: 0 2px;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+    /* Status select width */
+    .status-select {
+      width: 100%;
+      max-width: 100px;
+    }
+    /* Mobile adjustments */
+    @media (max-width: 768px) {
+      .modal-content {
+        width: 95%;
+        padding: 16px;
+      }
+      .data-table th, .data-table td {
+        padding: 6px 4px;
+        font-size: 0.8rem;
+      }
+      .student-passport {
+        width: 35px;
+        height: 35px;
+      }
+      .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 45px; }
+      .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 90px; }
+      .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 120px; }
+      .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 130px; }
+      .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 110px; }
+      .data-table td:last-child button {
+        padding: 2px 6px;
+        font-size: 0.7rem;
+      }
+    }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .form-row .form-group {
+      flex: 1;
+      min-width: 120px;
+    }
+    .readonly-field {
+      background: #f1f5f9;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #475569;
+    }
+    .form-group small {
+      display: block;
+      font-size: 11px;
+      color: #718096;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">Acadex</div>
+      <nav class="sidebar-nav">
+        <a href="admin-dashboard.html">Dashboard</a>
+        <a href="teachers.html">Teachers</a>
+        <a href="students.html" class="active">Students</a>
+        <a href="setup.html">Subjects & Classes</a>
+        <a href="results.html">Results</a>
+        <a href="records.html">Records</a>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+      <header class="header">
+        <div class="school-header">
+          <div class="school-logo">
+            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+            <div id="cameraIcon" class="camera-icon">📷</div>
+            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+          </div>
+          <div class="school-name">
+            <h1 id="schoolName">Loading...</h1>
+          </div>
+          <div id="academicInfo" class="academic-info"></div>
+        </div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </header>
+
+      <div class="content">
+        <div class="welcome-card">
+          <h1>Students</h1>
+          <p>Manage student records.</p>
+          <button id="addStudentBtn" class="btn-primary">Add Student</button>
+        </div>
+
+        <div class="filter-buttons">
+          <button class="filter-btn active" data-class="all">All Students</button>
+          <button class="filter-btn" data-class="JSS 1">JSS 1</button>
+          <button class="filter-btn" data-class="JSS 2">JSS 2</button>
+          <button class="filter-btn" data-class="JSS 3">JSS 3</button>
+          <button class="filter-btn" data-class="SSS 1">SSS 1</button>
+          <button class="filter-btn" data-class="SSS 2">SSS 2</button>
+          <button class="filter-btn" data-class="SSS 3">SSS 3</button>
+        </div>
+
+        <div id="studentsList">
+          <p>Loading students...</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal for Add/Edit Student -->
+  <div id="studentModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add Student</h2>
+        <button class="close-modal">&times;</button>
+      </div>
+      <form id="studentForm">
+        <div class="form-group">
+          <label for="studentAdmissionNo">Admission Number</label>
+          <input type="text" id="studentAdmissionNo" placeholder="Auto-generated if left empty">
+          <small>Leave empty to auto-generate, or enter a custom number (must be unique).</small>
+        </div>
+        <div class="form-group">
+          <label for="studentName">Full Name *</label>
+          <input type="text" id="studentName" required>
+        </div>
+        <div class="form-group">
+          <label for="studentEmail">Email *</label>
+          <input type="email" id="studentEmail" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="studentGender">Gender *</label>
+            <select id="studentGender" required>
+              <option value="">Select</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="studentDob">Date of Birth *</label>
+            <input type="date" id="studentDob" required>
+          </div>
+          <div class="form-group">
+            <label>Age (auto)</label>
+            <div id="studentAgeDisplay" class="readonly-field">-</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="studentClass">Class *</label>
+          <select id="studentClass" required></select>
+        </div>
+        <div class="form-group">
+          <label for="studentSubjects">Subjects (optional)</label>
+          <select id="studentSubjects" multiple></select>
+        </div>
+        <div class="form-group">
+          <label for="studentClub">Club / Society</label>
+          <input type="text" id="studentClub" placeholder="e.g., Science Club, Debate Team">
+        </div>
+        <div class="form-group">
+          <label for="studentPassport">Passport Photograph (max 800KB)</label>
+          <input type="file" id="studentPassport" accept="image/jpeg, image/png, image/jpg">
+          <div id="passportPreviewContainer"></div>
+          <small id="passportError" style="color:red; display:none;"></small>
+        </div>
+        <div class="form-group">
+          <label for="studentStatus">Status</label>
+          <select id="studentStatus" required>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="graduated">Graduated</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="cancelModalBtn" class="btn-secondary">Cancel</button>
+          <button type="submit" id="saveStudentBtn" class="btn-primary">Save Student</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
+    import { initStudentsPage } from '../js/students.js';
+
+    protectAdminPage().then(() => {
+      loadSchoolInfo();
+      setupSidebar();
+      setupLogout();
+      setupLogoUpload();
+      initStudentsPage();
+    });
+  </script>
+</body>
+</html>

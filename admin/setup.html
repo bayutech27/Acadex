@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex - Subjects & Classes</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    .two-columns {
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .two-columns > div {
+      flex: 1;
+      min-width: 280px;
+    }
+    select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+    optgroup {
+      font-weight: bold;
+      color: #2d3748;
+    }
+    .form-card select[multiple] {
+      height: 150px;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">Acadex</div>
+      <nav class="sidebar-nav">
+        <a href="admin-dashboard.html">Dashboard</a>
+        <a href="teachers.html">Teachers</a>
+        <a href="students.html">Students</a>
+        <a href="setup.html" class="active">Subjects & Classes</a>
+        <a href="results.html">Results</a>
+        <a href="records.html">Records</a>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+      <header class="header">
+        <div class="school-header">
+          <div class="school-logo">
+            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+            <div id="cameraIcon" class="camera-icon">📷</div>
+            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+          </div>
+          <div class="school-name">
+            <h1 id="schoolName">Loading...</h1>
+          </div>
+          <div id="academicInfo" class="academic-info"></div>
+        </div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </header>
+
+      <div class="content">
+        <div class="welcome-card">
+          <h1>Subjects & Classes</h1>
+          <p>Manage subjects and class groups.</p>
+        </div>
+
+        <div class="two-columns">
+          <!-- Subjects Section -->
+          <div>
+            <div class="form-card">
+              <h2>Add New Subject</h2>
+              <form id="subjectForm">
+                <div class="form-group">
+                  <label for="subjectName">Subject Name</label>
+                  <select id="subjectName" required>
+                    <option value="">Select a subject</option>
+                    <optgroup label="Junior Secondary">
+                      <option value="English Studies">English Studies</option>
+                      <option value="Mathematics">Mathematics</option>
+                      <option value="Intermediate Science">Intermediate Science</option>
+                      <option value="Yoruba">Yoruba</option>
+                      <option value="Hausa">Hausa</option>
+                      <option value="Igbo">Igbo</option>
+                      <option value="French">French</option>
+                      <option value="Arabic">Arabic</option>
+                      <option value="Physical and Health Education">Physical and Health Education</option>
+                      <option value="Digital Technologies">Digital Technologies</option>
+                      <option value="Christian Religious Studies">Christian Religious Studies</option>
+                      <option value="Islamic Religious Studies">Islamic Religious Studies</option>
+                      <option value="Nigerian History">Nigerian History</option>
+                      <option value="Social & Citizenship Studies">Social & Citizenship Studies</option>
+                      <option value="Cultural & Creative Arts (CCA)">Cultural & Creative Arts (CCA)</option>
+                      <option value="Sola Photovoltaic installation and Maintenance">Sola Photovoltaic installation and Maintenance</option>
+                      <option value="Fashion design and garment making">Fashion design and garment making</option>
+                      <option value="Livestock farming">Livestock farming</option>
+                      <option value="Beauty and cosmetology">Beauty and cosmetology</option>
+                      <option value="Computer hardware and GSM repairs">Computer hardware and GSM repairs</option>
+                      <option value="Horticulture and crop production">Horticulture and crop production</option>
+                    </optgroup>
+                    <optgroup label="Senior Secondary">
+                      <option value="English Language">English Language</option>
+                      <option value="General Mathematics">General Mathematics</option>
+                      <option value="Citizenship and Heritage Studies">Citizenship and Heritage Studies</option>
+                      <option value="Digital Technologies">Digital Technologies</option>
+                      <option value="Biology">Biology</option>
+                      <option value="Chemistry">Chemistry</option>
+                      <option value="Physics">Physics</option>
+                      <option value="Agriculture">Agriculture</option>
+                      <option value="Further Mathematics">Further Mathematics</option>
+                      <option value="Physical Education">Physical Education</option>
+                      <option value="Health Education">Health Education</option>
+                      <option value="Food & Nutrition">Food & Nutrition</option>
+                      <option value="Geography">Geography</option>
+                      <option value="Technical Drawing">Technical Drawing</option>
+                      <option value="Nigerian History">Nigerian History</option>
+                      <option value="Government">Government</option>
+                      <option value="Christian Religious Studies">Christian Religious Studies</option>
+                      <option value="Islamic Studies">Islamic Studies</option>
+                      <option value="Hausa">Hausa</option>
+                      <option value="Igbo">Igbo</option>
+                      <option value="Yoruba">Yoruba</option>
+                      <option value="French">French</option>
+                      <option value="Arabic">Arabic</option>
+                      <option value="Visual Arts">Visual Arts</option>
+                      <option value="Music">Music</option>
+                      <option value="English Literature">English Literature</option>
+                      <option value="Home Management">Home Management</option>
+                      <option value="Catering Craft">Catering Craft</option>
+                      <option value="Accounting">Accounting</option>
+                      <option value="Commerce">Commerce</option>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Economics Trade">Economics Trade</option>
+                      <option value="Solar PV Installation and Maintenance">Solar PV Installation and Maintenance</option>
+                      <option value="Fashion Design and Garment Making">Fashion Design and Garment Making</option>
+                      <option value="Livestock Farming">Livestock Farming</option>
+                      <option value="Beauty and Cosmetology">Beauty and Cosmetology</option>
+                      <option value="Computer Hardware and GSM Repairs">Computer Hardware and GSM Repairs</option>
+                      <option value="Horticulture and Crop Production">Horticulture and Crop Production</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="subjectCode">Subject Code (optional)</label>
+                  <input type="text" id="subjectCode">
+                </div>
+                <button type="submit" class="btn-primary">Add Subject</button>
+              </form>
+            </div>
+            <div id="subjectsList">
+              <h3>Existing Subjects</h3>
+              <p>Loading subjects...</p>
+            </div>
+          </div>
+
+          <!-- Classes Section -->
+          <div>
+            <div class="form-card">
+              <h2>Add New Class</h2>
+              <form id="classForm">
+                <div class="form-group">
+                  <label for="className">Class Name</label>
+                  <select id="className" required>
+                    <option value="">Select a class</option>
+                    <optgroup label="Junior Secondary">
+                      <option value="JSS 1">JSS 1</option>
+                      <option value="JSS 2">JSS 2</option>
+                      <option value="JSS 3">JSS 3</option>
+                    </optgroup>
+                    <optgroup label="Senior Secondary">
+                      <option value="SSS 1">SSS 1</option>
+                      <option value="SSS 2">SSS 2</option>
+                      <option value="SSS 3">SSS 3</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <button type="submit" class="btn-primary">Add Class</button>
+              </form>
+            </div>
+            <div id="classesList">
+              <h3>Existing Classes</h3>
+              <p>Loading classes...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
+    import { initSubjects } from '../js/subjects.js';
+    import { initClasses } from '../js/classes.js';
+
+    protectAdminPage().then(() => {
+      loadSchoolInfo();
+      setupSidebar();
+      setupLogout();
+      setupLogoUpload();
+      initSubjects();
+      initClasses();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex - Teacher Dashboard</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    /* Ensure cards are visibly clickable */
+    .clickable-card {
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .clickable-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+    }
+    .disabled-card {
+      opacity: 0.6;
+      cursor: not-allowed !important;
+      pointer-events: none; /* Prevent clicks entirely */
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">Acadex</div>
+      <nav class="sidebar-nav">
+        <a href="teacher-dashboard.html" class="active">Dashboard</a>
+        <a href="class.html">Class</a>
+        <a href="scores.html" id="scoresLink">Scores</a>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+      <header class="header">
+        <div class="school-header">
+          <div class="school-logo">
+            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+            <div id="cameraIcon" class="camera-icon">📷</div>
+            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+          </div>
+          <div class="school-name">
+            <h1 id="schoolName">Loading...</h1>
+          </div>
+          <div id="academicInfo" class="academic-info"></div>
+        </div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </header>
+
+      <div class="content">
+        <div class="welcome-card">
+          <h1 id="welcomeHeading">Welcome, Teacher</h1>
+          <p>Manage your students, class, and scores.</p>
+        </div>
+
+        <div class="stats-grid">
+          <!-- Class Card -->
+          <div class="clickable-card" id="classCard">
+            <div class="card-icon">🏫</div>
+            <div class="card-title">Class</div>
+            <div class="card-desc">Manage your homeroom class (if assigned)</div>
+          </div>
+          <!-- Scores Card -->
+          <div class="clickable-card" id="scoresCard">
+            <div class="card-icon">📊</div>
+            <div class="card-title">Scores</div>
+            <div class="card-desc">Enter and manage exam scores</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { 
+      protectTeacherPage, 
+      loadSchoolInfo, 
+      setupSidebar, 
+      setupLogout, 
+      setupLogoUpload, 
+      checkClassTeacherStatus, 
+      displayTeacherName 
+    } from '../js/teacher-dashboard.js';
+
+    protectTeacherPage().then(async ({ teacherName }) => {
+      displayTeacherName(teacherName);
+      loadSchoolInfo();
+      setupSidebar();
+      setupLogout();
+      setupLogoUpload();
+
+      // --- Class Card ---
+      const classCard = document.getElementById('classCard');
+      const isClassTeacher = await checkClassTeacherStatus();
+
+      if (!isClassTeacher) {
+        classCard.classList.add('disabled-card');
+        classCard.addEventListener('click', (e) => {
+          e.preventDefault();
+          alert('You are not assigned as a class teacher. You cannot access this page.');
+        });
+
+        // Also disable the sidebar Class link
+        const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
+        if (classLink) {
+          classLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            alert('You are not assigned as a class teacher.');
+          });
+        }
+      } else {
+        classCard.addEventListener('click', () => {
+          window.location.href = 'class.html';
+        });
+      }
+
+      // --- Scores Card ---
+      document.getElementById('scoresCard').addEventListener('click', () => {
+        window.location.href = 'scores.html';
+      });
+
+      // Note: Sidebar Scores link already points to scores.html – no extra handler needed.
+    });
+  </script>
+</body>
+</html>
