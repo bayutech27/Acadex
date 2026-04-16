@@ -90,9 +90,10 @@
   </div>
 
   <script type="module">
-    import { protectAdminPage, loadSchoolInfo, loadDashboardCounts, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
+    import { protectAdminPage, loadSchoolInfo, loadDashboardCounts, setupSidebar, setupLogout, setupLogoUpload, initAcademicCalendar } from '../js/admin.js';
 
-    protectAdminPage().then(() => {
+    protectAdminPage().then(async () => {
+      await initAcademicCalendar();   // update academic info if needed
       loadSchoolInfo();
       loadDashboardCounts();
       setupSidebar();
