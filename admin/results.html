@@ -59,36 +59,44 @@
     }
     .report-card > * { position: relative; z-index: 1; }
 
-    /* Header */
+    /* Header – increased vertical spacing */
     .report-header {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 4px 10px; border-bottom: 2px solid #eef2ff; margin-bottom: 6px;
+      padding: 12px 15px;           /* increased padding */
+      border-bottom: 2px solid #eef2ff;
+      margin-bottom: 12px;          /* more space below header */
     }
     .school-logo-area { width: 70px; display: flex; justify-content: center; }
     .school-logo-small { max-height: 65px; width: auto; object-fit: contain; }
     .school-name-area { flex: 1; text-align: center; }
-    .school-name-report { font-size: 1.8rem; margin: 0; font-weight: 700; color: #0f172a; }  /* increased size */
-    .school-motto { font-size: 11px; color: #475569; margin-top: 2px; }
+    .school-name-report { font-size: 1.8rem; margin: 0; font-weight: 700; color: #0f172a; }
+    .school-motto { font-size: 11px; color: #475569; margin-top: 4px; }
     .passport-area { width: 75px; display: flex; justify-content: center; }
     .student-passport-img { max-width: 65px; max-height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e8f0; }
 
-    /* Student Details Grid */
+    /* Student Details Grid – increased vertical space */
     .student-details-grid {
       display: grid; grid-template-columns: repeat(4, 1fr);
-      gap: 6px 10px; background: #f9f9fb; padding: 8px 10px;
-      border-radius: 6px; border: 1px solid #edf2f7; font-size: 12px; margin: 6px 8px;
+      gap: 8px 12px;                /* increased gap */
+      background: #f9f9fb;
+      padding: 12px 15px;           /* increased padding */
+      border-radius: 8px;
+      border: 1px solid #edf2f7;
+      font-size: 12px;
+      margin: 16px 12px;            /* more vertical margin */
       font-weight: 600;
     }
     .student-details-grid div { white-space: nowrap; overflow-x: auto; }
     .student-details-grid strong { font-weight: 700; color: #1e293b; }
     .student-name-caps { text-transform: uppercase; font-size: 14px; font-weight: 800; color: #0f172a; }
 
-    /* Subject Table - larger text */
+    /* Subject Table – increased spacing above and below */
     .subject-table {
-      width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0;
+      width: 100%; border-collapse: collapse; font-size: 11px;
+      margin: 16px 0;              /* increased vertical margin */
     }
     .subject-table th, .subject-table td {
-      border: 1px solid #cbd5e1; padding: 6px 4px; text-align: center; vertical-align: middle;
+      border: 1px solid #cbd5e1; padding: 8px 4px; text-align: center; vertical-align: middle;
     }
     .subject-table th { background-color: #f8fafc; font-weight: 700; color: #1e293b; font-size: 10px; }
     .subject-table th:not(:first-child) {
@@ -96,72 +104,72 @@
       height: 85px; width: 40px; white-space: nowrap; padding: 8px 2px;
       line-height: 1.2;
     }
-    .subject-table td:first-child { text-align: left; font-weight: 500; background: #fefce8; padding-left: 8px; }
+    .subject-table td:first-child { text-align: left; font-weight: 500; background: #fefce8; padding-left: 10px; }
     .subject-table th:first-child { background: #fefce8; width: 28%; }
 
-    /* Psychomotor & Affective - narrower width */
-    .skills-wrapper { display: flex; gap: 10px; margin: 8px 8px; }
+    /* Psychomotor & Affective */
+    .skills-wrapper { display: flex; gap: 12px; margin: 16px 12px; }  /* increased margin */
     .skills-half { flex: 1; }
     .skills-table {
       width: 100%; border-collapse: collapse; font-size: 9px; margin: 2px 0;
     }
     .skills-table th, .skills-table td {
-      border: 1px solid #cbd5e1; padding: 4px 4px; text-align: left; vertical-align: middle;
+      border: 1px solid #cbd5e1; padding: 6px 5px; text-align: left; vertical-align: middle;
     }
     .skills-table th { background: #f8fafc; font-weight: 600; font-size: 9px; }
-    .skills-table td:last-child { text-align: center; width: 70px; }  /* reduced from 85px */
+    .skills-table td:last-child { text-align: center; width: 70px; }
 
-    /* Summary + Grading Scale - narrower summary rows */
+    /* Summary + Grading Scale */
     .summary-grading-wrapper {
-      display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: nowrap;
+      display: flex; gap: 12px; margin: 16px 12px; flex-wrap: nowrap;
     }
     .summary-wrapper { flex: 2; min-width: 150px; }
     .grading-wrapper { flex: 1; min-width: 140px; }
     .section-title {
-      font-weight: bold; font-size: 11px; margin-bottom: 4px; text-transform: uppercase;
+      font-weight: bold; font-size: 12px; margin-bottom: 6px; text-transform: uppercase;
       color: #334155; letter-spacing: 0.5px;
     }
     .summary-table {
-      width: 100%; border-collapse: collapse; font-size: 9px; margin: 0;
+      width: 100%; border-collapse: collapse; font-size: 10px; margin: 0;
     }
     .summary-table th, .summary-table td {
-      border: 1px solid #cbd5e1; padding: 4px 5px; text-align: left;
+      border: 1px solid #cbd5e1; padding: 6px 6px; text-align: left;
     }
-    .summary-table th { background: #f1f5f9; font-weight: 600; width: 40%; }  /* reduced from 45% */
+    .summary-table th { background: #f1f5f9; font-weight: 600; width: 40%; }
     .grade-scale-table {
       width: 100%; border-collapse: collapse; font-size: 8px; margin: 0;
     }
     .grade-scale-table th, .grade-scale-table td {
-      border: 1px solid #e2e8f0; padding: 3px 2px; text-align: center;
+      border: 1px solid #e2e8f0; padding: 4px 3px; text-align: center;
     }
     .grade-scale-table th { background: #f1f5f9; font-weight: 600; }
 
     /* Rating Guide */
     .rating-guide {
       display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-      background: #f8fafc; padding: 3px 6px; border-radius: 30px; margin: 6px 8px;
-      font-size: 9px; font-weight: 500; color: #2c3e66;
+      background: #f8fafc; padding: 6px 10px; border-radius: 30px;
+      margin: 12px 12px; font-size: 10px; font-weight: 500; color: #2c3e66;
     }
 
-    /* COMMENTS SECTION – inline label + text */
+    /* COMMENTS SECTION */
     .comments-section { 
-      margin: 12px 8px 8px 8px; 
+      margin: 16px 12px; 
       font-size: 13px;
     }
     .comments-section h3 { 
       font-size: 15px;
-      margin: 6px 0 8px; 
+      margin: 6px 0 10px; 
     }
     .comment-group { 
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       display: flex;
       align-items: flex-start;
-      gap: 12px;
+      gap: 15px;
     }
     .comment-group label {
       font-weight: 700;
       font-size: 13px;
-      min-width: 120px;
+      min-width: 130px;
       margin-bottom: 0;
     }
     .comment-controls {
@@ -185,8 +193,8 @@
       display: flex; 
       justify-content: space-between; 
       flex-wrap: wrap;
-      margin: 16px 8px 8px 8px;
-      padding-top: 8px; 
+      margin: 20px 12px 12px 12px;
+      padding-top: 10px; 
       border-top: 1px solid #cbd5e1;
       font-size: 11px;
       gap: 12px;
@@ -202,23 +210,23 @@
       display: block; 
       width: 90%; 
       border-bottom: 1px solid #94a3b8; 
-      margin-top: 6px; 
-      height: 14px; 
+      margin-top: 8px; 
+      height: 16px; 
     }
     .stamp-placeholder {
       display: block; 
-      margin-top: 6px; 
+      margin-top: 8px; 
       font-style: italic; 
       color: #475569;
       border: 1px dashed #cbd5e1; 
-      padding: 4px 8px; 
+      padding: 6px 10px; 
       text-align: center; 
       width: fit-content; 
       min-width: 80px;
       font-size: 10px;
     }
 
-    .action-buttons { margin-top: 12px; display: flex; gap: 10px; padding: 0 8px 8px; }
+    .action-buttons { margin-top: 16px; display: flex; gap: 10px; padding: 0 8px 8px; }
 
     /* Rating ticks */
     .rating-tick { display: inline-flex; gap: 4px; align-items: center; }
@@ -230,9 +238,9 @@
     .tick.selected { background: #3b82f6; color: white; }
     .print-value { display: none; }
 
-    /* ========== PRINT STYLES – SINGLE A4 PAGE, CARD MOVED UP ========== */
+    /* ========== PRINT STYLES – SINGLE A4 PAGE, CARD MOVED UP, COMPRESSED SPACING ========== */
     @media print {
-      @page { margin: 5mm; size: A4; }  /* reduced top margin to move card up */
+      @page { margin: 5mm; size: A4; }
 
       /* 1. Hide everything by default */
       body * {
@@ -289,67 +297,63 @@
         display: block !important;
       }
 
-      /* 6. Report card – moved up with negative top margin (but keep safe) */
+      /* 6. Report card – slight upward shift */
       .report-card {
         width: 100% !important;
-        margin: -2mm auto 0 auto !important;  /* slight upward shift */
+        margin: -3mm auto 0 auto !important;
         box-shadow: none !important;
         page-break-after: avoid !important;
         page-break-inside: avoid !important;
         font-size: 9px;
       }
 
-      /* 7. Aggressive vertical compression, larger text for readability */
+      /* 7. Compress vertical spacing back to fit one page */
       .report-header {
-        padding: 2px 6px !important;
-        margin-bottom: 2px !important;
+        padding: 4px 8px !important;
+        margin-bottom: 4px !important;
         border-bottom-width: 1px !important;
       }
-      .school-logo-small { max-height: 45px !important; }
-      .school-name-report { font-size: 16px !important; }  /* increased */
-      .school-motto { font-size: 7px !important; margin-top: 1px !important; }
-      .student-passport-img { max-width: 35px !important; max-height: 45px !important; }
+      .school-logo-small { max-height: 40px !important; }
+      .school-name-report { font-size: 15px !important; }
+      .school-motto { font-size: 6px !important; margin-top: 1px !important; }
+      .student-passport-img { max-width: 30px !important; max-height: 40px !important; }
 
       .student-details-grid {
         gap: 2px 6px !important;
-        padding: 4px 6px !important;
-        margin: 2px 4px !important;
+        padding: 4px 8px !important;
+        margin: 4px 8px !important;
         font-size: 9px !important;
       }
       .student-name-caps { font-size: 10px !important; }
 
-      /* Subject table - increased font for scores/subjects */
       .subject-table {
-        font-size: 8px !important;   /* up from 7px */
-        margin: 4px 0 !important;
+        font-size: 8px !important;
+        margin: 6px 0 !important;
       }
       .subject-table th, .subject-table td {
-        padding: 3px 2px !important;
+        padding: 2px 2px !important;
       }
       .subject-table th:not(:first-child) {
-        height: 55px !important;
-        width: 30px !important;
-        padding: 4px 2px !important;
-        line-height: 1.1 !important;
+        height: 45px !important;
+        width: 28px !important;
+        padding: 2px 1px !important;
       }
-      .subject-table td:first-child { padding-left: 4px !important; }
 
       .skills-wrapper {
         gap: 4px !important;
-        margin: 2px 4px !important;
+        margin: 4px 8px !important;
       }
       .skills-table {
         font-size: 6.5px !important;
-        margin: 0 !important;
       }
       .skills-table th, .skills-table td {
         padding: 2px 2px !important;
       }
-      .skills-table td:last-child { width: 55px !important; }  /* narrower */
+      .skills-table td:last-child { width: 50px !important; }
 
       .summary-grading-wrapper {
         gap: 4px !important;
-        margin: 4px 4px !important;
+        margin: 4px 8px !important;
       }
       .section-title {
         font-size: 8px !important;
@@ -358,7 +362,7 @@
       .summary-table {
         font-size: 6.5px !important;
       }
-      .summary-table th { width: 35% !important; }  /* narrower label column */
+      .summary-table th { width: 35% !important; }
       .summary-table th, .summary-table td {
         padding: 2px 2px !important;
       }
@@ -366,19 +370,18 @@
         font-size: 6.5px !important;
       }
       .grade-scale-table th, .grade-scale-table td {
-        padding: 2px 2px !important;
+        padding: 1px 1px !important;
       }
 
       .rating-guide {
         gap: 4px !important;
-        padding: 2px 4px !important;
-        margin: 2px 4px !important;
+        padding: 2px 6px !important;
+        margin: 4px 8px !important;
         font-size: 6.5px !important;
       }
 
-      /* Comments – inline label + text */
       .comments-section {
-        margin: 6px 4px 4px 4px !important;
+        margin: 4px 8px !important;
         font-size: 9px !important;
       }
       .comments-section h3 {
@@ -386,29 +389,21 @@
         margin: 2px 0 4px !important;
       }
       .comment-group {
-        display: flex !important;
-        align-items: baseline !important;
         gap: 6px !important;
-        margin-bottom: 6px !important;
+        margin-bottom: 4px !important;
       }
       .comment-group label {
-        min-width: 100px !important;
+        min-width: 90px !important;
         font-size: 9px !important;
-        font-weight: 700 !important;
-        margin-bottom: 0 !important;
       }
       .print-comment-text {
-        flex: 1 !important;
-        margin-top: 0 !important;
         padding: 2px 4px !important;
         font-size: 8px !important;
-        background: #f8fafc !important;
-        border-left: 2px solid #3b82f6 !important;
       }
 
       .signature-stamp {
-        margin: 8px 4px 4px 4px !important;
-        padding-top: 4px !important;
+        margin: 6px 8px 4px 8px !important;
+        padding-top: 2px !important;
         font-size: 8px !important;
         gap: 6px !important;
       }
@@ -420,17 +415,14 @@
         margin-top: 2px !important;
         padding: 2px 4px !important;
         font-size: 7px !important;
-        min-width: 60px !important;
       }
 
       img { max-width: 100%; height: auto; }
 
-      /* Prevent page breaks inside report */
       .report-card, .report-card * {
         page-break-inside: avoid !important;
       }
 
-      /* Ensure no extra blank page */
       html, body {
         height: auto !important;
         overflow: visible !important;

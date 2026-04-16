@@ -23,12 +23,10 @@ let editorState = {
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
 
-// Helper: generate consistent key from skill name
 function getSkillKey(skill) {
   return skill.toLowerCase().replace(/[^a-z]/g, '');
 }
 
-// Initialize default ratings for all skills
 function getDefaultRatings() {
   const defaults = {};
   [...psychomotorSkillsList, ...affectiveSkillsList].forEach(skill => {
@@ -37,7 +35,6 @@ function getDefaultRatings() {
   return defaults;
 }
 
-// Reset ratings to defaults while preserving existing state
 function resetRatingsToDefaults() {
   editorState.psychomotor = getDefaultRatings();
 }
@@ -94,7 +91,6 @@ export async function initResultsPage() {
   await onEditorClassChange();
 }
 
-// Compute subject statistics for ranking and class average
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   const subjectStats = new Map();
@@ -284,10 +280,8 @@ async function renderReportCard(studentId, studentName) {
   const percentageAvg = subjectCount ? ((totalScore/totalObtainable)*100).toFixed(1) : 0;
   const overallRemark = getGradeRemark(overallGrade);
 
-  // Load existing report data, merging with defaults
   await loadExistingEditorReport(studentId);
 
-  // Build psychomotor HTML (with print-value span)
   let psychomotorHtml = `<table class="skills-table"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
@@ -296,7 +290,6 @@ async function renderReportCard(studentId, studentName) {
   }
   psychomotorHtml += `</tbody></table>`;
 
-  // Build affective HTML
   let affectiveHtml = `<table class="skills-table"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of affectiveSkillsList) {
     const key = getSkillKey(skill);
@@ -310,7 +303,7 @@ async function renderReportCard(studentId, studentName) {
 
   const headerHtml = `<div class="report-header">
     <div class="school-logo-area">${schoolLogo ? `<img src="${schoolLogo}" class="school-logo-small" alt="Logo">` : ''}</div>
-    <div class="school-name-area"><h2 class="school-name-report">${escapeHtml(schoolName)}</h2><div class="school-motto">Excellence in Education</div></div>
+    <div class="school-name-area"><h1 class="school-name-report">${escapeHtml(schoolName)}</h1><div class="school-motto">Excellence in Education</div></div>
     <div class="passport-area">${passportUrl ? `<img src="${passportUrl}" class="student-passport-img" alt="Passport">` : ''}</div>
   </div>`;
   const studentDetailsHtml = `<div class="student-details-grid">
@@ -323,7 +316,8 @@ async function renderReportCard(studentId, studentName) {
     <div><strong>Session:</strong> ${editorState.session}</div>
     <div><strong>Club:</strong> ${escapeHtml(club)}</div>
   </div>`;
-  const tableHtml = `<table class="subject-table"><thead><tr><th>Subject</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total (100)</th><th>Grade</th><th>Grade Remark</th><th>Subject Position</th><th>Class Average</th></tr></thead><tbody>${tableRows || '<tr><td colspan="8">No scores found</td></tr>'}</tbody></table>`;
+  // Updated table headers: "Remark", "Position", "Class Ave."
+  const tableHtml = `<table class="subject-table"><thead><tr><th>Subject</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead><tbody>${tableRows || '<tr><td colspan="8">No scores found</td></tr>'}</tbody></table>`;
   
   const commentOptions = getCommentOptionsByGrade(overallGrade);
   const commentsHtml = `<div class="comments-section"><h3>Comments</h3>
@@ -358,7 +352,6 @@ async function renderReportCard(studentId, studentName) {
   const reportActions = document.getElementById('reportActions');
   if (reportActions) reportActions.style.display = 'flex';
 
-  // Attach rating widgets to rating-container cells
   document.querySelectorAll('.rating-container').forEach(container => {
     const skillKey = container.dataset.skillKey;
     if (skillKey) {
@@ -368,7 +361,6 @@ async function renderReportCard(studentId, studentName) {
     }
   });
 
-  // Comment handlers
   const teacherText = document.getElementById('teacherCommentText');
   const teacherSelect = document.getElementById('teacherCommentSelect');
   const principalText = document.getElementById('principalCommentText');
@@ -529,9 +521,7 @@ async function saveEditorReport() {
   } catch (error) { console.error(error); alert('Save failed.'); }
 }
 
-// ========== FIXED PRINT HANDLER ==========
 function handlePrint() {
-  // 1. Ensure latest comments are reflected in the print-only spans
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
@@ -540,7 +530,6 @@ function handlePrint() {
   const printPrincipal = document.getElementById('printPrincipalComment');
   if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
 
-  // 2. Safety check: ensure report card is not empty/placeholder
   const reportContent = document.getElementById('reportCardContent');
   if (!reportContent || reportContent.children.length === 0 || 
       (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' && 
@@ -549,7 +538,6 @@ function handlePrint() {
     return;
   }
 
-  // 3. Force a reflow and then print after a short delay (ensures DOM stability)
   void reportContent.offsetHeight;
   requestAnimationFrame(() => {
     setTimeout(() => {
