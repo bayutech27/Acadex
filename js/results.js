@@ -1,13 +1,13 @@
-// results.js - Full implementation with Firestore as single source of truth
+// results.js - Uses shared auth from admin.js, no duplicate listeners, null safety
 import { db } from './firebase-config.js';
-import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, writeBatch } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getAcademicContext, initAcademicCalendar } from './admin.js';
+import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { getCurrentSchoolId, getAcademicContext, initAcademicCalendar, getCurrentUserData } from './admin.js';
 
 let currentSchoolId = null;
 let classesMap = new Map();
 let studentsList = [];
-let subjectsMap = new Map();      // id -> name
-let allSubjectsList = [];          // {id, name}
+let subjectsMap = new Map();
+let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
 
 let editorState = {
@@ -23,7 +23,7 @@ let editorState = {
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
 
-// ------------------- Utility Functions (preserved) -------------------
+// ------------------- Utility Functions (unchanged) -------------------
 function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
 function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
 function calculateGrade(total) {
@@ -114,10 +114,6 @@ function createTickRating(skillKey, currentValue) {
 }
 
 // ------------------- Firestore Helpers -------------------
-async function getCurrentSchoolId() {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  return user.schoolId || localStorage.getItem('userSchoolId');
-}
 function getScoringDocId(session, term) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
 }
@@ -135,7 +131,7 @@ function generateSessionOptionsFromCurrent(currentSession) {
   return sessions;
 }
 
-// ------------------- Data Loading (optimised) -------------------
+// ------------------- Data Loading (preserved, with null safety) -------------------
 async function loadClassesAndSubjects() {
   const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
   classesMap.clear();
@@ -159,12 +155,11 @@ async function loadAllStudents() {
   }));
 }
 
-// Optimised: fetch all scores for a class in one query
+// Optimised: fetch all scores for a class in one query (with chunking for 'in' limit)
 async function fetchClassScores(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return [];
   const studentIds = classStudents.map(s => s.id);
-  // Firestore 'in' query limited to 30, but class size likely smaller; for safety we chunk if needed
   const scores = [];
   for (let i = 0; i < studentIds.length; i += 30) {
     const chunk = studentIds.slice(i, i + 30);
@@ -222,14 +217,13 @@ async function saveGradingSetting() {
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
-// ------------------- Compute Subject Stats (optimised, one query) -------------------
+// ------------------- Compute Subject Stats (optimised) -------------------
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
 
   const allScores = await fetchClassScores(classId, term, session);
-  // Group by subjectId and studentId
-  const subjectMap = new Map(); // subjectId -> { totals: [{studentId, total}], classAverage, rankMap }
+  const subjectMap = new Map();
   for (const subjId of subjectsMap.keys()) {
     subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
   }
@@ -253,7 +247,7 @@ async function computeSubjectStats(classId, term, session) {
   return subjectMap;
 }
 
-// ------------------- Report Card Rendering (uses cached subjectsMap) -------------------
+// ------------------- Report Card Rendering (with null safety for .report-card) -------------------
 async function renderReportCard(studentId, studentName) {
   editorState.selectedStudent = { id: studentId, name: studentName };
   editorState.term = document.getElementById('editorTermSelect')?.value || '1';
@@ -362,8 +356,10 @@ async function renderReportCard(studentId, studentName) {
 
   if (schoolLogo) {
     const reportDiv = document.querySelector('.report-card');
-    reportDiv.classList.add('watermark-ready');
-    reportDiv.style.setProperty('--watermark-url', `url(${schoolLogo})`);
+    if (reportDiv) {
+      reportDiv.classList.add('watermark-ready');
+      reportDiv.style.setProperty('--watermark-url', `url(${schoolLogo})`);
+    }
   }
 }
 
@@ -440,21 +436,21 @@ function handlePrint() {
   requestAnimationFrame(() => { setTimeout(() => { window.print(); }, 300); });
 }
 
-// ------------------- Broadsheet Engine (uses Firestore academic context) -------------------
+// ------------------- Broadsheet Engine (preserved) -------------------
 async function generateBroadsheet() {
-  const classId = document.getElementById('broadsheetClassSelect').value;
-  const session = document.getElementById('broadsheetSessionSelect').value;
-  const term = document.getElementById('broadsheetTermSelect').value;
+  const classId = document.getElementById('broadsheetClassSelect')?.value;
+  const session = document.getElementById('broadsheetSessionSelect')?.value;
+  const term = document.getElementById('broadsheetTermSelect')?.value;
   if (!classId || !session || !term) { alert('Please select Class, Session and Term'); return; }
 
   const className = classesMap.get(classId) || 'Class';
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) {
-    document.getElementById('broadsheetContainer').innerHTML = '<div class="alert">No students found in this class.</div>';
+    const container = document.getElementById('broadsheetContainer');
+    if (container) container.innerHTML = '<div class="alert">No students found in this class.</div>';
     return;
   }
 
-  // Fetch all scores for this class in one efficient query
   const allScores = await fetchClassScores(classId, term, session);
   const scoresByStudent = new Map();
   for (const score of allScores) {
@@ -519,12 +515,13 @@ async function generateBroadsheet() {
   }
   html += `</tbody></table></div>`;
 
-  document.getElementById('broadsheetContainer').innerHTML = html;
-  document.getElementById('broadsheetActions').style.display = 'flex';
+  const container = document.getElementById('broadsheetContainer');
+  if (container) container.innerHTML = html;
+  const actions = document.getElementById('broadsheetActions');
+  if (actions) actions.style.display = 'flex';
   window.currentBroadsheetData = { classId, session, term, studentResults, subjects: allSubjectsList };
 }
 
-// Save broadsheet with unique document ID to prevent duplicates
 async function saveBroadsheetToFirestore() {
   if (!window.currentBroadsheetData) { alert('No broadsheet data to save. Generate first.'); return; }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
@@ -582,18 +579,34 @@ function printBroadsheet() {
 // ------------------- Editor Filter Handlers -------------------
 async function onEditorClassChange() {
   const classId = document.getElementById('editorClassSelect')?.value;
+  const studentContainer = document.getElementById('studentListContainer');
+  const reportContent = document.getElementById('reportCardContent');
+  const reportActions = document.getElementById('reportActions');
+
   if (!classId) {
-    document.getElementById('studentListContainer').innerHTML = '<p>Select a class</p>';
-    document.getElementById('reportCardContent').innerHTML = '<p>Select a student</p>';
-    document.getElementById('reportActions').style.display = 'none';
+    if (studentContainer) studentContainer.innerHTML = '<p>Select a class</p>';
+    if (reportContent) reportContent.innerHTML = '<p>Select a student</p>';
+    if (reportActions) reportActions.style.display = 'none';
     return;
   }
   const classStudents = studentsList.filter(s => s.classId === classId);
-  const container = document.getElementById('studentListContainer');
-  if (!classStudents.length) { container.innerHTML = '<p>No students</p>'; return; }
+  if (!classStudents.length) {
+    if (studentContainer) studentContainer.innerHTML = '<p>No students</p>';
+    return;
+  }
   let html = '';
   classStudents.forEach(student => { html += `<div class="student-list-item" data-id="${student.id}">${escapeHtml(student.name)}</div>`; });
-  container.innerHTML = html;
+  if (studentContainer) studentContainer.innerHTML = html;
+
+  // Auto-select first student (UX improvement)
+  const firstStudent = classStudents[0];
+  if (firstStudent) {
+    const firstEl = document.querySelector('.student-list-item');
+    if (firstEl) firstEl.classList.add('active');
+    resetRatingsToDefaults();
+    await renderReportCard(firstStudent.id, firstStudent.name);
+  }
+
   document.querySelectorAll('.student-list-item').forEach(el => {
     el.addEventListener('click', async () => {
       document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
@@ -614,13 +627,12 @@ async function onEditorFilterChange() {
 // ------------------- Initialisation (Firestore-driven, with fallback) -------------------
 export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) { alert('School ID missing.'); return; }
 
-  // Ensure Firestore has the correct academic context (auto-update if needed)
   await initAcademicCalendar(currentSchoolId);
 
-  // Fetch authoritative session/term from Firestore
   let academic;
   try {
     academic = await getAcademicContext(currentSchoolId);
@@ -629,7 +641,6 @@ export async function initResultsPage() {
     const { getCurrentAcademicSessionAndTerm } = await import('./admin.js');
     const computed = getCurrentAcademicSessionAndTerm();
     academic = { currentSession: computed.session, currentTerm: computed.term };
-    // Immediately persist to Firestore
     const schoolRef = doc(db, 'schools', currentSchoolId);
     await setDoc(schoolRef, {
       currentSession: academic.currentSession,
@@ -643,36 +654,52 @@ export async function initResultsPage() {
   await loadClassesAndSubjects();
   await loadAllStudents();
 
-  // Populate broadsheet selects
+  // Populate selects (with null guards)
   const classSelect = document.getElementById('broadsheetClassSelect');
-  classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+  if (classSelect) {
+    classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+  }
 
   const sessionOptions = generateSessionOptionsFromCurrent(currentSession);
   const sessionSelect = document.getElementById('broadsheetSessionSelect');
-  sessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
-  document.getElementById('broadsheetTermSelect').value = currentTerm;
+  if (sessionSelect) {
+    sessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+  }
+  const termSelect = document.getElementById('broadsheetTermSelect');
+  if (termSelect) termSelect.value = currentTerm;
 
-  // Populate editor selects
   const editorClassSelect = document.getElementById('editorClassSelect');
-  editorClassSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+  if (editorClassSelect) {
+    editorClassSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+  }
   const editorSessionSelect = document.getElementById('editorSessionSelect');
-  editorSessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
-  document.getElementById('editorTermSelect').value = currentTerm;
+  if (editorSessionSelect) {
+    editorSessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+  }
+  const editorTermSelect = document.getElementById('editorTermSelect');
+  if (editorTermSelect) editorTermSelect.value = currentTerm;
 
   await loadGradingSetting(currentSession, currentTerm);
 
-  // Attach event listeners
-  document.getElementById('generateBroadsheetBtn').addEventListener('click', generateBroadsheet);
-  document.getElementById('saveBroadsheetBtn').addEventListener('click', saveBroadsheetToFirestore);
-  document.getElementById('printBroadsheetBtn').addEventListener('click', printBroadsheet);
-  document.getElementById('saveGradingBtn').addEventListener('click', saveGradingSetting);
-  document.getElementById('refreshEditorBtn').addEventListener('click', () => onEditorClassChange());
-  document.getElementById('saveReportBtn').addEventListener('click', saveEditorReport);
-  document.getElementById('printReportBtn').addEventListener('click', handlePrint);
+  // Attach event listeners (safe)
+  const generateBtn = document.getElementById('generateBroadsheetBtn');
+  if (generateBtn) generateBtn.addEventListener('click', generateBroadsheet);
+  const saveBtn = document.getElementById('saveBroadsheetBtn');
+  if (saveBtn) saveBtn.addEventListener('click', saveBroadsheetToFirestore);
+  const printBtn = document.getElementById('printBroadsheetBtn');
+  if (printBtn) printBtn.addEventListener('click', printBroadsheet);
+  const saveGradingBtn = document.getElementById('saveGradingBtn');
+  if (saveGradingBtn) saveGradingBtn.addEventListener('click', saveGradingSetting);
+  const refreshBtn = document.getElementById('refreshEditorBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => onEditorClassChange());
+  const saveReportBtn = document.getElementById('saveReportBtn');
+  if (saveReportBtn) saveReportBtn.addEventListener('click', saveEditorReport);
+  const printReportBtn = document.getElementById('printReportBtn');
+  if (printReportBtn) printReportBtn.addEventListener('click', handlePrint);
 
-  editorClassSelect.addEventListener('change', onEditorClassChange);
-  editorSessionSelect.addEventListener('change', onEditorFilterChange);
-  document.getElementById('editorTermSelect').addEventListener('change', onEditorFilterChange);
+  if (editorClassSelect) editorClassSelect.addEventListener('change', onEditorClassChange);
+  if (editorSessionSelect) editorSessionSelect.addEventListener('change', onEditorFilterChange);
+  if (editorTermSelect) editorTermSelect.addEventListener('change', onEditorFilterChange);
 
   await onEditorClassChange();
 }

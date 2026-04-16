@@ -1,26 +1,88 @@
-// admin.js - Academic calendar engine with Firestore as single source of truth
+// admin.js - Single auth listener with proper promise initialisation
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser } from './auth.js';
 
-// ------------------- Academic Calendar Helpers -------------------
+// ------------------- Single Auth Listener (Module Level) -------------------
+let currentUser = null;
+let currentUserData = null;
+let unsubscribeAuth = null;
+let authInitialised = false;
+let authResolve = null;
+const authReadyPromise = new Promise((resolve) => {
+  authResolve = resolve;
+});
+
+// Initialize the listener once
+function initAuthListener() {
+  if (unsubscribeAuth) return;
+  unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    currentUser = user;
+    if (user) {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      currentUserData = userDoc.exists() ? userDoc.data() : null;
+    } else {
+      currentUserData = null;
+    }
+    if (!authInitialised) {
+      authInitialised = true;
+      if (authResolve) authResolve();
+    }
+  });
+}
+initAuthListener();
+
+// Wait for auth to be ready (used by protectAdminPage)
+async function waitForAuth() {
+  if (authInitialised) return;
+  await authReadyPromise;
+}
+
+export function getCurrentUser() {
+  return currentUser;
+}
+
+export function getCurrentUserData() {
+  return currentUserData;
+}
+
+export async function getCurrentSchoolId() {
+  await waitForAuth(); // ensure auth is ready
+  if (!currentUserData) return null;
+  return currentUserData.schoolId || null;
+}
+
+// ------------------- Admin Page Protection (no busy loops) -------------------
+export async function protectAdminPage() {
+  await waitForAuth(); // wait for the first auth state
+
+  if (!currentUser) {
+    window.location.href = '/';
+    return null;
+  }
+  if (!currentUserData || currentUserData.role !== 'admin') {
+    window.location.href = '/';
+    return null;
+  }
+  return { user: currentUser, userData: currentUserData };
+}
+
+// ------------------- Academic Calendar Helpers (unchanged) -------------------
 export function getCurrentAcademicSessionAndTerm() {
   const now = new Date();
   const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1-12
+  const month = now.getMonth() + 1;
 
   let session = '';
   let term = '';
 
-  // Session: Sep-Dec -> year/year+1, Jan-Aug -> (year-1)/year
   if (month >= 9) {
     session = `${year}/${year + 1}`;
   } else {
     session = `${year - 1}/${year}`;
   }
 
-  // Term: 1 = Sep-Dec, 2 = Jan-Apr, 3 = May-Aug
   if (month >= 9 && month <= 12) term = '1';
   else if (month >= 1 && month <= 4) term = '2';
   else if (month >= 5 && month <= 8) term = '3';
@@ -28,7 +90,6 @@ export function getCurrentAcademicSessionAndTerm() {
   return { session, term };
 }
 
-// Firestore read: always fresh academic context (single source of truth)
 export async function getAcademicContext(schoolId) {
   if (!schoolId) throw new Error('No school ID');
   const schoolRef = doc(db, 'schools', schoolId);
@@ -40,7 +101,6 @@ export async function getAcademicContext(schoolId) {
   };
 }
 
-// Firestore write: updates only if changed, safe creation with setDoc merge
 export async function initAcademicCalendar(schoolId) {
   if (!schoolId) return;
   const schoolRef = doc(db, 'schools', schoolId);
@@ -50,45 +110,28 @@ export async function initAcademicCalendar(schoolId) {
   try {
     const schoolSnap = await getDoc(schoolRef);
     if (!schoolSnap.exists()) {
-      // Create document with initial values
       await setDoc(schoolRef, {
         currentSession: computedSession,
         currentTerm: computedTerm,
         lastUpdated: now
       }, { merge: true });
-      console.log(`Academic calendar initialised: ${computedSession} - Term ${computedTerm}`);
       return;
     }
 
     const data = schoolSnap.data();
-    const currentSession = data.currentSession;
-    const currentTerm = data.currentTerm;
-
-    if (currentSession !== computedSession || currentTerm !== computedTerm) {
+    if (data.currentSession !== computedSession || data.currentTerm !== computedTerm) {
       await updateDoc(schoolRef, {
         currentSession: computedSession,
         currentTerm: computedTerm,
         lastUpdated: now
       });
-      console.log(`Academic calendar updated: ${computedSession} - Term ${computedTerm}`);
     }
   } catch (err) {
     console.error('initAcademicCalendar error:', err);
   }
 }
 
-// ------------------- Existing Admin Functions (preserved & improved) -------------------
-export async function protectAdminPage() {
-  return new Promise((resolve) => {
-    onAuthStateChanged(auth, async (user) => {
-      if (!user) { window.location.href = '/'; return; }
-      const userData = await getUserData();
-      if (!userData || userData.role !== 'admin') { window.location.href = '/'; return; }
-      resolve({ user, userData });
-    });
-  });
-}
-
+// ------------------- Logo & UI Helpers (unchanged, with null safety) -------------------
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -96,9 +139,13 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
       const img = new Image();
       img.onload = () => {
         let width = img.width, height = img.height;
-        if (width > maxWidth) { height = (height * maxWidth) / width; width = maxWidth; }
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
         const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         let quality = 0.9;
@@ -128,9 +175,9 @@ async function uploadSchoolLogo(schoolId, file) {
 }
 
 export async function loadAcademicInfo() {
+  const schoolId = await getCurrentSchoolId();
+  if (!schoolId) return;
   try {
-    const schoolId = await getCurrentSchoolId();
-    if (!schoolId) return;
     const { currentSession, currentTerm } = await getAcademicContext(schoolId);
     const termNames = { 1: 'First Term', 2: 'Second Term', 3: 'Third Term' };
     const academicDiv = document.getElementById('academicInfo');
@@ -143,7 +190,8 @@ export async function loadAcademicInfo() {
 }
 
 export async function loadSchoolInfo() {
-  const userData = await getUserData();
+  const userData = currentUserData;
+  if (!userData) return;
   const school = await getSchoolById(userData.schoolId);
   const schoolNameEl = document.getElementById('schoolName');
   const adminEmailEl = document.getElementById('adminEmail');
@@ -165,14 +213,15 @@ export function setupLogoUpload() {
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (file && file.type.startsWith('image/')) {
-        const userData = await getUserData();
-        const newLogo = await uploadSchoolLogo(userData.schoolId, file);
+        const schoolId = await getCurrentSchoolId();
+        if (!schoolId) return;
+        const newLogo = await uploadSchoolLogo(schoolId, file);
         if (newLogo) {
           const logoImg = document.getElementById('schoolLogoImg');
           if (logoImg) logoImg.src = newLogo;
         }
       } else if (file) alert('Please select a valid image file.');
-      fileInput.value = '';
+      if (fileInput) fileInput.value = '';
     });
   }
 }
@@ -182,18 +231,26 @@ export async function loadDashboardCounts() {
   if (!schoolId) return;
   try {
     const teachersSnap = await getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId)));
-    document.getElementById('totalTeachers').textContent = teachersSnap.size;
+    const totalTeachersEl = document.getElementById('totalTeachers');
+    if (totalTeachersEl) totalTeachersEl.textContent = teachersSnap.size;
+
     const studentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
-    document.getElementById('totalStudents').textContent = studentsSnap.size;
+    const totalStudentsEl = document.getElementById('totalStudents');
+    if (totalStudentsEl) totalStudentsEl.textContent = studentsSnap.size;
+
+    // Requires composite index (schoolId, status)
     const activeQuery = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'));
     const activeSnap = await getDocs(activeQuery);
-    document.getElementById('activeStudents').textContent = activeSnap.size;
+    const activeStudentsEl = document.getElementById('activeStudents');
+    if (activeStudentsEl) activeStudentsEl.textContent = activeSnap.size;
   } catch (error) {
     console.error(error);
-    document.getElementById('activeStudents').textContent = error.code === 'failed-precondition' ? '⚠️ Index needed' : 'Error';
+    const activeStudentsEl = document.getElementById('activeStudents');
+    if (activeStudentsEl) activeStudentsEl.textContent = error.code === 'failed-precondition' ? '⚠️ Index needed' : 'Error';
   }
   const subjectsSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)));
-  document.getElementById('totalSubjects').textContent = subjectsSnap.size;
+  const totalSubjectsEl = document.getElementById('totalSubjects');
+  if (totalSubjectsEl) totalSubjectsEl.textContent = subjectsSnap.size;
 }
 
 export function setupSidebar() {
@@ -207,25 +264,11 @@ export function setupSidebar() {
 
 export function setupLogout() {
   const logoutBtn = document.getElementById('logoutBtn');
-  if (logoutBtn) logoutBtn.addEventListener('click', async () => { await logoutUser(); });
-}
-
-// ------------------- Helper Functions -------------------
-async function getUserData() {
-  return new Promise((resolve) => {
-    onAuthStateChanged(auth, async (user) => {
-      if (!user) resolve(null);
-      else {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        resolve(userDoc.exists() ? userDoc.data() : null);
-      }
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      await logoutUser();
     });
-  });
-}
-
-async function getCurrentSchoolId() {
-  const userData = await getUserData();
-  return userData?.schoolId || localStorage.getItem('userSchoolId');
+  }
 }
 
 async function getSchoolById(schoolId) {
