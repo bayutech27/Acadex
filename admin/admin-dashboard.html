@@ -34,7 +34,6 @@
       color: #64748b;
       margin-top: 4px;
     }
-    /* Subscription badge styling */
     .subscription-badge {
       margin-left: auto;
       margin-right: 20px;
@@ -67,6 +66,82 @@
       gap: 16px;
       flex-wrap: wrap;
     }
+    /* Payment banner styles */
+    .payment-banner {
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      color: white;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .payment-banner-content {
+      flex: 2;
+    }
+    .payment-banner h3 {
+      margin: 0 0 8px 0;
+      font-size: 1.25rem;
+    }
+    .payment-banner p {
+      margin: 0;
+      opacity: 0.9;
+    }
+    .payment-buttons {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .paystack-btn {
+      background: #00b3f0;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+      font-size: 1rem;
+    }
+    .paystack-btn:hover {
+      transform: scale(1.02);
+      background: #0095cc;
+    }
+    .whatsapp-btn {
+      background: #25D366;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.2s;
+      text-decoration: none;
+    }
+    .whatsapp-btn:hover {
+      transform: scale(1.02);
+      background: #128C7E;
+    }
+    .whatsapp-icon {
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+    @media (max-width: 768px) {
+      .payment-banner {
+        flex-direction: column;
+        text-align: center;
+        gap: 16px;
+      }
+      .payment-buttons {
+        justify-content: center;
+      }
+    }
   </style>
 </head>
 <body>
@@ -97,18 +172,20 @@
           </div>
           <div id="academicInfo" class="academic-info"></div>
         </div>
-        <!-- Subscription Badge - will be updated by admin.js -->
         <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
         <button id="logoutBtn" class="logout-btn">Logout</button>
       </header>
 
       <div class="content">
+        <!-- Container for payment banner (will be populated by JS if subscription inactive) -->
+        <div id="paymentBannerContainer"></div>
+
         <div class="welcome-card">
           <h1>Welcome, Admin</h1>
           <p>Manage your school exams, results, and records efficiently.</p>
         </div>
 
-        <!-- Containers for subscription fee & pending extra students (populated by admin.js) -->
+        <!-- Containers for subscription fee & pending extra students -->
         <div id="subscriptionFeeContainer"></div>
         <div id="pendingExtraContainer"></div>
 

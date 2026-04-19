@@ -1,3 +1,4 @@
+// admin.js (full file with payment banner)
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
@@ -80,7 +81,6 @@ export async function protectAdminPage() {
     return null;
   }
 
-  // Ensure school document has academic session/term
   await initAcademicCalendar(schoolId);
 
   const lastCheck = localStorage.getItem(`autoLockLastCheck_${schoolId}`);
@@ -102,7 +102,6 @@ export async function protectAdminPage() {
     }
   }
 
-  // Create subscription UI elements if missing
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
@@ -110,7 +109,7 @@ export async function protectAdminPage() {
   return { user: currentUser, userData: currentUserData };
 }
 
-// Non-dismissible banner
+// Non-dismissible subscription warning banner (unchanged)
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -137,6 +136,49 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
+// NEW: Payment banner with Paystack and WhatsApp
+function showPaymentBanner() {
+  const container = document.getElementById('paymentBannerContainer');
+  if (!container) return;
+  // Remove existing banner to avoid duplicates
+  const existing = document.getElementById('paymentBanner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'paymentBanner';
+  banner.className = 'payment-banner';
+  banner.innerHTML = `
+    <div class="payment-banner-content">
+      <h3>💰 Activate Your Subscription</h3>
+      <p>Pay securely Online with your ATM Card to unlock all features: report cards, broadsheets, score entry, and more.</p>
+    </div>
+    <div class="payment-buttons">
+      <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now</button>
+      <a id="whatsappLink" href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">
+        <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91zm0 2c4.4 0 7.91 3.51 7.91 7.91 0 4.4-3.51 7.91-7.91 7.91-1.43 0-2.78-.38-3.97-1.07l-.6-.34-3.11.82.83-3.04-.34-.6c-.7-1.2-1.07-2.55-1.07-3.97 0-4.4 3.51-7.91 7.91-7.91zM8.53 7.5c-.18 0-.48.07-.73.33-.26.26-.95.93-.95 2.28 0 1.35.98 2.66 1.12 2.84.14.18 1.88 2.98 4.56 4.07.64.26 1.14.42 1.53.54.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.26-.18-.55-.31-.29-.13-1.7-.84-1.96-.94-.26-.1-.45-.15-.64.15-.19.3-.73.94-.9 1.13-.17.19-.34.21-.63.07-.29-.13-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.61-1.99-.17-.29-.02-.45.13-.59.13-.13.29-.34.44-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.03-.51-.08-.15-.64-1.54-.88-2.11-.23-.56-.46-.48-.64-.49h-.55z"/>
+        </svg>
+        09044784225 (WhatsApp)
+      </a>
+    </div>
+  `;
+  container.appendChild(banner);
+
+  // Attach Paystack button event
+  const payBtn = document.getElementById('paystackPaymentBtn');
+  if (payBtn) {
+    payBtn.addEventListener('click', () => {
+      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+    });
+  }
+}
+
+function hidePaymentBanner() {
+  const banner = document.getElementById('paymentBanner');
+  if (banner) banner.remove();
+}
+
+// Inject basic UI elements (unchanged)
 function injectSubscriptionUI() {
   if (!document.getElementById('subscriptionBadge')) {
     const headerRight = document.querySelector('.header .school-header')?.parentElement;
@@ -203,8 +245,14 @@ export function initSubscriptionUI(schoolId) {
     updatePendingExtraDisplay(sub);
 
     const isActive = sub.status === 'active' && sub.locked === false;
-    if (isActive) hideSubscriptionExpiredBanner();
-    else if (!document.getElementById('subscriptionExpiredBanner')) showSubscriptionExpiredBanner();
+    // Show/hide subscription warning banner
+    if (isActive) {
+      hideSubscriptionExpiredBanner();
+      hidePaymentBanner();  // Remove payment banner when active
+    } else {
+      if (!document.getElementById('subscriptionExpiredBanner')) showSubscriptionExpiredBanner();
+      showPaymentBanner();  // Show payment banner when inactive
+    }
   }, (err) => console.error('Subscription listener error:', err));
 }
 
@@ -265,7 +313,7 @@ function updatePendingExtraDisplay(sub) {
   }
 }
 
-// ------------------- Academic Calendar -------------------
+// ------------------- Academic Calendar (unchanged) -------------------
 export function getCurrentAcademicSessionAndTerm() {
   const now = new Date();
   const year = now.getFullYear();
@@ -319,7 +367,7 @@ export async function initAcademicCalendar(schoolId) {
   }
 }
 
-// ------------------- Logo Upload -------------------
+// ------------------- Logo Upload (unchanged) -------------------
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -446,21 +494,18 @@ export async function loadDashboardCounts() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
 
-  // Teachers
   try {
     const snap = await getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalTeachers');
     if (el) el.textContent = snap.size;
   } catch (err) { console.error('Teachers count error:', err); }
 
-  // Total Students
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalStudents');
     if (el) el.textContent = snap.size;
   } catch (err) { console.error('Total students error:', err); }
 
-  // Active Students
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active')));
     const el = document.getElementById('activeStudents');
@@ -471,7 +516,6 @@ export async function loadDashboardCounts() {
     if (el) el.textContent = err.code === 'failed-precondition' ? '⚠️ Create Index' : 'Error';
   }
 
-  // Subjects
   try {
     const snap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalSubjects');
