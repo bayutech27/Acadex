@@ -9,7 +9,6 @@ export async function initSubjects() {
     currentSchoolId = await getCurrentSchoolId();
     console.log('initSubjects called, schoolId:', currentSchoolId);
     
-    // Wait for DOM to be ready
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
         loadSubjects();
@@ -69,6 +68,18 @@ function setupForm() {
       return;
     }
     try {
+      // Check for duplicate subject name (case‑insensitive)
+      const lowerName = name.toLowerCase();
+      const q = query(
+        collection(db, 'subjects'),
+        where('schoolId', '==', currentSchoolId)
+      );
+      const snapshot = await getDocs(q);
+      const existing = snapshot.docs.some(doc => doc.data().name.toLowerCase() === lowerName);
+      if (existing) {
+        alert(`Subject "${name}" already exists (case‑insensitive). Duplicate subjects are not allowed.`);
+        return;
+      }
       await addDoc(collection(db, 'subjects'), {
         name,
         code,

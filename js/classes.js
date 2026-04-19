@@ -9,7 +9,6 @@ export async function initClasses() {
     currentSchoolId = await getCurrentSchoolId();
     console.log('Classes initialized, schoolId:', currentSchoolId);
     
-    // Wait for DOM to be ready
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => loadClassesAndSetupForm());
     } else {
@@ -81,8 +80,19 @@ function setupClassForm() {
       return;
     }
     try {
+      // Check for duplicate class name
+      const q = query(
+        collection(db, 'classes'),
+        where('schoolId', '==', currentSchoolId),
+        where('name', '==', selectedValue)
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        alert(`Class "${selectedValue}" already exists. Duplicate classes are not allowed.`);
+        return;
+      }
       await addClass(selectedValue);
-      classForm.reset(); // Resets select to default empty option
+      classForm.reset();
     } catch (error) {
       console.error('Error adding class:', error);
       alert('Failed to add class. Check console.');
