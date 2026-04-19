@@ -1,9 +1,7 @@
+// teacher-dashboard.js - Complete with school address loading
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
-import { 
-  doc, getDoc, updateDoc, 
-  collection, getDocs, query, where, addDoc 
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getSchoolById, getCurrentAcademicSessionAndTerm } from './app.js';
 import { logoutUser } from './auth.js';
 
@@ -13,8 +11,7 @@ let teacherData = null;
 let userRoleData = null;
 let teacherName = null;
 
-// ========== EXISTING FUNCTIONS (protected page, info, etc.) ==========
-
+// ------------------- Auth Protection -------------------
 export async function protectTeacherPage() {
   return new Promise((resolve, reject) => {
     onAuthStateChanged(auth, async (user) => {
@@ -91,11 +88,14 @@ export function displayTeacherName(name) {
   }
 }
 
+// ------------------- School Info with Address -------------------
 export async function loadSchoolInfo() {
   if (!currentSchoolId) return;
   const school = await getSchoolById(currentSchoolId);
   const schoolNameEl = document.getElementById('schoolName');
+  const schoolAddressEl = document.getElementById('schoolAddress');
   if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
+  if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
   
   const logoImg = document.getElementById('schoolLogoImg');
   if (logoImg && school?.logo) {
@@ -116,6 +116,7 @@ async function loadAcademicInfo() {
   }
 }
 
+// ------------------- Logo Upload -------------------
 export function setupLogoUpload() {
   const cameraIcon = document.getElementById('cameraIcon');
   const fileInput = document.getElementById('logoUploadInput');
@@ -127,7 +128,8 @@ export function setupLogoUpload() {
         const compressed = await compressImage(file);
         if (compressed) {
           await updateDoc(doc(db, 'schools', currentSchoolId), { logo: compressed });
-          document.getElementById('schoolLogoImg').src = compressed;
+          const logoImg = document.getElementById('schoolLogoImg');
+          if (logoImg) logoImg.src = compressed;
         }
       }
       fileInput.value = '';
@@ -166,6 +168,7 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   });
 }
 
+// ------------------- UI Helpers -------------------
 export function setupSidebar() {
   const currentPage = window.location.pathname.split('/').pop();
   const links = document.querySelectorAll('.sidebar-nav a');
@@ -198,11 +201,10 @@ export function getTeacherSubjects() {
   return teacherData?.subjectIds || userRoleData?.subjects || [];
 }
 
-// ========== SCORES PAGE FUNCTIONS (DYNAMIC GRADING FROM FIRESTORE) ==========
-
+// ------------------- Scores Page Functions (for scores.html) -------------------
 let scoresState = {
   students: [],
-  scoringConfig: null,    // { caWeight, examWeight }
+  scoringConfig: null,
   currentClassId: null,
   currentSubjectId: null,
   currentTerm: null,
@@ -219,7 +221,7 @@ export async function initScoresPage() {
   await loadSessionOptions();
   await loadClassesForTeacher();
   await loadSubjectsForTeacher();
-  await loadScoringConfig();   // loads grading from Firestore
+  await loadScoringConfig();
 
   const loadBtn = document.getElementById('loadStudentsBtn');
   const saveBtn = document.getElementById('saveScoresBtn');
@@ -281,30 +283,21 @@ async function loadSubjectsForTeacher() {
   subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' + options;
 }
 
-/**
- * Load grading configuration from Firestore 'scoring' collection.
- * Expected document format: { grading: "30/70", schoolId, ... }
- * Also supports direct caWeight/examWeight fields for backward compatibility.
- */
 async function loadScoringConfig() {
   const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
   const snapshot = await getDocs(q);
   
-  let caWeight = 30, examWeight = 70; // defaults
+  let caWeight = 30, examWeight = 70;
   
   if (!snapshot.empty) {
     const data = snapshot.docs[0].data();
-    
-    // Check for the 'grading' string format (used by admin result.js)
     if (data.grading && typeof data.grading === 'string') {
       const parts = data.grading.split('/');
       if (parts.length === 2) {
         caWeight = parseInt(parts[0], 10) || 30;
         examWeight = parseInt(parts[1], 10) || 70;
       }
-    }
-    // Also support separate fields if they exist
-    else if (data.caWeight !== undefined && data.examWeight !== undefined) {
+    } else if (data.caWeight !== undefined && data.examWeight !== undefined) {
       caWeight = data.caWeight;
       examWeight = data.examWeight;
     }
@@ -413,8 +406,7 @@ function renderStudentsTable() {
     `;
   });
   
-  html += `</tbody>
-    </table>`;
+  html += `</tbody></table>`;
   container.innerHTML = html;
   
   document.querySelectorAll('.ca-input, .exam-input').forEach(input => {
@@ -524,4 +516,3 @@ function escapeHtml(str) {
     return m;
   });
 }
-

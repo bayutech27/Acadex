@@ -102,7 +102,6 @@
       border: 1px solid #e2e8f0;
       font-size: 0.8rem;
     }
-    /* Passport preview in modal */
     .passport-preview {
       margin-top: 8px;
       width: 80px;
@@ -112,7 +111,6 @@
       border: 2px solid #e2e8f0;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    /* Passport thumbnail in student list */
     .student-passport {
       width: 45px;
       height: 45px;
@@ -124,130 +122,88 @@
       display: block;
       margin: 0 auto;
     }
-    /* Table container for horizontal scroll on small screens */
     .table-container {
       overflow-x: auto;
       width: 100%;
       border-radius: 12px;
       border: 1px solid #e2e8f0;
     }
-    /* Fixed table layout to respect column widths */
     .data-table {
       width: 100%;
       table-layout: fixed;
       border-collapse: collapse;
       min-width: 800px;
     }
-    /* Define column widths (adjust as needed) */
-    .data-table th:nth-child(1),
-    .data-table td:nth-child(1) {
-      width: 60px;  /* Photo */
-      text-align: center;
-    }
-    .data-table th:nth-child(2),
-    .data-table td:nth-child(2) {
-      width: 120px; /* Admission No */
-    }
-    .data-table th:nth-child(3),
-    .data-table td:nth-child(3) {
-      width: 160px; /* Name */
-    }
-    .data-table th:nth-child(4),
-    .data-table td:nth-child(4) {
-      width: 180px; /* Email */
-    }
-    .data-table th:nth-child(5),
-    .data-table td:nth-child(5) {
-      width: 100px; /* Class */
-    }
-    .data-table th:nth-child(6),
-    .data-table td:nth-child(6) {
-      width: auto;  /* Subjects - takes remaining space */
-      min-width: 180px;
-    }
-    .data-table th:nth-child(7),
-    .data-table td:nth-child(7) {
-      width: 100px; /* Status */
-    }
-    .data-table th:nth-child(8),
-    .data-table td:nth-child(8) {
-      width: 130px; /* Actions */
-    }
-
+    .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 60px; text-align: center; }
+    .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 120px; }
+    .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 160px; }
+    .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 180px; }
+    .data-table th:nth-child(5), .data-table td:nth-child(5) { width: 100px; }
+    .data-table th:nth-child(6), .data-table td:nth-child(6) { width: auto; min-width: 180px; }
+    .data-table th:nth-child(7), .data-table td:nth-child(7) { width: 100px; }
+    .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 130px; }
     .data-table th, .data-table td {
       padding: 10px 8px;
       text-align: left;
       border-bottom: 1px solid #e2e8f0;
       vertical-align: middle;
       word-wrap: break-word;
-      overflow-wrap: break-word;
-      white-space: normal;
     }
-    /* Ensure subjects column wraps long text */
-    .data-table td:nth-child(6) {
-      word-break: break-word;
-      white-space: normal;
+    .data-table td:last-child { white-space: nowrap; }
+    .data-table td:last-child button { margin: 0 2px; padding: 4px 8px; font-size: 0.75rem; }
+    .status-select { width: 100%; max-width: 100px; }
+    .form-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .form-row .form-group { flex: 1; min-width: 120px; }
+    .readonly-field { background: #f1f5f9; padding: 8px; border-radius: 8px; font-size: 14px; color: #475569; }
+    .form-group small { display: block; font-size: 11px; color: #718096; margin-top: 4px; }
+    .school-address {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
     }
-    /* Action buttons stay on one line */
-    .data-table td:last-child {
-      white-space: nowrap;
+    /* Header subscription badge styles */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
     }
-    .data-table td:last-child button {
-      margin: 0 2px;
-      padding: 4px 8px;
-      font-size: 0.75rem;
+    .school-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
     }
-    /* Status select width */
-    .status-select {
-      width: 100%;
-      max-width: 100px;
+    .subscription-badge {
+      margin-left: auto;
+      margin-right: 20px;
+      font-weight: bold;
+      font-size: 0.9rem;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    /* Mobile adjustments */
+    .subscription-badge.active {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .subscription-badge.expired {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
     @media (max-width: 768px) {
-      .modal-content {
-        width: 95%;
-        padding: 16px;
-      }
-      .data-table th, .data-table td {
-        padding: 6px 4px;
-        font-size: 0.8rem;
-      }
-      .student-passport {
-        width: 35px;
-        height: 35px;
-      }
+      .modal-content { width: 95%; padding: 16px; }
+      .data-table th, .data-table td { padding: 6px 4px; font-size: 0.8rem; }
+      .student-passport { width: 35px; height: 35px; }
       .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 45px; }
       .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 90px; }
       .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 120px; }
       .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 130px; }
       .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 110px; }
-      .data-table td:last-child button {
-        padding: 2px 6px;
-        font-size: 0.7rem;
-      }
-    }
-    .form-row {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-    .form-row .form-group {
-      flex: 1;
-      min-width: 120px;
-    }
-    .readonly-field {
-      background: #f1f5f9;
-      padding: 8px;
-      border-radius: 8px;
-      font-size: 14px;
-      color: #475569;
-    }
-    .form-group small {
-      display: block;
-      font-size: 11px;
-      color: #718096;
-      margin-top: 4px;
+      .data-table td:last-child button { padding: 2px 6px; font-size: 0.7rem; }
     }
   </style>
 </head>
@@ -275,9 +231,11 @@
           </div>
           <div class="school-name">
             <h1 id="schoolName">Loading...</h1>
+            <div id="schoolAddress" class="school-address"></div>
           </div>
           <div id="academicInfo" class="academic-info"></div>
         </div>
+        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
         <button id="logoutBtn" class="logout-btn">Logout</button>
       </header>
 

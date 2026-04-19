@@ -6,7 +6,6 @@
   <title>Acadex - Teacher Dashboard</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* Ensure cards are visibly clickable */
     .clickable-card {
       cursor: pointer;
       transition: transform 0.2s, box-shadow 0.2s;
@@ -18,7 +17,12 @@
     .disabled-card {
       opacity: 0.6;
       cursor: not-allowed !important;
-      pointer-events: none; /* Prevent clicks entirely */
+      pointer-events: none;
+    }
+    .school-address {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
     }
   </style>
 </head>
@@ -43,6 +47,7 @@
           </div>
           <div class="school-name">
             <h1 id="schoolName">Loading...</h1>
+            <div id="schoolAddress" class="school-address"></div>
           </div>
           <div id="academicInfo" class="academic-info"></div>
         </div>
@@ -56,13 +61,11 @@
         </div>
 
         <div class="stats-grid">
-          <!-- Class Card -->
           <div class="clickable-card" id="classCard">
             <div class="card-icon">🏫</div>
             <div class="card-title">Class</div>
             <div class="card-desc">Manage your homeroom class (if assigned)</div>
           </div>
-          <!-- Scores Card -->
           <div class="clickable-card" id="scoresCard">
             <div class="card-icon">📊</div>
             <div class="card-title">Scores</div>
@@ -91,7 +94,6 @@
       setupLogout();
       setupLogoUpload();
 
-      // --- Class Card ---
       const classCard = document.getElementById('classCard');
       const isClassTeacher = await checkClassTeacherStatus();
 
@@ -101,8 +103,6 @@
           e.preventDefault();
           alert('You are not assigned as a class teacher. You cannot access this page.');
         });
-
-        // Also disable the sidebar Class link
         const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
         if (classLink) {
           classLink.addEventListener('click', (e) => {
@@ -111,17 +111,10 @@
           });
         }
       } else {
-        classCard.addEventListener('click', () => {
-          window.location.href = 'class.html';
-        });
+        classCard.addEventListener('click', () => { window.location.href = 'class.html'; });
       }
 
-      // --- Scores Card ---
-      document.getElementById('scoresCard').addEventListener('click', () => {
-        window.location.href = 'scores.html';
-      });
-
-      // Note: Sidebar Scores link already points to scores.html – no extra handler needed.
+      document.getElementById('scoresCard').addEventListener('click', () => { window.location.href = 'scores.html'; });
     });
   </script>
 </body>

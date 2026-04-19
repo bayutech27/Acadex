@@ -1,8 +1,10 @@
+// students.js - Manage students with subscription tracking
 import { db } from './firebase-config.js';
 import { 
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './app.js';
+import { getCurrentSchoolId, protectAdminPage } from './admin.js';
+import { handleNewStudentAddition } from './plan.js';
 
 let currentSchoolId = null;
 let subjectsMap = new Map();
@@ -17,6 +19,14 @@ let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPrevie
 let admissionNoInput;
 
 export async function initStudentsPage() {
+  // Enforce subscription and authentication
+  await protectAdminPage();
+  currentSchoolId = await getCurrentSchoolId();
+  if (!currentSchoolId) {
+    alert('School ID missing.');
+    return;
+  }
+
   // Get DOM elements
   studentForm = document.getElementById('studentForm');
   modal = document.getElementById('studentModal');
@@ -38,8 +48,6 @@ export async function initStudentsPage() {
     console.error('Required DOM elements not found');
     return;
   }
-
-  currentSchoolId = await getCurrentSchoolId();
   
   // Fetch school name for admission number generation
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
@@ -509,7 +517,8 @@ async function handleStudentSubmit(e) {
     club,
     passport: passport || null,
     schoolId: currentSchoolId,
-    updatedAt: new Date()
+    updatedAt: new Date(),
+    subscriptionCovered: false     // new students not yet covered
   };
 
   try {
@@ -518,6 +527,9 @@ async function handleStudentSubmit(e) {
     } else {
       studentData.createdAt = new Date();
       await addDoc(collection(db, 'students'), studentData);
+      
+      // Update subscription counters (only for new students)
+      await handleNewStudentAddition(currentSchoolId, 1);
     }
     closeModal();
     await loadAndDisplayStudents();

@@ -29,6 +29,44 @@
       color: #718096;
       font-size: 1rem;
     }
+    .school-address {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    /* Subscription badge styling */
+    .subscription-badge {
+      margin-left: auto;
+      margin-right: 20px;
+      font-weight: bold;
+      font-size: 0.9rem;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .subscription-badge.active {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .subscription-badge.expired {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .school-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
@@ -55,9 +93,12 @@
           </div>
           <div class="school-name">
             <h1 id="schoolName">Loading...</h1>
+            <div id="schoolAddress" class="school-address"></div>
           </div>
           <div id="academicInfo" class="academic-info"></div>
         </div>
+        <!-- Subscription Badge - will be updated by admin.js -->
+        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
         <button id="logoutBtn" class="logout-btn">Logout</button>
       </header>
 
@@ -66,6 +107,10 @@
           <h1>Welcome, Admin</h1>
           <p>Manage your school exams, results, and records efficiently.</p>
         </div>
+
+        <!-- Containers for subscription fee & pending extra students (populated by admin.js) -->
+        <div id="subscriptionFeeContainer"></div>
+        <div id="pendingExtraContainer"></div>
 
         <div class="stats-grid">
           <div class="stat-card">
@@ -93,7 +138,7 @@
     import { protectAdminPage, loadSchoolInfo, loadDashboardCounts, setupSidebar, setupLogout, setupLogoUpload, initAcademicCalendar } from '../js/admin.js';
 
     protectAdminPage().then(async () => {
-      await initAcademicCalendar();   // update academic info if needed
+      await initAcademicCalendar();
       loadSchoolInfo();
       loadDashboardCounts();
       setupSidebar();

@@ -1,10 +1,12 @@
+// auth.js – Full rewrite: creates only schools, users, and subscription on signup
 import { auth, db } from './firebase-config.js';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
-  onAuthStateChanged
+  onAuthStateChanged,
+  fetchSignInMethodsForEmail
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
   doc,
@@ -13,11 +15,11 @@ import {
   query,
   collection,
   where,
-  getDocs
+  getDocs,
+  writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getUserData, getSchoolById } from './app.js';
 
-// ---------- Helper: Show message on page ----------
 function showMessage(message, isError = true) {
   const msgDiv = document.getElementById('message');
   if (!msgDiv) return;
@@ -30,7 +32,6 @@ function showMessage(message, isError = true) {
   }, 4000);
 }
 
-// ---------- Slug formatting ----------
 function formatSlug(slug) {
   return slug.toLowerCase().replace(/\s+/g, '-');
 }
@@ -42,8 +43,55 @@ async function isSlugTaken(slug) {
   return !querySnapshot.empty;
 }
 
-// ---------- Authentication Core Functions ----------
-export async function signupSchool(schoolName, rawSlug, email, password) {
+async function isEmailAlreadyRegistered(email) {
+  try {
+    const methods = await fetchSignInMethodsForEmail(auth, email);
+    return methods.length > 0;
+  } catch (error) {
+    console.warn('Email check failed:', error);
+    return false;
+  }
+}
+
+function getTermDates(term) {
+  const year = new Date().getFullYear();
+  let startDate, endDate;
+  if (term === '1') {
+    startDate = new Date(year, 8, 1);
+    endDate = new Date(year, 11, 31);
+  } else if (term === '2') {
+    startDate = new Date(year, 0, 1);
+    endDate = new Date(year, 3, 30);
+  } else {
+    startDate = new Date(year, 4, 1);
+    endDate = new Date(year, 7, 31);
+  }
+  return { startDate, endDate };
+}
+
+function getCurrentAcademicSessionAndTerm() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  let session = '';
+  let term = '';
+
+  if (month >= 9) {
+    session = `${year}/${year + 1}`;
+  } else {
+    session = `${year - 1}/${year}`;
+  }
+
+  if (month >= 9 && month <= 12) term = '1';
+  else if (month >= 1 && month <= 4) term = '2';
+  else if (month >= 5 && month <= 8) term = '3';
+
+  return { session, term };
+}
+
+// ---------- Signup (only schools, users, subscription) ----------
+export async function signupSchool(schoolName, rawSlug, address, email, password) {
   const slug = formatSlug(rawSlug);
   if (!slug) {
     showMessage('Please enter a valid school URL.', true);
@@ -57,20 +105,67 @@ export async function signupSchool(schoolName, rawSlug, email, password) {
       return;
     }
 
+    const emailRegistered = await isEmailAlreadyRegistered(email);
+    if (emailRegistered) {
+      showMessage('This email is already registered. Please log in or use a different email.', true);
+      return;
+    }
+
+    // Create Firebase Auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     const schoolId = user.uid;
 
-    await setDoc(doc(db, 'schools', schoolId), {
+    const { session: currentSession, term: currentTerm } = getCurrentAcademicSessionAndTerm();
+    const { startDate, endDate } = getTermDates(currentTerm);
+    const now = new Date();
+
+    // Use a batch to write the three essential documents atomically
+    const batch = writeBatch(db);
+
+    // 1. School document
+    const schoolRef = doc(db, 'schools', schoolId);
+    batch.set(schoolRef, {
       name: schoolName,
-      slug: slug
+      slug: slug,
+      address: address,
+      status: 'pending',
+      createdAt: now,
+      currentSession: currentSession,
+      currentTerm: currentTerm,
+      lastUpdated: now,
+      ownerId: user.uid
     });
 
-    await setDoc(doc(db, 'users', user.uid), {
+    // 2. User document (admin)
+    const userRef = doc(db, 'users', user.uid);
+    batch.set(userRef, {
       role: 'admin',
       schoolId: schoolId,
-      email: email
+      email: email,
+      createdAt: now
     });
+
+    // 3. Subscription document (subcollection)
+    const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+    batch.set(subRef, {
+      status: 'pending',
+      locked: true,
+      endDate: endDate,
+      plan: 'basic',
+      costPerStudent: 1000,
+      coveredStudents: 0,
+      totalStudents: 0,
+      extraStudentsPendingApproval: 0,
+      totalAmount: 0,
+      startDate: startDate,
+      lastUpdated: now,
+      paymentRef: null
+    });
+
+    // Commit the batch
+    await batch.commit();
+    console.log('Signup successful – school, user, and subscription created.');
 
     localStorage.setItem('schoolSlug', slug);
     window.location.href = `/?school=${slug}`;
@@ -79,6 +174,10 @@ export async function signupSchool(schoolName, rawSlug, email, password) {
     let errorMessage = 'Signup failed. ';
     if (error.code === 'auth/email-already-in-use') {
       errorMessage += 'Email already in use.';
+    } else if (error.code === 'auth/weak-password') {
+      errorMessage += 'Password should be at least 6 characters.';
+    } else if (error.code === 'permission-denied') {
+      errorMessage += 'Permission denied. Please check Firestore rules.';
     } else {
       errorMessage += error.message;
     }
@@ -86,12 +185,12 @@ export async function signupSchool(schoolName, rawSlug, email, password) {
   }
 }
 
+// ---------- LOGIN – STRICT ROLE REDIRECT ----------
 export async function loginUser(email, password) {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // Fetch user document from 'users' collection
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     if (!userDoc.exists()) {
       throw new Error('User account exists but no role document found.');
@@ -101,12 +200,12 @@ export async function loginUser(email, password) {
     const role = userData.role;
     const schoolId = userData.schoolId;
 
-    // Store school context
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', role);
 
-    // Redirect based on role
-    if (role === 'admin') {
+    if (role === 'super-admin') {
+      window.location.href = '/super-admin.html';
+    } else if (role === 'admin') {
       window.location.href = '/admin/admin-dashboard.html';
     } else if (role === 'teacher') {
       window.location.href = '/teacher/teacher-dashboard.html';
@@ -154,14 +253,16 @@ export async function resetPassword(email) {
   }
 }
 
-// ---------- Page Initializers ----------
+// ---------- PAGE INITIALIZERS ----------
 export function initLoginPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
         const role = userDoc.data().role;
-        if (role === 'admin') {
+        if (role === 'super-admin') {
+          window.location.href = '/super-admin.html';
+        } else if (role === 'admin') {
           window.location.href = '/admin/admin-dashboard.html';
         } else if (role === 'teacher') {
           window.location.href = '/teacher/teacher-dashboard.html';
@@ -182,9 +283,19 @@ export function initLoginPage() {
 }
 
 export function initSignupPage() {
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
-      window.location.href = '/admin/admin-dashboard.html';
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const role = userDoc.data().role;
+        if (role === 'super-admin') {
+          window.location.href = '/super-admin.html';
+        } else if (role === 'admin') {
+          window.location.href = '/admin/admin-dashboard.html';
+        } else if (role === 'teacher') {
+          window.location.href = '/teacher/teacher-dashboard.html';
+        }
+      }
     }
   });
 
@@ -194,17 +305,28 @@ export function initSignupPage() {
       e.preventDefault();
       const schoolName = document.getElementById('schoolName').value;
       const schoolSlug = document.getElementById('schoolSlug').value;
+      const schoolAddress = document.getElementById('schoolAddress').value;
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
-      await signupSchool(schoolName, schoolSlug, email, password);
+      await signupSchool(schoolName, schoolSlug, schoolAddress, email, password);
     });
   }
 }
 
 export function initResetPasswordPage() {
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
-      window.location.href = '/admin/admin-dashboard.html';
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const role = userDoc.data().role;
+        if (role === 'super-admin') {
+          window.location.href = '/super-admin.html';
+        } else if (role === 'admin') {
+          window.location.href = '/admin/admin-dashboard.html';
+        } else if (role === 'teacher') {
+          window.location.href = '/teacher/teacher-dashboard.html';
+        }
+      }
     }
   });
 

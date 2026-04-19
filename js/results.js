@@ -1,14 +1,18 @@
-// results.js - Uses shared auth from admin.js, no duplicate listeners, null safety
+// results.js - Admin report card page using shared renderer + subscription check
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId, getAcademicContext, initAcademicCalendar, getCurrentUserData } from './admin.js';
+import { getCurrentSchoolId, getAcademicContext, initAcademicCalendar } from './admin.js';
+import { renderReportCardUI } from './reportCardRenderer.js';
+import { canEnterScores } from './plan.js';
 
+// ------------------- Global State -------------------
 let currentSchoolId = null;
 let classesMap = new Map();
 let studentsList = [];
 let subjectsMap = new Map();
 let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
+let isSubscriptionAllowed = false;
 
 let editorState = {
   selectedStudent: null,
@@ -23,7 +27,7 @@ let editorState = {
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
 
-// ------------------- Utility Functions (unchanged) -------------------
+// ------------------- Utility Functions (fully preserved) -------------------
 function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
 function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
 function calculateGrade(total) {
@@ -87,7 +91,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -131,31 +135,41 @@ function generateSessionOptionsFromCurrent(currentSession) {
   return sessions;
 }
 
-// ------------------- Data Loading (preserved, with null safety) -------------------
+// ------------------- Data Loading -------------------
 async function loadClassesAndSubjects() {
-  const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
-  classesMap.clear();
-  classesSnap.forEach(doc => classesMap.set(doc.id, doc.data().name));
-
-  const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
-  subjectsMap.clear();
-  allSubjectsList = [];
-  subjSnap.forEach(doc => {
-    subjectsMap.set(doc.id, doc.data().name);
-    allSubjectsList.push({ id: doc.id, name: doc.data().name });
-  });
+  try {
+    const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+    classesMap.clear();
+    classesSnap.forEach(doc => classesMap.set(doc.id, doc.data().name));
+    const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
+    subjectsMap.clear();
+    allSubjectsList = [];
+    subjSnap.forEach(doc => {
+      subjectsMap.set(doc.id, doc.data().name);
+      allSubjectsList.push({ id: doc.id, name: doc.data().name });
+    });
+  } catch (err) {
+    console.error('Failed to load classes/subjects:', err);
+    alert('Unable to load classes/subjects. Check your permissions.');
+    throw err;
+  }
 }
 
 async function loadAllStudents() {
-  const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId)));
-  studentsList = snap.docs.map(doc => ({
-    id: doc.id, name: doc.data().name, classId: doc.data().classId,
-    admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
-    dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null
-  }));
+  try {
+    const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId)));
+    studentsList = snap.docs.map(doc => ({
+      id: doc.id, name: doc.data().name, classId: doc.data().classId,
+      admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
+      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null
+    }));
+  } catch (err) {
+    console.error('Failed to load students:', err);
+    alert('Unable to load students. Check your permissions.');
+    throw err;
+  }
 }
 
-// Optimised: fetch all scores for a class in one query (with chunking for 'in' limit)
 async function fetchClassScores(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return [];
@@ -203,25 +217,44 @@ async function loadGradingSetting(session, term) {
 }
 
 async function saveGradingSetting() {
+  if (!isSubscriptionAllowed) {
+    alert('Subscription inactive. Cannot save grading settings.');
+    return;
+  }
   const gradingSelect = document.getElementById('gradingSelect');
   if (!gradingSelect) return;
   const grading = gradingSelect.value;
-  const session = editorState.session || document.getElementById('broadsheetSessionSelect')?.value;
-  const term = editorState.term || document.getElementById('broadsheetTermSelect')?.value;
-  if (!session || !term) { alert('Session/Term not set'); return; }
+  let session = document.getElementById('editorSessionSelect')?.value;
+  let term = document.getElementById('editorTermSelect')?.value;
+  if (!session || !term) {
+    session = document.getElementById('broadsheetSessionSelect')?.value;
+    term = document.getElementById('broadsheetTermSelect')?.value;
+  }
+  if (!session || !term) {
+    alert('Session/Term not set. Please select a session and term first.');
+    return;
+  }
   const docId = getScoringDocId(session, term);
-  await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term });
-  const [ca, exam] = grading.split('/').map(Number);
-  currentGrading = { ca, exam };
-  alert('Grading saved.');
-  if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+  try {
+    await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term });
+    const [ca, exam] = grading.split('/').map(Number);
+    currentGrading = { ca, exam };
+    alert('Grading saved.');
+    if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+  } catch (err) {
+    if (err.code === 'permission-denied') {
+      alert('Permission denied. Subscription required to save grading.');
+    } else {
+      console.error(err);
+      alert('Failed to save grading. Check console.');
+    }
+  }
 }
 
-// ------------------- Compute Subject Stats (optimised) -------------------
+// ------------------- Compute Subject Stats -------------------
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
-
   const allScores = await fetchClassScores(classId, term, session);
   const subjectMap = new Map();
   for (const subjId of subjectsMap.keys()) {
@@ -247,8 +280,20 @@ async function computeSubjectStats(classId, term, session) {
   return subjectMap;
 }
 
-// ------------------- Report Card Rendering (with null safety for .report-card) -------------------
+// ------------------- Report Card Rendering (with subscription block) -------------------
 async function renderReportCard(studentId, studentName) {
+  if (!isSubscriptionAllowed) {
+    const container = document.getElementById('reportCardContent');
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px; margin: 20px;">
+        <h3>⚠️ Subscription Required</h3>
+        <p>Report cards are unavailable because the school subscription is inactive.</p>
+        <p>Please contact your administrator to renew.</p>
+      </div>
+    `;
+    document.getElementById('reportActions').style.display = 'none';
+    return;
+  }
   editorState.selectedStudent = { id: studentId, name: studentName };
   editorState.term = document.getElementById('editorTermSelect')?.value || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || '';
@@ -256,111 +301,63 @@ async function renderReportCard(studentId, studentName) {
   const className = classesMap.get(classId) || 'Class';
 
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-  const schoolName = schoolDoc.exists() ? schoolDoc.data().name : 'School Name';
-  const schoolLogo = schoolDoc.exists() ? schoolDoc.data().logo : null;
+  const school = {
+    name: schoolDoc.exists() ? schoolDoc.data().name : 'School Name',
+    address: schoolDoc.exists() ? schoolDoc.data().address : '',
+    logo: schoolDoc.exists() ? schoolDoc.data().logo : null
+  };
   const student = studentsList.find(s => s.id === studentId) || {};
-  const admissionNo = student.admissionNumber || '—';
-  const gender = student.gender || '—';
-  const dob = student.dob || '';
-  const age = dob ? calculateAge(dob) : '—';
-  const club = student.club || '—';
-  const passportUrl = student.passport || null;
-
-  const scores = await fetchStudentScores(studentId, editorState.term, editorState.session);
-  // Use cached subjectsMap – no extra fetch
-  const localSubjectsMap = subjectsMap;
+  const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
+  const scoresWithNames = scoresRaw.map(score => ({
+    subjectId: score.subjectId,
+    subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
+    ca: score.ca,
+    exam: score.exam
+  }));
 
   let subjectStats = new Map();
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session);
-
-  let tableRows = '', totalScore = 0, subjectCount = 0;
-  for (const score of scores) {
-    const subjectName = localSubjectsMap.get(score.subjectId) || score.subjectId;
-    const total = score.ca + score.exam;
-    totalScore += total; subjectCount++;
-    const grade = calculateGrade(total);
-    const remark = getGradeRemark(grade);
-    let positionHtml = '—', classAvg = '—';
-    const stat = subjectStats.get(score.subjectId);
-    if (stat) {
-      const rank = stat.rankMap.get(studentId);
-      if (rank) {
-        const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
-        positionHtml = `${rank}<sup>${suffix}</sup>`;
-      }
-      classAvg = stat.classAverage;
-    }
-    tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td><td>${score.ca}</td><td>${score.exam}</td><td>${total}</td><td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
-  }
-  const average = subjectCount ? (totalScore / subjectCount).toFixed(1) : 0;
-  const overallGrade = calculateGrade(parseFloat(average));
-  const totalObtainable = subjectCount * 100;
-  const percentageAvg = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
-  const overallRemark = getGradeRemark(overallGrade);
-
   await loadExistingEditorReport(studentId);
 
-  let psychomotorHtml = `<table class="skills-table"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
-  for (const skill of psychomotorSkillsList) {
-    const key = getSkillKey(skill);
-    const val = editorState.psychomotor[key] || 3;
-    psychomotorHtml += `<tr><td>${escapeHtml(skill)}</td><td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
-  }
-  psychomotorHtml += `</tbody></table>`;
-  let affectiveHtml = `<table class="skills-table"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
-  for (const skill of affectiveSkillsList) {
-    const key = getSkillKey(skill);
-    const val = editorState.psychomotor[key] || 3;
-    affectiveHtml += `<tr><td>${escapeHtml(skill)}</td><td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
-  }
-  affectiveHtml += `</tbody></table>`;
+  const studentData = {
+    id: studentId,
+    name: studentName,
+    admissionNumber: student.admissionNumber || '—',
+    gender: student.gender || '—',
+    dob: student.dob || '',
+    club: student.club || '—',
+    passport: student.passport || null
+  };
 
-  const summaryHtml = `<div class="section-title">📊 Summary of Performance</div><table class="summary-table"><tr><th>Total Obtained</th><td>${totalScore}</td></tr><tr><th>Total Obtainable</th><td>${totalObtainable}</td></tr><tr><th>Total Subjects</th><td>${subjectCount}</td></tr><tr><th>% Average</th><td>${percentageAvg}%</td></tr><tr><th>Grade</th><td>${overallGrade}</td></tr><tr><th>Remark</th><td>${overallRemark}</td></tr></table>`;
-  const gradeScaleHtml = `<div class="section-title">📈 Grade Distribution</div>${getGradeScaleHtml()}`;
-  const headerHtml = `<div class="report-header"><div class="school-logo-area">${schoolLogo ? `<img src="${schoolLogo}" class="school-logo-small" alt="Logo">` : ''}</div><div class="school-name-area"><h1 class="school-name-report">${escapeHtml(schoolName)}</h1><div class="school-motto">Excellence in Education</div></div><div class="passport-area">${passportUrl ? `<img src="${passportUrl}" class="student-passport-img" alt="Passport">` : ''}</div></div>`;
-  const studentDetailsHtml = `<div class="student-details-grid"><div><strong>Name:</strong> <span class="student-name-caps">${escapeHtml(studentName).toUpperCase()}</span></div><div><strong>Admission No:</strong> ${escapeHtml(admissionNo)}</div><div><strong>Gender:</strong> ${escapeHtml(gender)}</div><div><strong>DOB:</strong> ${dob} (Age ${age})</div><div><strong>Class:</strong> ${escapeHtml(className)}</div><div><strong>Term:</strong> ${editorState.term}${getTermSuffix(editorState.term)}</div><div><strong>Session:</strong> ${editorState.session}</div><div><strong>Club:</strong> ${escapeHtml(club)}</div></div>`;
-  const tableHtml = `<table class="subject-table"><thead><tr><th>Subject</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead><tbody>${tableRows || '<tr><td colspan="8">No scores found</td></tr>'}</tbody></table>`;
-  const commentOptions = getCommentOptionsByGrade(overallGrade);
-  const commentsHtml = `<div class="comments-section"><h3>Comments</h3><div class="comment-group"><label>Teacher's Comment:</label><div class="comment-controls"><select id="teacherCommentSelect">${commentOptions.map(opt => `<option value="${opt}" ${editorState.teacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select><textarea id="teacherCommentText" rows="2" style="width:100%">${escapeHtml(editorState.teacherComment || '')}</textarea></div><div class="print-comment-text" id="printTeacherComment">${escapeHtml(editorState.teacherComment || '')}</div></div><div class="comment-group"><label>Principal's Comment:</label><div class="comment-controls"><select id="principalCommentSelect">${commentOptions.map(opt => `<option value="${opt}" ${editorState.principalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select><textarea id="principalCommentText" rows="2" style="width:100%">${escapeHtml(editorState.principalComment || '')}</textarea></div><div class="print-comment-text" id="printPrincipalComment">${escapeHtml(editorState.principalComment || '')}</div></div></div>`;
-  const signatureHtml = `<div class="signature-stamp"><div class="signature-item"><strong>Principal's Signature:</strong><div class="signature-line"></div></div><div class="signature-item"><strong>School Stamp:</strong><div class="stamp-placeholder">(Official Stamp)</div></div><div class="signature-item"><strong>Date:</strong><div class="signature-line"></div></div></div>`;
-  const ratingGuideHtml = `<div class="rating-guide">Rating Guide: 1 - Poor | 2 - Fair | 3 - Good | 4 - Very Good | 5 - Excellent</div>`;
-  const fullHtml = headerHtml + studentDetailsHtml + tableHtml +
-    `<div class="summary-grading-wrapper"><div class="summary-wrapper">${summaryHtml}</div><div class="grading-wrapper">${gradeScaleHtml}</div></div>` +
-    `<div class="skills-wrapper"><div class="skills-half">${psychomotorHtml}</div><div class="skills-half">${affectiveHtml}</div></div>` +
-    ratingGuideHtml + commentsHtml + signatureHtml;
+  const comments = {
+    teacherComment: editorState.teacherComment,
+    principalComment: editorState.principalComment
+  };
 
-  const reportCardContent = document.getElementById('reportCardContent');
-  if (reportCardContent) reportCardContent.innerHTML = fullHtml;
-  const reportActions = document.getElementById('reportActions');
-  if (reportActions) reportActions.style.display = 'flex';
-
-  document.querySelectorAll('.rating-container').forEach(container => {
-    const skillKey = container.dataset.skillKey;
-    if (skillKey) {
-      const currentVal = editorState.psychomotor[skillKey] || 3;
-      const widget = createTickRating(skillKey, currentVal);
-      container.appendChild(widget);
+  renderReportCardUI({
+    student: studentData,
+    scores: scoresWithNames,
+    className,
+    school,
+    grading: currentGrading,
+    psychomotor: editorState.psychomotor,
+    comments,
+    term: editorState.term,
+    session: editorState.session,
+    subjectStats,
+    container: document.getElementById('reportCardContent'),
+    onRatingChange: (skillKey, newValue) => {
+      editorState.psychomotor[skillKey] = newValue;
+    },
+    onTeacherCommentChange: (newComment) => {
+      editorState.teacherComment = newComment;
+    },
+    onPrincipalCommentChange: (newComment) => {
+      editorState.principalComment = newComment;
     }
   });
 
-  const teacherText = document.getElementById('teacherCommentText');
-  const teacherSelect = document.getElementById('teacherCommentSelect');
-  const principalText = document.getElementById('principalCommentText');
-  const principalSelect = document.getElementById('principalCommentSelect');
-  const printTeacher = document.getElementById('printTeacherComment');
-  const printPrincipal = document.getElementById('printPrincipalComment');
-  if (teacherSelect) teacherSelect.onchange = () => { editorState.teacherComment = teacherSelect.value; if (teacherText) teacherText.value = teacherSelect.value; if (printTeacher) printTeacher.textContent = escapeHtml(teacherSelect.value); };
-  if (teacherText) teacherText.oninput = () => { editorState.teacherComment = teacherText.value; if (printTeacher) printTeacher.textContent = escapeHtml(teacherText.value); };
-  if (principalSelect) principalSelect.onchange = () => { editorState.principalComment = principalSelect.value; if (principalText) principalText.value = principalSelect.value; if (printPrincipal) printPrincipal.textContent = escapeHtml(principalSelect.value); };
-  if (principalText) principalText.oninput = () => { editorState.principalComment = principalText.value; if (printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value); };
-
-  if (schoolLogo) {
-    const reportDiv = document.querySelector('.report-card');
-    if (reportDiv) {
-      reportDiv.classList.add('watermark-ready');
-      reportDiv.style.setProperty('--watermark-url', `url(${schoolLogo})`);
-    }
-  }
+  document.getElementById('reportActions').style.display = 'flex';
 }
 
 async function loadExistingEditorReport(studentId) {
@@ -386,6 +383,10 @@ async function loadExistingEditorReport(studentId) {
 }
 
 async function saveEditorReport() {
+  if (!isSubscriptionAllowed) {
+    alert('Cannot save report – subscription inactive.');
+    return;
+  }
   if (!editorState.selectedStudent) return alert('Select a student.');
   const totalScore = parseInt(document.querySelector('.summary-table tr:nth-child(1) td')?.textContent) || 0;
   const totalObtainable = parseInt(document.querySelector('.summary-table tr:nth-child(2) td')?.textContent) || 0;
@@ -415,29 +416,96 @@ async function saveEditorReport() {
       editorState.savedReportId = newRef.id;
     }
     alert('Report saved.');
-  } catch (error) { console.error(error); alert('Save failed.'); }
+  } catch (error) {
+    if (error.code === 'permission-denied') {
+      alert('Permission denied. Subscription required to save reports.');
+    } else {
+      console.error(error);
+      alert('Save failed.');
+    }
+  }
 }
 
+// ========== FIXED PRINT HANDLER (unchanged) ==========
 function handlePrint() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
+
   const principalText = document.getElementById('principalCommentText');
   const printPrincipal = document.getElementById('printPrincipalComment');
   if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
+
   const reportContent = document.getElementById('reportCardContent');
   if (!reportContent || reportContent.children.length === 0 ||
-    (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
-      reportContent.children[0].textContent.includes('Select a student'))) {
+      (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
+       reportContent.children[0].textContent.includes('Select a student'))) {
     alert('Report not ready yet. Please select a student and ensure the report is loaded.');
     return;
   }
-  void reportContent.offsetHeight;
-  requestAnimationFrame(() => { setTimeout(() => { window.print(); }, 300); });
+
+  const clonedReport = reportContent.cloneNode(true);
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups for this site to print the report.');
+    return;
+  }
+
+  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+  const inlineStyles = Array.from(document.querySelectorAll('style'))
+    .map(style => style.innerHTML)
+    .join('\n');
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Report Card - ${escapeHtml(editorState.selectedStudent?.name || 'Student')}</title>
+      <link rel="stylesheet" href="${externalCssUrl}">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .print-container { width: 210mm; margin: 0 auto; background: white; }
+        @page { size: A4; margin: 10mm; }
+        .rating-tick, select, textarea, button, .comment-controls, .tick { display: none !important; }
+        .print-value, .print-comment-text { display: block !important; }
+        .report-card { page-break-after: avoid; page-break-inside: avoid; overflow: visible; }
+        .subject-table th:not(:first-child) { height: 50px; }
+        .student-details-grid { padding: 4px 8px; }
+        .skills-table td, .skills-table th { padding: 2px 4px; }
+        .summary-grading-wrapper { margin: 6px 0; }
+        ${inlineStyles}
+      </style>
+    </head>
+    <body>
+      <div class="print-container">
+        ${clonedReport.outerHTML}
+      </div>
+    </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+  setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 300);
 }
 
-// ------------------- Broadsheet Engine (preserved) -------------------
+// ------------------- Broadsheet Engine (with subscription check) -------------------
 async function generateBroadsheet() {
+  if (!isSubscriptionAllowed) {
+    const container = document.getElementById('broadsheetContainer');
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;">
+        <h3>⚠️ Subscription Required</h3>
+        <p>Broadsheets are unavailable because the school subscription is inactive.</p>
+      </div>
+    `;
+    document.getElementById('broadsheetActions').style.display = 'none';
+    return;
+  }
   const classId = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
   const term = document.getElementById('broadsheetTermSelect')?.value;
@@ -523,6 +591,10 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
+  if (!isSubscriptionAllowed) {
+    alert('Cannot save broadsheet – subscription inactive.');
+    return;
+  }
   if (!window.currentBroadsheetData) { alert('No broadsheet data to save. Generate first.'); return; }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
@@ -548,7 +620,14 @@ async function saveBroadsheetToFirestore() {
   try {
     await setDoc(doc(db, 'broadsheets', docId), broadsheetData, { merge: true });
     alert('Broadsheet saved successfully.');
-  } catch (err) { console.error(err); alert('Save failed.'); }
+  } catch (err) {
+    if (err.code === 'permission-denied') {
+      alert('Permission denied. Subscription required to save broadsheets.');
+    } else {
+      console.error(err);
+      alert('Save failed.');
+    }
+  }
 }
 
 function printBroadsheet() {
@@ -598,7 +677,6 @@ async function onEditorClassChange() {
   classStudents.forEach(student => { html += `<div class="student-list-item" data-id="${student.id}">${escapeHtml(student.name)}</div>`; });
   if (studentContainer) studentContainer.innerHTML = html;
 
-  // Auto-select first student (UX improvement)
   const firstStudent = classStudents[0];
   if (firstStudent) {
     const firstEl = document.querySelector('.student-list-item');
@@ -624,12 +702,18 @@ async function onEditorFilterChange() {
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
-// ------------------- Initialisation (Firestore-driven, with fallback) -------------------
+// ------------------- Initialisation (EXPORTED) -------------------
 export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
   currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) { alert('School ID missing.'); return; }
+  if (!currentSchoolId) {
+    alert('School ID missing. Please log out and log in again.');
+    return;
+  }
+
+  // Check subscription status
+  isSubscriptionAllowed = await canEnterScores(currentSchoolId);
 
   await initAcademicCalendar(currentSchoolId);
 
@@ -651,10 +735,14 @@ export async function initResultsPage() {
 
   const { currentSession, currentTerm } = academic;
 
-  await loadClassesAndSubjects();
-  await loadAllStudents();
+  try {
+    await loadClassesAndSubjects();
+    await loadAllStudents();
+  } catch (err) {
+    console.error('Data loading failed', err);
+    return;
+  }
 
-  // Populate selects (with null guards)
   const classSelect = document.getElementById('broadsheetClassSelect');
   if (classSelect) {
     classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
@@ -681,13 +769,12 @@ export async function initResultsPage() {
 
   await loadGradingSetting(currentSession, currentTerm);
 
-  // Attach event listeners (safe)
   const generateBtn = document.getElementById('generateBroadsheetBtn');
   if (generateBtn) generateBtn.addEventListener('click', generateBroadsheet);
-  const saveBtn = document.getElementById('saveBroadsheetBtn');
-  if (saveBtn) saveBtn.addEventListener('click', saveBroadsheetToFirestore);
-  const printBtn = document.getElementById('printBroadsheetBtn');
-  if (printBtn) printBtn.addEventListener('click', printBroadsheet);
+  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
+  if (saveBroadsheetBtn) saveBroadsheetBtn.addEventListener('click', saveBroadsheetToFirestore);
+  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
+  if (printBroadsheetBtn) printBroadsheetBtn.addEventListener('click', printBroadsheet);
   const saveGradingBtn = document.getElementById('saveGradingBtn');
   if (saveGradingBtn) saveGradingBtn.addEventListener('click', saveGradingSetting);
   const refreshBtn = document.getElementById('refreshEditorBtn');
@@ -700,6 +787,22 @@ export async function initResultsPage() {
   if (editorClassSelect) editorClassSelect.addEventListener('change', onEditorClassChange);
   if (editorSessionSelect) editorSessionSelect.addEventListener('change', onEditorFilterChange);
   if (editorTermSelect) editorTermSelect.addEventListener('change', onEditorFilterChange);
+
+  // Disable features if subscription not allowed
+  if (!isSubscriptionAllowed) {
+    if (saveGradingBtn) saveGradingBtn.disabled = true;
+    if (generateBtn) generateBtn.disabled = true;
+    if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
+    if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
+    if (printReportBtn) printReportBtn.disabled = true;
+    if (saveReportBtn) saveReportBtn.disabled = true;
+    const warningBanner = document.createElement('div');
+    warningBanner.className = 'subscription-warning-banner';
+    warningBanner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; margin-bottom: 16px; border-radius: 8px;';
+    warningBanner.innerHTML = '⚠️ Subscription inactive. Report cards and broadsheets are disabled. Please renew to access these features.';
+    const contentDiv = document.querySelector('.content');
+    if (contentDiv) contentDiv.insertBefore(warningBanner, contentDiv.firstChild);
+  }
 
   await onEditorClassChange();
 }
