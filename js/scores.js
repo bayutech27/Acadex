@@ -1,3 +1,4 @@
+// scores.js - Teacher score entry with subscription check and UI blocking
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
@@ -128,11 +129,6 @@ async function renderScoreTable() {
     </tr>`;
   }
   html += `</tbody></table>`;
-  if (!isScoreEntryAllowed) {
-    html += `<div class="subscription-warning" style="background: #fee2e2; padding: 12px; margin-top: 16px; border-radius: 8px; color: #991b1b;">
-      ⚠️ Score entry is disabled because the school subscription is inactive. Please contact your administrator to renew.
-    </div>`;
-  }
   container.innerHTML = html;
 
   if (isScoreEntryAllowed) {
@@ -150,7 +146,7 @@ async function renderScoreTable() {
 
 async function saveScores() {
   if (!isScoreEntryAllowed) {
-    alert('Score entry is disabled. Please renew subscription.');
+    alert('❌ Score entry is disabled because the school subscription is inactive. Please contact your administrator to renew.');
     return;
   }
   if (!selectedClassId || !selectedSubjectId) {
@@ -188,7 +184,7 @@ async function initScoresPage() {
   currentSchoolId = teacherData.schoolId;
   if (!currentSchoolId) return;
 
-  // Check subscription
+  // Check subscription status
   isScoreEntryAllowed = await canEnterScores(currentSchoolId);
 
   await loadSubjects();
@@ -241,17 +237,27 @@ async function initScoresPage() {
   });
   document.getElementById('saveScoresBtn').addEventListener('click', saveScores);
 
-  // Disable save button and show warning if subscription inactive
+  // If subscription inactive, show a persistent banner and disable save button
   if (!isScoreEntryAllowed) {
     const saveBtn = document.getElementById('saveScoresBtn');
-    saveBtn.disabled = true;
-    saveBtn.style.opacity = '0.5';
-    const warningDiv = document.createElement('div');
-    warningDiv.className = 'subscription-warning';
-    warningDiv.style.cssText = 'background: #fee2e2; padding: 12px; margin-bottom: 16px; border-radius: 8px; color: #991b1b;';
-    warningDiv.innerHTML = '⚠️ Score entry is disabled because the school subscription is inactive. Please contact your administrator to renew.';
-    const container = document.querySelector('.scores-container');
-    if (container) container.prepend(warningDiv);
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.5';
+      saveBtn.title = 'Subscription inactive – cannot save scores';
+    }
+    // Add banner at the top of the scores container
+    const container = document.getElementById('scoresContainer');
+    if (container && !document.getElementById('subscriptionBanner')) {
+      const banner = document.createElement('div');
+      banner.id = 'subscriptionBanner';
+      banner.className = 'subscription-banner';
+      banner.innerHTML = `
+        <strong>⚠️ Subscription Required</strong><br>
+        Your school subscription is inactive. You cannot add or edit student scores. 
+        Please contact your school administrator to renew.
+      `;
+      container.prepend(banner);
+    }
   }
 
   selectedSession = defaultSession;
