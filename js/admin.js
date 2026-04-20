@@ -1,4 +1,4 @@
-// admin.js (full file with payment banner)
+// admin.js - Admin dashboard with subscription UI (updated with Paystack + WhatsApp)
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
@@ -109,7 +109,7 @@ export async function protectAdminPage() {
   return { user: currentUser, userData: currentUserData };
 }
 
-// Non-dismissible subscription warning banner (unchanged)
+// Non-dismissible subscription warning banner
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -136,11 +136,10 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
-// NEW: Payment banner with Paystack and WhatsApp
+// UPDATED: Payment banner with Paystack (Pay Now) + WhatsApp
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
-  // Remove existing banner to avoid duplicates
   const existing = document.getElementById('paymentBanner');
   if (existing) existing.remove();
 
@@ -150,7 +149,7 @@ function showPaymentBanner() {
   banner.innerHTML = `
     <div class="payment-banner-content">
       <h3>💰 Activate Your Subscription</h3>
-      <p>Pay securely Online with your ATM Card to unlock all features: report cards, broadsheets, score entry, and more.</p>
+      <p>Pay securely online with your ATM card via Paystack, or contact us on WhatsApp for assistance.</p>
     </div>
     <div class="payment-buttons">
       <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now</button>
@@ -178,7 +177,6 @@ function hidePaymentBanner() {
   if (banner) banner.remove();
 }
 
-// Inject basic UI elements (unchanged)
 function injectSubscriptionUI() {
   if (!document.getElementById('subscriptionBadge')) {
     const headerRight = document.querySelector('.header .school-header')?.parentElement;
@@ -209,6 +207,15 @@ function injectSubscriptionUI() {
       const feeDiv = document.getElementById('subscriptionFeeContainer');
       if (feeDiv && feeDiv.nextSibling) contentDiv.insertBefore(pendingDiv, feeDiv.nextSibling);
       else contentDiv.appendChild(pendingDiv);
+    }
+  }
+  if (!document.getElementById('paymentBannerContainer')) {
+    const contentDiv = document.querySelector('.content');
+    if (contentDiv) {
+      const paymentDiv = document.createElement('div');
+      paymentDiv.id = 'paymentBannerContainer';
+      paymentDiv.style.margin = '16px 0';
+      contentDiv.insertBefore(paymentDiv, contentDiv.firstChild);
     }
   }
 }
@@ -242,16 +249,15 @@ export function initSubscriptionUI(schoolId) {
     if (!snap.exists()) return;
     const sub = snap.data();
     await updateFeeDisplay(schoolId, sub);
-    updatePendingExtraDisplay(sub);
+    await updatePendingExtraDisplay(schoolId);
 
     const isActive = sub.status === 'active' && sub.locked === false;
-    // Show/hide subscription warning banner
     if (isActive) {
       hideSubscriptionExpiredBanner();
-      hidePaymentBanner();  // Remove payment banner when active
+      hidePaymentBanner();
     } else {
       if (!document.getElementById('subscriptionExpiredBanner')) showSubscriptionExpiredBanner();
-      showPaymentBanner();  // Show payment banner when inactive
+      showPaymentBanner();
     }
   }, (err) => console.error('Subscription listener error:', err));
 }
@@ -261,20 +267,19 @@ async function updateFeeDisplay(schoolId, sub) {
   if (!feeContainer) return;
 
   const isActive = sub.status === 'active' && sub.locked === false;
-  const costPerStudent = sub.costPerStudent || 1000;
-
-  let totalActiveStudents = 0;
-  try {
-    const studentsQuery = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'));
-    const studentsSnap = await getDocs(studentsQuery);
-    totalActiveStudents = studentsSnap.size;
-  } catch (err) {
-    console.error('Failed to count active students:', err);
-  }
-
-  const totalFee = totalActiveStudents * costPerStudent;
+  const plan = sub.plan || 'Basic';
 
   if (!isActive) {
+    const costPerStudent = sub.costPerStudent || 1000;
+    let totalActiveStudents = 0;
+    try {
+      const studentsQuery = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'));
+      const studentsSnap = await getDocs(studentsQuery);
+      totalActiveStudents = studentsSnap.size;
+    } catch (err) {
+      console.error('Failed to count active students:', err);
+    }
+    const totalFee = totalActiveStudents * costPerStudent;
     feeContainer.innerHTML = `
       <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
         <strong>💰 Subscription Fee Due</strong><br>
@@ -286,25 +291,35 @@ async function updateFeeDisplay(schoolId, sub) {
     feeContainer.innerHTML = `
       <div style="background: #dcfce7; border-left: 4px solid #10b981; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
         <strong>✅ Subscription Active</strong><br>
-        Active students: ${totalActiveStudents} × ₦${costPerStudent} = <strong>₦${totalFee.toLocaleString()}</strong><br>
-        <small>Your subscription is active and up to date.</small>
+        Plan: ${plan}<br>
+        <small>Your subscription is active and all features are unlocked.</small>
       </div>
     `;
   }
 }
 
-function updatePendingExtraDisplay(sub) {
+async function updatePendingExtraDisplay(schoolId) {
   const pendingContainer = document.getElementById('pendingExtraContainer');
   if (!pendingContainer) return;
-  const pending = sub.extraStudentsPendingApproval || 0;
-  const costPerStudent = sub.costPerStudent || 1000;
-  const pendingFee = pending * costPerStudent;
-  if (pending > 0) {
+
+  let lockedCount = 0;
+  try {
+    const lockedQuery = query(
+      collection(db, 'students'),
+      where('schoolId', '==', schoolId),
+      where('locked', '==', true)
+    );
+    const lockedSnap = await getDocs(lockedQuery);
+    lockedCount = lockedSnap.size;
+  } catch (err) {
+    console.error('Failed to count locked students:', err);
+  }
+
+  if (lockedCount > 0) {
     pendingContainer.innerHTML = `
       <div style="background: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
         <strong>⏳ Pending Extra Students</strong><br>
-        ${pending} extra student(s) awaiting super-admin approval.<br>
-        Pending fee: ₦${pendingFee.toLocaleString()}<br>
+        ${lockedCount} student(s) awaiting super‑admin approval.<br>
         <small>These students are already added but will be covered once approved.</small>
       </div>
     `;
@@ -313,7 +328,7 @@ function updatePendingExtraDisplay(sub) {
   }
 }
 
-// ------------------- Academic Calendar (unchanged) -------------------
+// ------------------- Academic Calendar -------------------
 export function getCurrentAcademicSessionAndTerm() {
   const now = new Date();
   const year = now.getFullYear();
@@ -367,7 +382,7 @@ export async function initAcademicCalendar(schoolId) {
   }
 }
 
-// ------------------- Logo Upload (unchanged) -------------------
+// ------------------- Logo Upload -------------------
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve) => {
     const reader = new FileReader();

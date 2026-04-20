@@ -1,10 +1,11 @@
-// students.js - Manage students with subscription tracking
+// students.js - Manage students with subscription tracking + locked field
 import { db } from './firebase-config.js';
 import { 
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
 import { handleNewStudentAddition } from './plan.js';
+import { isSubscriptionActive } from './plan.js';
 
 let currentSchoolId = null;
 let subjectsMap = new Map();
@@ -19,7 +20,6 @@ let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPrevie
 let admissionNoInput;
 
 export async function initStudentsPage() {
-  // Enforce subscription and authentication
   await protectAdminPage();
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) {
@@ -313,6 +313,7 @@ async function loadAndDisplayStudents() {
     return;
   }
 
+  // Table without Subjects column, column header "Unlocked"
   container.innerHTML = `
     <div class="table-container">
       <table class="data-table">
@@ -323,28 +324,25 @@ async function loadAndDisplayStudents() {
             <th>Name</th>
             <th>Email</th>
             <th>Class</th>
-            <th>Subjects</th>
             <th>Status</th>
+            <th>Unlocked</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           ${students.map(student => {
             const className = classesMap.get(student.classId) || 'Unknown';
-            const subjectNames = (student.subjects || [])
-              .map(subjId => subjectsMap.get(subjId) || subjId)
-              .join(', ');
             const passportSrc = student.passport || '';
+            const lockedDisplay = student.locked ? 'Yes' : 'No';
             return `
               <tr>
                 <td>
-                  ${passportSrc ? `<img src="${passportSrc}" class="student-passport" alt="passport">` : '<div class="student-passport" style="background:#e2e8f0;"></div>'}
+                  ${passportSrc ? `<img src="${passportSrc}" class="student-passport" alt="passport" style="width:40px;height:40px;object-fit:cover;border-radius:50%;">` : '<div class="student-passport" style="width:40px;height:40px;background:#e2e8f0;border-radius:50%;"></div>'}
                 </td>
                 <td>${escapeHtml(student.admissionNumber || '—')}</td>
                 <td>${escapeHtml(student.name)}</td>
                 <td>${escapeHtml(student.email)}</td>
                 <td>${escapeHtml(className)}</td>
-                <td>${escapeHtml(subjectNames || '-')}</td>
                 <td>
                   <select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
                     <option value="active" ${(student.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
@@ -352,6 +350,7 @@ async function loadAndDisplayStudents() {
                     <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
                   </select>
                 </td>
+                <td>${lockedDisplay}</td>
                 <td>
                   <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
                   <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button>
@@ -505,6 +504,13 @@ async function handleStudentSubmit(e) {
     return;
   }
 
+  // Determine locked value for new students (only on creation)
+  let lockedValue = false;
+  if (!editingStudentId) {
+    const isActive = await isSubscriptionActive(currentSchoolId);
+    lockedValue = isActive ? true : false;
+  }
+
   const studentData = {
     admissionNumber,
     name,
@@ -518,17 +524,21 @@ async function handleStudentSubmit(e) {
     passport: passport || null,
     schoolId: currentSchoolId,
     updatedAt: new Date(),
-    subscriptionCovered: false     // new students not yet covered
+    subscriptionCovered: false
   };
+
+  if (!editingStudentId) {
+    studentData.locked = lockedValue;
+    studentData.createdAt = new Date();
+  }
 
   try {
     if (editingStudentId) {
+      // For update, never modify the 'locked' field
+      delete studentData.locked;
       await updateDoc(doc(db, 'students', editingStudentId), studentData);
     } else {
-      studentData.createdAt = new Date();
       await addDoc(collection(db, 'students'), studentData);
-      
-      // Update subscription counters (only for new students)
       await handleNewStudentAddition(currentSchoolId, 1);
     }
     closeModal();

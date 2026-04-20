@@ -1,4 +1,4 @@
-// scores.js - Teacher score entry with subscription check and UI blocking
+// scores.js - Teacher score entry with subscription check and locked student restrictions
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
@@ -9,6 +9,7 @@ import { canEnterScores } from './plan.js';
 let currentSchoolId = null;
 let teacherData = null;
 let subjectsMap = new Map();
+let classesMap = new Map();
 let studentsList = [];
 let selectedClassId = null;
 let selectedSubjectId = null;
@@ -17,7 +18,6 @@ let selectedSession = '';
 let currentGrading = { ca: 40, exam: 60 };
 let isScoreEntryAllowed = false;
 
-// ------------------- Helper Functions -------------------
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
@@ -55,9 +55,23 @@ async function loadSubjects() {
   snap.forEach(doc => subjectsMap.set(doc.id, doc.data().name));
 }
 
+async function loadClasses() {
+  const snap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+  classesMap.clear();
+  snap.forEach(doc => classesMap.set(doc.id, doc.data().name));
+}
+
 async function loadStudentsForClass(classId) {
-  const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId), where('classId', '==', classId)));
-  studentsList = snap.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+  const snap = await getDocs(query(
+    collection(db, 'students'),
+    where('schoolId', '==', currentSchoolId),
+    where('classId', '==', classId)
+  ));
+  studentsList = snap.docs.map(doc => ({
+    id: doc.id,
+    name: doc.data().name,
+    locked: doc.data().locked === true
+  }));
 }
 
 async function fetchExistingScores(studentId, subjectId, term, session) {
@@ -113,7 +127,7 @@ async function renderScoreTable() {
 
   let html = `<table class="scores-table">
     <thead>
-      <tr><th>Student Name</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total</th></tr>
+      <tr><th>Student Name</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total</th><th>Status</th></tr>
     </thead>
     <tbody>`;
   for (const student of studentsList) {
@@ -121,18 +135,22 @@ async function renderScoreTable() {
     const ca = existing?.ca || '';
     const exam = existing?.exam || '';
     const total = (ca && exam) ? (parseInt(ca) + parseInt(exam)) : '';
-    html += `<tr data-student-id="${student.id}">
+    const isLocked = student.locked === true;
+    const disabledAttr = (!isScoreEntryAllowed || isLocked) ? 'disabled' : '';
+    const statusText = isLocked ? '🔒 Not Approved' : '✅ Approved';
+    html += `<tr data-student-id="${student.id}" data-locked="${isLocked}">
       <td>${escapeHtml(student.name)}</td>
-      <td><input type="number" class="ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${!isScoreEntryAllowed ? 'disabled' : ''}></td>
-      <td><input type="number" class="exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${!isScoreEntryAllowed ? 'disabled' : ''}></td>
+      <td><input type="number" class="ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${disabledAttr}></td>
+      <td><input type="number" class="exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${disabledAttr}></td>
       <td class="total-cell">${total}</td>
+      <td class="status-cell">${statusText}</td>
     </tr>`;
   }
   html += `</tbody></table>`;
   container.innerHTML = html;
 
   if (isScoreEntryAllowed) {
-    document.querySelectorAll('.ca-input, .exam-input').forEach(input => {
+    document.querySelectorAll('.ca-input:not([disabled]), .exam-input:not([disabled])').forEach(input => {
       input.addEventListener('input', function() {
         const row = this.closest('tr');
         const ca = parseInt(row.querySelector('.ca-input').value) || 0;
@@ -153,18 +171,40 @@ async function saveScores() {
     alert('Select class and subject first');
     return;
   }
-  const scoresData = [];
+
   const rows = document.querySelectorAll('#scoresTableContainer tbody tr');
+  const scoresData = [];
+  const lockedStudents = [];
+
   for (const row of rows) {
     const studentId = row.dataset.studentId;
+    const isLocked = row.dataset.locked === 'true';
     const ca = parseInt(row.querySelector('.ca-input').value) || 0;
     const exam = parseInt(row.querySelector('.exam-input').value) || 0;
+
+    if (isLocked) {
+      const studentName = row.querySelector('td:first-child').textContent;
+      lockedStudents.push(studentName);
+      continue;
+    }
+
     if (ca > currentGrading.ca || exam > currentGrading.exam) {
       alert(`Invalid scores for ${row.querySelector('td:first-child').textContent}. CA max = ${currentGrading.ca}, Exam max = ${currentGrading.exam}`);
       return;
     }
     scoresData.push({ studentId, subjectId: selectedSubjectId, ca, exam });
   }
+
+  if (lockedStudents.length > 0) {
+    alert(`Cannot save scores for the following students because they are not approved:\n${lockedStudents.join('\n')}\n\nPlease contact your school administrator to unlock these students.`);
+    return;
+  }
+
+  if (scoresData.length === 0) {
+    alert('No score changes to save.');
+    return;
+  }
+
   try {
     await saveAllScores(scoresData);
     alert('Scores saved successfully');
@@ -184,31 +224,37 @@ async function initScoresPage() {
   currentSchoolId = teacherData.schoolId;
   if (!currentSchoolId) return;
 
-  // Check subscription status
   isScoreEntryAllowed = await canEnterScores(currentSchoolId);
 
-  await loadSubjects();
+  await Promise.all([loadSubjects(), loadClasses()]);
+
   const academic = await getSchoolAcademicInfo();
   const defaultSession = academic?.currentSession || generateSessionOptions()[0];
   const defaultTerm = academic?.currentTerm || '1';
 
-  // Populate class dropdown (from teacher's assigned classes)
+  // Populate class dropdown
   const classSelect = document.getElementById('classSelect');
-  const teacherClasses = teacherData.classes || [];
+  let teacherClasses = teacherData.classes || [];
+  if (!teacherClasses.length) {
+    teacherClasses = Array.from(classesMap.keys());
+  }
   classSelect.innerHTML = '<option value="">Select Class</option>';
   for (const clsId of teacherClasses) {
-    const classDoc = await getDoc(doc(db, 'classes', clsId));
-    const className = classDoc.exists() ? classDoc.data().name : clsId;
+    const className = classesMap.get(clsId) || clsId;
     classSelect.innerHTML += `<option value="${clsId}">${escapeHtml(className)}</option>`;
   }
 
+  // Populate subject dropdown - use teacher's assigned subjects if available, otherwise all subjects
   const subjectSelect = document.getElementById('subjectSelect');
-  const teacherSubjects = teacherData.subjects || [];
+  let teacherSubjects = teacherData.subjects || [];
+  if (!teacherSubjects.length) {
+    teacherSubjects = Array.from(subjectsMap.keys());
+  }
   subjectSelect.innerHTML = '<option value="">Select Subject</option>';
-  teacherSubjects.forEach(subjId => {
+  for (const subjId of teacherSubjects) {
     const subjName = subjectsMap.get(subjId) || subjId;
     subjectSelect.innerHTML += `<option value="${subjId}">${escapeHtml(subjName)}</option>`;
-  });
+  }
 
   const sessionSelect = document.getElementById('sessionSelect');
   const sessions = generateSessionOptions();
@@ -237,7 +283,6 @@ async function initScoresPage() {
   });
   document.getElementById('saveScoresBtn').addEventListener('click', saveScores);
 
-  // If subscription inactive, show a persistent banner and disable save button
   if (!isScoreEntryAllowed) {
     const saveBtn = document.getElementById('saveScoresBtn');
     if (saveBtn) {
@@ -245,7 +290,6 @@ async function initScoresPage() {
       saveBtn.style.opacity = '0.5';
       saveBtn.title = 'Subscription inactive – cannot save scores';
     }
-    // Add banner at the top of the scores container
     const container = document.getElementById('scoresContainer');
     if (container && !document.getElementById('subscriptionBanner')) {
       const banner = document.createElement('div');

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Super Admin</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
+    .dashboard-container { display: flex; min-height: 100vh; }
+    .sidebar { width: 260px; background: #0f172a; color: white; }
+    .sidebar-header { padding: 1.5rem; font-size: 1.5rem; font-weight: bold; border-bottom: 1px solid #1e293b; }
+    .sidebar-nav a { display: block; padding: 0.75rem 1.5rem; color: #cbd5e1; text-decoration: none; }
+    .sidebar-nav a:hover, .sidebar-nav a.active { background: #1e293b; color: white; }
+    .main-content { flex: 1; display: flex; flex-direction: column; }
+    .header { background: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .school-name h1 { margin: 0; font-size: 1.25rem; }
+    .content { padding: 2rem; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .stat-card { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+    .stat-number { font-size: 2rem; font-weight: bold; color: #3b82f6; }
+    .filters { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .filters input, .filters select { padding: 0.5rem; border-radius: 8px; border: 1px solid #cbd5e1; }
+    table { width: 100%; background: white; border-radius: 12px; overflow: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-collapse: collapse; }
+    th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; font-weight: 600; }
+    .status-badge { padding: 0.25rem 0.5rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+    .status-active { background: #d1fae5; color: #065f46; }
+    .status-expired { background: #fee2e2; color: #991b1b; }
+    .status-suspended { background: #fef3c7; color: #92400e; }
+    button { padding: 0.5rem 1rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-warning { background: #f59e0b; color: white; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 500px; }
+    .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+    @media (max-width: 768px) { .sidebar { display: none; } .stats-grid { grid-template-columns: 1fr; } th, td { font-size: 0.8rem; } }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+  <aside class="sidebar">
+    <div class="sidebar-header">Acadex</div>
+    <nav class="sidebar-nav">
+      <a href="super-admin.html" class="active">Schools</a>
+      <a href="super-admin-subscriptions.html">Subscriptions</a>
+    </nav>
+  </aside>
+  <main class="main-content">
+    <header class="header">
+      <div class="school-name"><h1>Super Admin Console</h1></div>
+      <button id="logoutBtn" class="btn-secondary">Logout</button>
+    </header>
+    <div class="content">
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card"><div class="stat-number" id="totalSchools">0</div><div>Total Schools</div></div>
+        <div class="stat-card"><div class="stat-number" id="activeSubscriptions">0</div><div>Active Subscriptions</div></div>
+        <div class="stat-card"><div class="stat-number" id="expiredSubscriptions">0</div><div>Expired</div></div>
+        <div class="stat-card"><div class="stat-number" id="totalStudentsSuper">0</div><div>Total Students</div></div>
+      </div>
+
+      <div class="filters">
+        <input type="text" id="searchSchool" placeholder="Search by name or email" style="flex:1">
+        <select id="filterStatus">
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="expired">Expired</option>
+        </select>
+        <button id="refreshBtn" class="btn-primary">Refresh</button>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table id="schoolsTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Plan</th>
+              <th>Total Students</th>
+              <th>Active Students</th>
+              <th>Pending Extra</th>
+              <th>Expires</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="schoolsTableBody"><tr><td colspan="9">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Only Approve Extra Modal remains -->
+<div id="approveExtraModal" class="modal">
+  <div class="modal-content">
+    <h3>Approve Extra Students</h3>
+    <p>Pending extra students: <span id="pendingCount">0</span></p>
+    <label>Approve count:</label>
+    <input type="number" id="approveCount" min="0">
+    <button id="confirmApproveBtn" class="btn-primary">Approve</button>
+    <button id="closeApproveModal">Cancel</button>
+  </div>
+</div>
+
+<script type="module" src="../js/super-admin.js"></script>
+</body>
+</html>

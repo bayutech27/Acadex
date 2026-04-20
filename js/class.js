@@ -1,4 +1,4 @@
-// class.js - Teacher report card page with subscription checks
+// class.js - Teacher report card page + broadsheet (full functionality)
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
@@ -16,7 +16,7 @@ let classesMap = new Map();
 let subjectsMap = new Map();
 let studentsList = [];
 let allSubjectsList = [];
-let isSubscriptionAllowed = false;   // NEW: subscription flag
+let isSubscriptionAllowed = false;
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
@@ -31,7 +31,6 @@ let reportState = {
   savedReportId: null
 };
 
-// Initialize psychomotor with defaults
 [...psychomotorSkillsList, ...affectiveSkillsList].forEach(skill => {
   const key = skill.toLowerCase().replace(/[^a-z]/g, '');
   reportState.psychomotor[key] = 3;
@@ -242,7 +241,7 @@ async function saveReportCard() {
   }
 }
 
-// ========== PRINT HANDLER (clone to new window) ==========
+// ========== PRINT HANDLER for report card ==========
 function printReportCard() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -302,7 +301,6 @@ function printReportCard() {
 
 // ------------------- Load Report Card using shared renderer -------------------
 async function loadReportCard(studentId, studentName) {
-  // Block if subscription not active
   if (!isSubscriptionAllowed) {
     const container = document.getElementById('reportCardContent');
     container.innerHTML = `
@@ -398,6 +396,197 @@ async function loadClassStudents() {
   });
 }
 
+// ==================== BROADSHEET FUNCTIONS (added) ====================
+async function fetchClassScores(classId, term, session) {
+  const classStudents = studentsList.filter(s => s.classId === classId);
+  if (!classStudents.length) return [];
+  const studentIds = classStudents.map(s => s.id);
+  const scores = [];
+  for (let i = 0; i < studentIds.length; i += 30) {
+    const chunk = studentIds.slice(i, i + 30);
+    const q = query(
+      collection(db, 'scores'),
+      where('studentId', 'in', chunk),
+      where('schoolId', '==', currentSchoolId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snap = await getDocs(q);
+    snap.forEach(doc => scores.push({ ...doc.data(), id: doc.id }));
+  }
+  return scores;
+}
+
+async function generateBroadsheet() {
+  if (!isSubscriptionAllowed) {
+    const container = document.getElementById('broadsheetContainer');
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;">
+        <h3>⚠️ Subscription Required</h3>
+        <p>Broadsheets are unavailable because the school subscription is inactive.</p>
+      </div>
+    `;
+    document.getElementById('broadsheetActions').style.display = 'none';
+    return;
+  }
+  const classId = document.getElementById('broadsheetClassSelect')?.value;
+  const session = document.getElementById('broadsheetSessionSelect')?.value;
+  const term = document.getElementById('broadsheetTermSelect')?.value;
+  if (!classId || !session || !term) { alert('Please select Class, Session and Term'); return; }
+
+  const className = classesMap.get(classId) || 'Class';
+  const classStudents = studentsList.filter(s => s.classId === classId);
+  if (!classStudents.length) {
+    const container = document.getElementById('broadsheetContainer');
+    if (container) container.innerHTML = '<div class="alert">No students found in this class.</div>';
+    return;
+  }
+
+  const allScores = await fetchClassScores(classId, term, session);
+  const scoresByStudent = new Map();
+  for (const score of allScores) {
+    if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
+    scoresByStudent.get(score.studentId).push(score);
+  }
+
+  const studentResults = [];
+  for (const student of classStudents) {
+    const scores = scoresByStudent.get(student.id) || [];
+    const scoreMap = new Map();
+    scores.forEach(s => { scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }); });
+    let totalScore = 0;
+    const subjectDetails = [];
+    for (const subj of allSubjectsList) {
+      const score = scoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
+      totalScore += score.total;
+      subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
+    }
+    const totalObtainable = allSubjectsList.length * 100;
+    const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
+    const grade = calculateGrade(average);
+    const remark = getGradeRemark(grade);
+    studentResults.push({
+      studentId: student.id,
+      studentName: student.name,
+      totalScore,
+      average,
+      grade,
+      remark,
+      subjectDetails
+    });
+  }
+
+  studentResults.sort((a, b) => b.totalScore - a.totalScore);
+  let rank = 1;
+  for (let i = 0; i < studentResults.length; i++) {
+    if (i > 0 && studentResults[i].totalScore < studentResults[i - 1].totalScore) rank = i + 1;
+    studentResults[i].position = rank;
+  }
+
+  let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
+  html += `<div style="overflow-x: auto;"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
+  html += `<thead><tr><th>S/N</th><th>Student Name</th>`;
+  for (const subj of allSubjectsList) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
+  html += `<th>% Avg</th><th>Grade</th><th>Remark</th><th>Position</th></td>`;
+  html += `<tr><th></th><th></th>`;
+  for (let i = 0; i < allSubjectsList.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
+  html += `<th></th><th></th><th></th><th></th></tr></thead><tbody>`;
+
+  for (let i = 0; i < studentResults.length; i++) {
+    const r = studentResults[i];
+    html += `<tr>`;
+    html += `<td>${i + 1}</td>`;
+    html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+    for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
+    html += `<td>${r.average.toFixed(1)}%</td>`;
+    html += `<td>${r.grade}</td>`;
+    html += `<td>${r.remark}</td>`;
+    html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
+    html += `</tr>`;
+  }
+  html += `</tbody></table></div>`;
+  const container = document.getElementById('broadsheetContainer');
+  if (container) container.innerHTML = html;
+  const actions = document.getElementById('broadsheetActions');
+  if (actions) actions.style.display = 'flex';
+  window.currentBroadsheetData = { classId, session, term, studentResults, subjects: allSubjectsList };
+}
+
+async function saveBroadsheetToFirestore() {
+  if (!isSubscriptionAllowed) {
+    alert('Cannot save broadsheet – subscription inactive.');
+    return;
+  }
+  if (!window.currentBroadsheetData) { alert('No broadsheet data to save. Generate first.'); return; }
+  const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
+  const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
+  const broadsheetData = {
+    schoolId: currentSchoolId,
+    classId,
+    session,
+    term,
+    students: studentResults.map(s => ({
+      studentId: s.studentId,
+      studentName: s.studentName,
+      totalScore: s.totalScore,
+      average: s.average,
+      grade: s.grade,
+      remark: s.remark,
+      position: s.position,
+      subjectDetails: s.subjectDetails
+    })),
+    subjects: subjects.map(s => ({ id: s.id, name: s.name })),
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  try {
+    await setDoc(doc(db, 'broadsheets', docId), broadsheetData, { merge: true });
+    alert('Broadsheet saved successfully.');
+  } catch (err) {
+    if (err.code === 'permission-denied') {
+      alert('Permission denied. Subscription required to save broadsheets.');
+    } else {
+      console.error(err);
+      alert('Save failed.');
+    }
+  }
+}
+
+function printBroadsheet() {
+  const container = document.getElementById('broadsheetContainer');
+  if (!container || !container.innerHTML.trim()) { alert('No broadsheet to print.'); return; }
+  const originalContent = container.cloneNode(true);
+  const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    alert('Please allow popups.');
+    return;
+  }
+  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+  const inlineStyles = Array.from(document.querySelectorAll('style'))
+    .map(style => style.innerHTML)
+    .join('\n');
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head><title>${title}</title>
+    <link rel="stylesheet" href="${externalCssUrl}">
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; margin: 20px; }
+      .broadsheet-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      .broadsheet-table th, .broadsheet-table td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
+      .student-name-cell { text-align: left; }
+      @media print { @page { size: landscape; margin: 1cm; } body { margin: 0; } }
+      ${inlineStyles}
+    </style>
+    </head>
+    <body>${originalContent.outerHTML}</body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.print();
+}
+
 // ------------------- Initialisation -------------------
 export async function initClassReportPage() {
   teacherData = getTeacherData();
@@ -414,31 +603,57 @@ export async function initClassReportPage() {
     return;
   }
 
-  // Check subscription status
   isSubscriptionAllowed = await canEnterScores(currentSchoolId);
 
   await fetchClassName();
   await loadSubjectsAndClasses();
   await loadStudentsList();
 
-  const academic = await getSchoolAcademicInfo();
-  const defaultSession = academic?.currentSession || generateSessionOptions()[0];
-  const defaultTerm = academic?.currentTerm || '1';
+  // Populate broadsheet dropdowns
+  const broadsheetClassSelect = document.getElementById('broadsheetClassSelect');
+  if (broadsheetClassSelect) {
+    broadsheetClassSelect.innerHTML = '<option value="">-- Select Class --</option>';
+    for (let [id, name] of classesMap) {
+      broadsheetClassSelect.innerHTML += `<option value="${id}">${escapeHtml(name)}</option>`;
+    }
+  }
+  const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
+  const sessions = generateSessionOptions();
+  broadsheetSessionSelect.innerHTML = sessions.map(s => `<option value="${s}">${s}</option>`).join('');
+  const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
+  broadsheetTermSelect.value = '1';
 
+  // Populate report card session dropdown
   const sessionSelect = document.getElementById('sessionSelect');
-  sessionSelect.innerHTML = generateSessionOptions().map(s => `<option value="${s}" ${s === defaultSession ? 'selected' : ''}>${s}</option>`).join('');
+  sessionSelect.innerHTML = sessions.map(s => `<option value="${s}">${s}</option>`).join('');
+  document.getElementById('termSelect').value = '1';
+
+  const academic = await getSchoolAcademicInfo();
+  const defaultSession = academic?.currentSession || sessions[0];
+  const defaultTerm = academic?.currentTerm || '1';
+  if (sessionSelect) sessionSelect.value = defaultSession;
+  if (broadsheetSessionSelect) broadsheetSessionSelect.value = defaultSession;
   document.getElementById('termSelect').value = defaultTerm;
+  broadsheetTermSelect.value = defaultTerm;
 
   await loadGradingSetting(defaultSession, defaultTerm);
   await loadClassStudents();
 
-  // Event listeners
+  // Event listeners for report card
   document.getElementById('termSelect').addEventListener('change', () => loadClassStudents());
   document.getElementById('sessionSelect').addEventListener('change', () => loadClassStudents());
   document.getElementById('refreshStudentsBtn')?.addEventListener('click', () => loadClassStudents());
   document.getElementById('saveReportBtn')?.addEventListener('click', saveReportCard);
   const printBtn = document.getElementById('printReportBtn');
   if (printBtn) printBtn.addEventListener('click', printReportCard);
+
+  // Event listeners for broadsheet
+  const generateBtn = document.getElementById('generateBroadsheetBtn');
+  if (generateBtn) generateBtn.addEventListener('click', generateBroadsheet);
+  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
+  if (saveBroadsheetBtn) saveBroadsheetBtn.addEventListener('click', saveBroadsheetToFirestore);
+  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
+  if (printBroadsheetBtn) printBroadsheetBtn.addEventListener('click', printBroadsheet);
 
   // Disable features if subscription not active
   if (!isSubscriptionAllowed) {
@@ -451,11 +666,14 @@ export async function initClassReportPage() {
       printBtn.disabled = true;
       printBtn.style.opacity = '0.5';
     }
+    if (generateBtn) generateBtn.disabled = true;
+    if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
+    if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
     const warningDiv = document.createElement('div');
     warningDiv.className = 'subscription-warning';
     warningDiv.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; margin-bottom: 16px; border-radius: 8px;';
-    warningDiv.innerHTML = '⚠️ Subscription inactive. Report card editing and printing are disabled. Please contact your administrator to renew.';
-    const container = document.querySelector('.report-card-area');
+    warningDiv.innerHTML = '⚠️ Subscription inactive. Report card and broadsheet features are disabled. Please contact your administrator to renew.';
+    const container = document.querySelector('.class-report-container');
     if (container) container.prepend(warningDiv);
   }
 }

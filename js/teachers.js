@@ -17,7 +17,6 @@ let teacherForm, modal, nameInput, emailInput, subjectsSelect, classesSelect, cl
 let secondaryAuth = null;
 function initSecondaryAuth() {
   if (!secondaryAuth) {
-    // Get the primary app's config from the existing auth object
     const primaryApp = auth.app;
     const firebaseConfig = primaryApp.options;
     const secondaryApp = initializeApp(firebaseConfig, 'secondary');
@@ -41,7 +40,7 @@ export async function initTeachersPage() {
   }
 
   currentSchoolId = await getCurrentSchoolId();
-  initSecondaryAuth(); // prepare secondary auth instance
+  initSecondaryAuth();
   
   await loadSubjects();
   await loadClasses();
@@ -215,6 +214,48 @@ function closeModal() {
   teacherForm.reset();
 }
 
+// ========== VALIDATION FUNCTIONS ==========
+async function checkSubjectConflicts(subjectIds, excludeTeacherId = null) {
+  if (!subjectIds.length) return null;
+  
+  const teachersRef = collection(db, 'teachers');
+  const q = query(teachersRef, where('schoolId', '==', currentSchoolId));
+  const snapshot = await getDocs(q);
+  const conflictingSubjects = [];
+
+  for (const subjectId of subjectIds) {
+    for (const docSnap of snapshot.docs) {
+      const teacher = docSnap.data();
+      if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
+      if (teacher.subjectIds && teacher.subjectIds.includes(subjectId)) {
+        const subjectName = subjectsMap.get(subjectId) || subjectId;
+        conflictingSubjects.push(subjectName);
+        break;
+      }
+    }
+  }
+  
+  if (conflictingSubjects.length) {
+    return `The following subjects are already assigned to another teacher: ${conflictingSubjects.join(', ')}`;
+  }
+  return null;
+}
+
+async function checkClassTeacherConflict(classId, excludeTeacherId = null) {
+  if (!classId) return null;
+  
+  const teachersRef = collection(db, 'teachers');
+  const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('isClassTeacher', '==', true), where('hostClassId', '==', classId));
+  const snapshot = await getDocs(q);
+  
+  for (const docSnap of snapshot.docs) {
+    if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
+    const className = classesMap.get(classId) || classId;
+    return `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
+  }
+  return null;
+}
+
 async function handleTeacherSubmit(e) {
   e.preventDefault();
   const name = nameInput.value.trim();
@@ -227,6 +268,22 @@ async function handleTeacherSubmit(e) {
   if (!name || !email) {
     alert('Please fill in all fields.');
     return;
+  }
+
+  // 1. Check subject conflicts
+  const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, editingTeacherId);
+  if (subjectConflictMsg) {
+    alert(subjectConflictMsg);
+    return;
+  }
+
+  // 2. Check class teacher conflict
+  if (isClassTeacher) {
+    const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, editingTeacherId);
+    if (classTeacherConflictMsg) {
+      alert(classTeacherConflictMsg);
+      return;
+    }
   }
 
   const teacherData = {
@@ -242,6 +299,7 @@ async function handleTeacherSubmit(e) {
 
   try {
     if (editingTeacherId) {
+      // Update existing teacher
       await updateDoc(doc(db, 'teachers', editingTeacherId), teacherData);
       alert('Teacher updated successfully.');
       closeModal();
@@ -251,7 +309,6 @@ async function handleTeacherSubmit(e) {
       const defaultPassword = '$Acadex123';
       const secondaryAuthInstance = initSecondaryAuth();
       
-      // 1. Create Auth user with secondary instance (does NOT affect admin session)
       let userCredential;
       try {
         userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
@@ -266,11 +323,8 @@ async function handleTeacherSubmit(e) {
       }
       
       const uid = userCredential.user.uid;
-      
-      // 2. Prepare Firestore entries
       const timestamp = serverTimestamp();
       
-      // Users collection (role document)
       const userDocData = {
         email,
         role: 'teacher',
@@ -281,14 +335,12 @@ async function handleTeacherSubmit(e) {
         createdAt: timestamp
       };
       
-      // Teachers collection (additional teacher-specific data)
       const teacherDocData = {
         ...teacherData,
         authUid: uid,
         createdAt: timestamp
       };
       
-      // 3. Write both documents
       await setDoc(doc(db, 'users', uid), userDocData);
       await setDoc(doc(db, 'teachers', uid), teacherDocData);
       
