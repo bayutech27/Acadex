@@ -19,17 +19,10 @@ import {
   writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getUserData, getSchoolById } from './app.js';
+import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 function showMessage(message, isError = true) {
-  const msgDiv = document.getElementById('message');
-  if (!msgDiv) return;
-  msgDiv.textContent = message;
-  msgDiv.className = `message ${isError ? 'error' : 'success'}`;
-  msgDiv.style.display = 'block';
-  setTimeout(() => {
-    msgDiv.style.display = 'none';
-    msgDiv.className = 'message';
-  }, 4000);
+  showNotification(message, isError ? "error" : "success");
 }
 
 function formatSlug(slug) {
@@ -37,10 +30,15 @@ function formatSlug(slug) {
 }
 
 async function isSlugTaken(slug) {
-  const schoolsRef = collection(db, 'schools');
-  const q = query(schoolsRef, where('slug', '==', slug));
-  const querySnapshot = await getDocs(q);
-  return !querySnapshot.empty;
+  try {
+    const schoolsRef = collection(db, 'schools');
+    const q = query(schoolsRef, where('slug', '==', slug));
+    const querySnapshot = await getDocs(q);
+    return !querySnapshot.empty;
+  } catch (err) {
+    handleError(err, "Failed to check school URL availability.");
+    return true; // assume taken to be safe
+  }
 }
 
 async function isEmailAlreadyRegistered(email) {
@@ -98,6 +96,7 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     return;
   }
 
+  showLoader();
   try {
     const slugExists = await isSlugTaken(slug);
     if (slugExists) {
@@ -166,6 +165,7 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     // Commit the batch
     await batch.commit();
     console.log('Signup successful – school, user, and subscription created.');
+    showMessage('Account created successfully! Redirecting...', false);
 
     localStorage.setItem('schoolSlug', slug);
     window.location.href = `/?school=${slug}`;
@@ -182,11 +182,14 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       errorMessage += error.message;
     }
     showMessage(errorMessage, true);
+  } finally {
+    hideLoader();
   }
 }
 
 // ---------- LOGIN – STRICT ROLE REDIRECT ----------
 export async function loginUser(email, password) {
+  showLoader();
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
@@ -202,6 +205,8 @@ export async function loginUser(email, password) {
 
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', role);
+
+    showMessage(`Welcome back! Redirecting to ${role} dashboard.`, false);
 
     if (role === 'super-admin') {
       window.location.href = '/super-admin.html';
@@ -221,6 +226,8 @@ export async function loginUser(email, password) {
       errorMessage += error.message;
     }
     showMessage(errorMessage, true);
+  } finally {
+    hideLoader();
   }
 }
 
@@ -230,14 +237,15 @@ export async function logoutUser() {
     localStorage.removeItem('userRole');
     localStorage.removeItem('teacherId');
     await signOut(auth);
+    showNotification("Logged out successfully.", "success");
     window.location.href = '/';
   } catch (error) {
-    console.error('Logout error:', error);
-    alert('Logout failed: ' + error.message);
+    handleError(error, "Logout failed. Please try again.");
   }
 }
 
 export async function resetPassword(email) {
+  showLoader();
   try {
     await sendPasswordResetEmail(auth, email);
     showMessage('Password reset email sent! Check your inbox.', false);
@@ -250,6 +258,8 @@ export async function resetPassword(email) {
       errorMessage += error.message;
     }
     showMessage(errorMessage, true);
+  } finally {
+    hideLoader();
   }
 }
 
@@ -257,16 +267,20 @@ export async function resetPassword(email) {
 export function initLoginPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const role = userDoc.data().role;
-        if (role === 'super-admin') {
-          window.location.href = '/super-admin.html';
-        } else if (role === 'admin') {
-          window.location.href = '/admin/admin-dashboard.html';
-        } else if (role === 'teacher') {
-          window.location.href = '/teacher/teacher-dashboard.html';
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const role = userDoc.data().role;
+          if (role === 'super-admin') {
+            window.location.href = '/super-admin.html';
+          } else if (role === 'admin') {
+            window.location.href = '/admin/admin-dashboard.html';
+          } else if (role === 'teacher') {
+            window.location.href = '/teacher/teacher-dashboard.html';
+          }
         }
+      } catch (err) {
+        handleError(err, "Failed to verify user role.");
       }
     }
   });
@@ -275,26 +289,36 @@ export function initLoginPage() {
   if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
+      const email = document.getElementById('email')?.value;
+      const password = document.getElementById('password')?.value;
+      if (!email || !password) {
+        showNotification("Please enter both email and password.", "error");
+        return;
+      }
       await loginUser(email, password);
     });
+  } else {
+    console.warn("Login form not found on this page.");
   }
 }
 
 export function initSignupPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const role = userDoc.data().role;
-        if (role === 'super-admin') {
-          window.location.href = '/super-admin.html';
-        } else if (role === 'admin') {
-          window.location.href = '/admin/admin-dashboard.html';
-        } else if (role === 'teacher') {
-          window.location.href = '/teacher/teacher-dashboard.html';
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const role = userDoc.data().role;
+          if (role === 'super-admin') {
+            window.location.href = '/super-admin.html';
+          } else if (role === 'admin') {
+            window.location.href = '/admin/admin-dashboard.html';
+          } else if (role === 'teacher') {
+            window.location.href = '/teacher/teacher-dashboard.html';
+          }
         }
+      } catch (err) {
+        handleError(err, "Failed to verify user role.");
       }
     }
   });
@@ -303,29 +327,39 @@ export function initSignupPage() {
   if (signupForm) {
     signupForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const schoolName = document.getElementById('schoolName').value;
-      const schoolSlug = document.getElementById('schoolSlug').value;
-      const schoolAddress = document.getElementById('schoolAddress').value;
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
+      const schoolName = document.getElementById('schoolName')?.value;
+      const schoolSlug = document.getElementById('schoolSlug')?.value;
+      const schoolAddress = document.getElementById('schoolAddress')?.value;
+      const email = document.getElementById('email')?.value;
+      const password = document.getElementById('password')?.value;
+      if (!schoolName || !schoolSlug || !email || !password) {
+        showNotification("Please fill all required fields.", "error");
+        return;
+      }
       await signupSchool(schoolName, schoolSlug, schoolAddress, email, password);
     });
+  } else {
+    console.warn("Signup form not found on this page.");
   }
 }
 
 export function initResetPasswordPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const role = userDoc.data().role;
-        if (role === 'super-admin') {
-          window.location.href = '/super-admin.html';
-        } else if (role === 'admin') {
-          window.location.href = '/admin/admin-dashboard.html';
-        } else if (role === 'teacher') {
-          window.location.href = '/teacher/teacher-dashboard.html';
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const role = userDoc.data().role;
+          if (role === 'super-admin') {
+            window.location.href = '/super-admin.html';
+          } else if (role === 'admin') {
+            window.location.href = '/admin/admin-dashboard.html';
+          } else if (role === 'teacher') {
+            window.location.href = '/teacher/teacher-dashboard.html';
+          }
         }
+      } catch (err) {
+        handleError(err, "Failed to verify user role.");
       }
     }
   });
@@ -334,9 +368,15 @@ export function initResetPasswordPage() {
   if (resetForm) {
     resetForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = document.getElementById('email').value;
+      const email = document.getElementById('email')?.value;
+      if (!email) {
+        showNotification("Please enter your email address.", "error");
+        return;
+      }
       await resetPassword(email);
     });
+  } else {
+    console.warn("Reset form not found on this page.");
   }
 }
 
@@ -347,15 +387,21 @@ export async function initAdminDashboard() {
       return;
     }
 
-    const userData = await getUserData();
-    if (!userData || userData.role !== 'admin') {
-      window.location.href = '/';
-      return;
-    }
+    try {
+      const userData = await getUserData();
+      if (!userData || userData.role !== 'admin') {
+        window.location.href = '/';
+        return;
+      }
 
-    document.getElementById('userEmail').textContent = userData.email;
-    const school = await getSchoolById(userData.schoolId);
-    document.getElementById('schoolName').textContent = school ? school.name : 'Unknown School';
+      const userEmailEl = document.getElementById('userEmail');
+      if (userEmailEl) userEmailEl.textContent = userData.email;
+      const school = await getSchoolById(userData.schoolId);
+      const schoolNameEl = document.getElementById('schoolName');
+      if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
+    } catch (err) {
+      handleError(err, "Failed to load admin dashboard data.");
+    }
   });
 
   const logoutBtn = document.getElementById('logoutBtn');

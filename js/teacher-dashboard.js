@@ -4,6 +4,7 @@ import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/f
 import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getSchoolById, getCurrentAcademicSessionAndTerm } from './app.js';
 import { logoutUser } from './auth.js';
+import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentTeacherId = null;
 let currentSchoolId = null;
@@ -26,7 +27,7 @@ export async function protectTeacherPage() {
         const userDocSnap = await getDoc(userDocRef);
         
         if (!userDocSnap.exists()) {
-          alert('User profile not found. Please contact admin.');
+          showNotification("User profile not found. Please contact admin.", "error");
           window.location.href = '/';
           return;
         }
@@ -34,14 +35,14 @@ export async function protectTeacherPage() {
         userRoleData = userDocSnap.data();
         
         if (userRoleData.role !== 'teacher') {
-          alert('Access denied. Teachers only.');
+          showNotification("Access denied. Teachers only.", "error");
           window.location.href = '/';
           return;
         }
         
         currentSchoolId = userRoleData.schoolId;
         if (!currentSchoolId) {
-          alert('School association missing. Contact admin.');
+          showNotification("School association missing. Contact admin.", "error");
           window.location.href = '/';
           return;
         }
@@ -69,8 +70,7 @@ export async function protectTeacherPage() {
         resolve({ user, userData: userRoleData, teacherData, teacherName });
         
       } catch (error) {
-        console.error('Error protecting teacher page:', error);
-        alert('Authorization error. Please log in again.');
+        handleError(error, "Authorization error. Please log in again.");
         window.location.href = '/';
         reject(error);
       }
@@ -91,20 +91,24 @@ export function displayTeacherName(name) {
 // ------------------- School Info with Address -------------------
 export async function loadSchoolInfo() {
   if (!currentSchoolId) return;
-  const school = await getSchoolById(currentSchoolId);
-  const schoolNameEl = document.getElementById('schoolName');
-  const schoolAddressEl = document.getElementById('schoolAddress');
-  if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
-  if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
-  
-  const logoImg = document.getElementById('schoolLogoImg');
-  if (logoImg && school?.logo) {
-    logoImg.src = school.logo;
-  } else if (logoImg) {
-    logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
+  try {
+    const school = await getSchoolById(currentSchoolId);
+    const schoolNameEl = document.getElementById('schoolName');
+    const schoolAddressEl = document.getElementById('schoolAddress');
+    if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
+    if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
+    
+    const logoImg = document.getElementById('schoolLogoImg');
+    if (logoImg && school?.logo) {
+      logoImg.src = school.logo;
+    } else if (logoImg) {
+      logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
+    }
+    
+    await loadAcademicInfo();
+  } catch (err) {
+    handleError(err, "Failed to load school information.");
   }
-  
-  await loadAcademicInfo();
 }
 
 async function loadAcademicInfo() {
@@ -125,11 +129,19 @@ export function setupLogoUpload() {
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (file && file.type.startsWith('image/')) {
-        const compressed = await compressImage(file);
-        if (compressed) {
-          await updateDoc(doc(db, 'schools', currentSchoolId), { logo: compressed });
-          const logoImg = document.getElementById('schoolLogoImg');
-          if (logoImg) logoImg.src = compressed;
+        showLoader();
+        try {
+          const compressed = await compressImage(file);
+          if (compressed) {
+            await updateDoc(doc(db, 'schools', currentSchoolId), { logo: compressed });
+            const logoImg = document.getElementById('schoolLogoImg');
+            if (logoImg) logoImg.src = compressed;
+            showNotification("Logo updated successfully.", "success");
+          }
+        } catch (err) {
+          handleError(err, "Failed to upload logo.");
+        } finally {
+          hideLoader();
         }
       }
       fileInput.value = '';
@@ -138,7 +150,7 @@ export function setupLogoUpload() {
 }
 
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -162,8 +174,10 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
         }
         resolve(dataUrl);
       };
+      img.onerror = () => reject(new Error("Image loading failed"));
       img.src = e.target.result;
     };
+    reader.onerror = () => reject(new Error("File reading failed"));
     reader.readAsDataURL(file);
   });
 }
@@ -172,6 +186,7 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
 export function setupSidebar() {
   const currentPage = window.location.pathname.split('/').pop();
   const links = document.querySelectorAll('.sidebar-nav a');
+  if (links.length === 0) return;
   links.forEach(link => {
     const href = link.getAttribute('href');
     if (href === currentPage) link.classList.add('active');
@@ -183,7 +198,11 @@ export function setupLogout() {
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      await logoutUser();
+      try {
+        await logoutUser();
+      } catch (err) {
+        handleError(err, "Logout failed.");
+      }
     });
   }
 }
@@ -250,12 +269,16 @@ async function loadClassesForTeacher() {
   const classSelect = document.getElementById('classSelect');
   if (!classSelect) return;
   
-  const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-  
-  classSelect.innerHTML = '<option value="">-- Select Class --</option>' +
-    classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  try {
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    classSelect.innerHTML = '<option value="">-- Select Class --</option>' +
+      classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  } catch (err) {
+    handleError(err, "Failed to load classes.");
+  }
 }
 
 async function loadSubjectsForTeacher() {
@@ -268,44 +291,53 @@ async function loadSubjectsForTeacher() {
     return;
   }
   
-  const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  const allSubjects = {};
-  snapshot.docs.forEach(doc => {
-    allSubjects[doc.id] = doc.data().name;
-  });
-  
-  const options = teacherSubjects.map(subjId => {
-    const name = allSubjects[subjId] || subjId;
-    return `<option value="${subjId}">${escapeHtml(name)}</option>`;
-  }).join('');
-  
-  subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' + options;
+  try {
+    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    const allSubjects = {};
+    snapshot.docs.forEach(doc => {
+      allSubjects[doc.id] = doc.data().name;
+    });
+    
+    const options = teacherSubjects.map(subjId => {
+      const name = allSubjects[subjId] || subjId;
+      return `<option value="${subjId}">${escapeHtml(name)}</option>`;
+    }).join('');
+    
+    subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' + options;
+  } catch (err) {
+    handleError(err, "Failed to load subjects.");
+  }
 }
 
 async function loadScoringConfig() {
-  const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  
-  let caWeight = 30, examWeight = 70;
-  
-  if (!snapshot.empty) {
-    const data = snapshot.docs[0].data();
-    if (data.grading && typeof data.grading === 'string') {
-      const parts = data.grading.split('/');
-      if (parts.length === 2) {
-        caWeight = parseInt(parts[0], 10) || 30;
-        examWeight = parseInt(parts[1], 10) || 70;
+  try {
+    const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    
+    let caWeight = 30, examWeight = 70;
+    
+    if (!snapshot.empty) {
+      const data = snapshot.docs[0].data();
+      if (data.grading && typeof data.grading === 'string') {
+        const parts = data.grading.split('/');
+        if (parts.length === 2) {
+          caWeight = parseInt(parts[0], 10) || 30;
+          examWeight = parseInt(parts[1], 10) || 70;
+        }
+      } else if (data.caWeight !== undefined && data.examWeight !== undefined) {
+        caWeight = data.caWeight;
+        examWeight = data.examWeight;
       }
-    } else if (data.caWeight !== undefined && data.examWeight !== undefined) {
-      caWeight = data.caWeight;
-      examWeight = data.examWeight;
+    } else {
+      console.warn('No scoring config found, using defaults 30/70');
     }
-  } else {
-    console.warn('No scoring config found, using defaults 30/70');
+    
+    scoresState.scoringConfig = { caWeight, examWeight };
+  } catch (err) {
+    handleError(err, "Failed to load scoring configuration.");
+    scoresState.scoringConfig = { caWeight: 30, examWeight: 70 };
   }
-  
-  scoresState.scoringConfig = { caWeight, examWeight };
 }
 
 function updateScoringInfoDisplay() {
@@ -317,13 +349,13 @@ function updateScoringInfoDisplay() {
 }
 
 async function loadStudents() {
-  const classId = document.getElementById('classSelect').value;
-  const subjectId = document.getElementById('subjectSelect').value;
-  const term = document.getElementById('termSelect').value;
-  const session = document.getElementById('sessionSelect').value;
+  const classId = document.getElementById('classSelect')?.value;
+  const subjectId = document.getElementById('subjectSelect')?.value;
+  const term = document.getElementById('termSelect')?.value;
+  const session = document.getElementById('sessionSelect')?.value;
   
   if (!classId || !subjectId || !term || !session) {
-    showMessage('Please select class, subject, term and session.', 'error');
+    showNotification("Please select class, subject, term and session.", "error");
     return;
   }
   
@@ -332,58 +364,73 @@ async function loadStudents() {
   scoresState.currentTerm = term;
   scoresState.currentSession = session;
   
-  const studentsRef = collection(db, 'students');
-  const q = query(
-    studentsRef,
-    where('schoolId', '==', currentSchoolId),
-    where('classId', '==', classId)
-  );
-  const snapshot = await getDocs(q);
-  const allStudents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  
-  const filteredStudents = allStudents.filter(s => 
-    s.subjects && Array.isArray(s.subjects) && s.subjects.includes(subjectId)
-  );
-  
-  if (filteredStudents.length === 0) {
-    showMessage('No students found for this class and subject.', 'error');
-    document.getElementById('studentsTableContainer').innerHTML = '<p>No students assigned to this subject in this class.</p>';
-    document.getElementById('actionButtons').style.display = 'none';
-    return;
+  showLoader();
+  try {
+    const studentsRef = collection(db, 'students');
+    const q = query(
+      studentsRef,
+      where('schoolId', '==', currentSchoolId),
+      where('classId', '==', classId)
+    );
+    const snapshot = await getDocs(q);
+    const allStudents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    const filteredStudents = allStudents.filter(s => 
+      s.subjects && Array.isArray(s.subjects) && s.subjects.includes(subjectId)
+    );
+    
+    if (filteredStudents.length === 0) {
+      showNotification("No students found for this class and subject.", "error");
+      const container = document.getElementById('studentsTableContainer');
+      if (container) container.innerHTML = '<p>No students assigned to this subject in this class.</p>';
+      const actions = document.getElementById('actionButtons');
+      if (actions) actions.style.display = 'none';
+      return;
+    }
+    
+    scoresState.students = filteredStudents;
+    await loadExistingScores();
+    renderStudentsTable();
+    const actions = document.getElementById('actionButtons');
+    if (actions) actions.style.display = 'block';
+    showNotification(`${filteredStudents.length} students loaded.`, "success");
+  } catch (err) {
+    handleError(err, "Failed to load students.");
+  } finally {
+    hideLoader();
   }
-  
-  scoresState.students = filteredStudents;
-  await loadExistingScores();
-  renderStudentsTable();
-  document.getElementById('actionButtons').style.display = 'block';
-  showMessage(`${filteredStudents.length} students loaded.`, 'success');
 }
 
 async function loadExistingScores() {
-  const scoresRef = collection(db, 'scores');
-  const q = query(
-    scoresRef,
-    where('schoolId', '==', currentSchoolId),
-    where('subjectId', '==', scoresState.currentSubjectId),
-    where('classId', '==', scoresState.currentClassId),
-    where('term', '==', scoresState.currentTerm),
-    where('session', '==', scoresState.currentSession)
-  );
-  const snapshot = await getDocs(q);
-  scoresState.scoresData = {};
-  snapshot.docs.forEach(doc => {
-    const data = doc.data();
-    scoresState.scoresData[data.studentId] = {
-      ca: data.ca || 0,
-      exam: data.exam || 0,
-      total: data.total || 0,
-      scoreId: doc.id
-    };
-  });
+  try {
+    const scoresRef = collection(db, 'scores');
+    const q = query(
+      scoresRef,
+      where('schoolId', '==', currentSchoolId),
+      where('subjectId', '==', scoresState.currentSubjectId),
+      where('classId', '==', scoresState.currentClassId),
+      where('term', '==', scoresState.currentTerm),
+      where('session', '==', scoresState.currentSession)
+    );
+    const snapshot = await getDocs(q);
+    scoresState.scoresData = {};
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      scoresState.scoresData[data.studentId] = {
+        ca: data.ca || 0,
+        exam: data.exam || 0,
+        total: data.total || 0,
+        scoreId: doc.id
+      };
+    });
+  } catch (err) {
+    handleError(err, "Failed to load existing scores.");
+  }
 }
 
 function renderStudentsTable() {
   const container = document.getElementById('studentsTableContainer');
+  if (!container) return;
   const { caWeight, examWeight } = scoresState.scoringConfig;
   
   let html = `
@@ -418,9 +465,11 @@ function renderStudentsTable() {
 }
 
 function updateRowTotal(row) {
+  if (!row) return;
   const caInput = row.querySelector('.ca-input');
   const examInput = row.querySelector('.exam-input');
   const totalCell = row.querySelector('.total-cell');
+  if (!caInput || !examInput || !totalCell) return;
   
   let ca = parseFloat(caInput.value) || 0;
   let exam = parseFloat(examInput.value) || 0;
@@ -449,62 +498,57 @@ function updateRowTotal(row) {
 
 async function saveAllScores() {
   if (scoresState.students.length === 0) {
-    showMessage('No students to save. Please load students first.', 'error');
+    showNotification("No students to save. Please load students first.", "error");
     return;
   }
   
-  const rows = document.querySelectorAll('#studentsTableContainer tbody tr');
-  for (const row of rows) {
-    const studentId = row.dataset.studentId;
-    const caInput = row.querySelector('.ca-input');
-    const examInput = row.querySelector('.exam-input');
-    let ca = parseFloat(caInput.value) || 0;
-    let exam = parseFloat(examInput.value) || 0;
-    const total = ca + exam;
-    
-    const { caWeight, examWeight } = scoresState.scoringConfig;
-    if (ca > caWeight) ca = caWeight;
-    if (exam > examWeight) exam = examWeight;
-    
-    const scoreData = {
-      studentId,
-      subjectId: scoresState.currentSubjectId,
-      classId: scoresState.currentClassId,
-      schoolId: currentSchoolId,
-      term: scoresState.currentTerm,
-      session: scoresState.currentSession,
-      ca: ca,
-      exam: exam,
-      total: total,
-      teacherId: currentTeacherId,
-      updatedAt: new Date()
-    };
-    
-    const existing = scoresState.scoresData[studentId];
-    if (existing && existing.scoreId) {
-      const scoreRef = doc(db, 'scores', existing.scoreId);
-      await updateDoc(scoreRef, { ...scoreData, updatedAt: new Date() });
-    } else {
-      const scoresRef = collection(db, 'scores');
-      const newDocRef = await addDoc(scoresRef, { ...scoreData, createdAt: new Date() });
-      if (!scoresState.scoresData[studentId]) scoresState.scoresData[studentId] = {};
-      scoresState.scoresData[studentId].scoreId = newDocRef.id;
+  showLoader();
+  try {
+    const rows = document.querySelectorAll('#studentsTableContainer tbody tr');
+    for (const row of rows) {
+      const studentId = row.dataset.studentId;
+      const caInput = row.querySelector('.ca-input');
+      const examInput = row.querySelector('.exam-input');
+      let ca = parseFloat(caInput.value) || 0;
+      let exam = parseFloat(examInput.value) || 0;
+      const total = ca + exam;
+      
+      const { caWeight, examWeight } = scoresState.scoringConfig;
+      if (ca > caWeight) ca = caWeight;
+      if (exam > examWeight) exam = examWeight;
+      
+      const scoreData = {
+        studentId,
+        subjectId: scoresState.currentSubjectId,
+        classId: scoresState.currentClassId,
+        schoolId: currentSchoolId,
+        term: scoresState.currentTerm,
+        session: scoresState.currentSession,
+        ca: ca,
+        exam: exam,
+        total: total,
+        teacherId: currentTeacherId,
+        updatedAt: new Date()
+      };
+      
+      const existing = scoresState.scoresData[studentId];
+      if (existing && existing.scoreId) {
+        const scoreRef = doc(db, 'scores', existing.scoreId);
+        await updateDoc(scoreRef, { ...scoreData, updatedAt: new Date() });
+      } else {
+        const scoresRef = collection(db, 'scores');
+        const newDocRef = await addDoc(scoresRef, { ...scoreData, createdAt: new Date() });
+        if (!scoresState.scoresData[studentId]) scoresState.scoresData[studentId] = {};
+        scoresState.scoresData[studentId].scoreId = newDocRef.id;
+      }
     }
+    
+    showNotification("All scores saved successfully!", "success");
+  } catch (err) {
+    handleError(err, "Failed to save scores.");
+  } finally {
+    hideLoader();
   }
-  
-  showMessage('All scores saved successfully!', 'success');
-}
-
-function showMessage(msg, type) {
-  const msgDiv = document.getElementById('message');
-  if (!msgDiv) return;
-  msgDiv.textContent = msg;
-  msgDiv.className = `message ${type}`;
-  msgDiv.style.display = 'block';
-  setTimeout(() => {
-    msgDiv.style.display = 'none';
-    msgDiv.className = 'message';
-  }, 3000);
 }
 
 function escapeHtml(str) {

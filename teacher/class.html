@@ -6,7 +6,7 @@
   <title>Acadex - Class Report Card</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ========== REPORT CARD STYLES (EXACT COPY FROM results.html) ========== */
+    /* ========== BASE REPORT CARD STYLES (unchanged) ========== */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column;
@@ -58,7 +58,7 @@
     .skills-table th { background: #f8fafc; font-weight: 600; font-size: 9px; }
     .skills-table td:last-child { text-align: center; width: 85px; }
     .summary-grading-wrapper {
-      display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: nowrap;
+      display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: wrap;
     }
     .summary-wrapper { flex: 2; min-width: 160px; }
     .grading-wrapper { flex: 1; min-width: 140px; }
@@ -85,68 +85,27 @@
       background: #f8fafc; padding: 3px 6px; border-radius: 30px; margin: 6px 8px;
       font-size: 9px; font-weight: 500; color: #2c3e66;
     }
-    .comments-section { 
-      margin: 12px 8px 8px 8px; 
-      font-size: 13px;
-    }
-    .comments-section h3 { 
-      font-size: 15px;
-      margin: 6px 0 8px; 
-    }
-    .comment-group { 
-      margin-bottom: 12px;
-    }
-    .comment-group label {
-      display: block;
-      font-weight: 700;
-      font-size: 13px;
-      margin-bottom: 6px;
-    }
-    .comment-group select,
-    .comment-group textarea {
-      width: 100%;
-      font-size: 13px;
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid #cbd5e1;
-      margin-bottom: 4px;
+    .comments-section { margin: 12px 8px 8px 8px; font-size: 13px; }
+    .comments-section h3 { font-size: 15px; margin: 6px 0 8px; }
+    .comment-group { margin-bottom: 12px; }
+    .comment-group label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+    .comment-group select, .comment-group textarea {
+      width: 100%; font-size: 13px; padding: 6px 8px; border-radius: 6px;
+      border: 1px solid #cbd5e1; margin-bottom: 4px;
     }
     .print-comment-text { display: none; }
     .signature-stamp {
-      display: flex; 
-      justify-content: space-between; 
-      flex-wrap: wrap;
-      margin: 16px 8px 8px 8px;
-      padding-top: 8px; 
-      border-top: 1px solid #cbd5e1;
-      font-size: 11px;
-      gap: 12px;
+      display: flex; justify-content: space-between; flex-wrap: wrap;
+      margin: 16px 8px 8px 8px; padding-top: 8px; border-top: 1px solid #cbd5e1;
+      font-size: 11px; gap: 12px;
     }
-    .signature-item { 
-      flex: 1; 
-      min-width: 100px; 
-    }
-    .signature-item strong {
-      font-size: 11px;
-    }
-    .signature-line { 
-      display: block; 
-      width: 90%; 
-      border-bottom: 1px solid #94a3b8; 
-      margin-top: 6px; 
-      height: 14px; 
-    }
+    .signature-item { flex: 1; min-width: 100px; }
+    .signature-item strong { font-size: 11px; }
+    .signature-line { display: block; width: 90%; border-bottom: 1px solid #94a3b8; margin-top: 6px; height: 14px; }
     .stamp-placeholder {
-      display: block; 
-      margin-top: 6px; 
-      font-style: italic; 
-      color: #475569;
-      border: 1px dashed #cbd5e1; 
-      padding: 4px 8px; 
-      text-align: center; 
-      width: fit-content; 
-      min-width: 80px;
-      font-size: 10px;
+      display: block; margin-top: 6px; font-style: italic; color: #475569;
+      border: 1px dashed #cbd5e1; padding: 4px 8px; text-align: center;
+      width: fit-content; min-width: 80px; font-size: 10px;
     }
     .rating-tick { display: inline-flex; gap: 4px; align-items: center; }
     .tick {
@@ -158,7 +117,74 @@
     .print-value { display: none; }
     .action-buttons { margin-top: 12px; display: flex; gap: 10px; padding: 0 8px 8px; }
 
-    /* ========== BROADSHEET STYLES (copied from results.html) ========== */
+    /* ========== ATTENDANCE TABLE ========== */
+    .attendance-section { margin: 8px 8px 4px 8px; }
+    .attendance-table {
+      width: 40%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin: 6px 0;
+      margin-left: 0;
+    }
+    .attendance-table td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+    .attendance-label {
+      font-weight: 600;
+      background-color: #f8fafc;
+      width: 50%;
+    }
+    .attendance-input-cell { text-align: center; }
+    .attendance-input {
+      width: 80px;
+      padding: 4px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font-size: 10px;
+      text-align: center;
+    }
+    .attendance-value { display: none; }
+
+    /* ========== LAYOUT GRID ========== */
+    .report-main-grid {
+      display: grid;
+      grid-template-columns: 70% 30%;
+      gap: 12px;
+      margin: 8px 8px;
+    }
+    .subject-table-col { width: 100%; }
+    .subject-table th, .subject-table td {
+      padding: 6px 3px;
+    }
+    .subject-table td, .subject-table th {
+      word-break: break-word;
+      white-space: normal;
+    }
+    .skills-stack-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .psychomotor-wrapper, .affective-wrapper { width: 100%; }
+    .psychomotor-table, .affective-table {
+      width: 80%;
+      margin: 0 auto;
+      font-size: 9px;
+    }
+    .skills-table td, .skills-table th {
+      word-break: break-word;
+      white-space: normal;
+    }
+    .summary-wrapper {
+      flex: 0 0 50%;
+      width: 50%;
+      margin-left: 0;
+      margin-right: auto;
+    }
+
+    /* ========== BROADSHEET & PAGE LAYOUT ========== */
     .broadsheet-section {
       background: white; border-radius: 12px; padding: 20px; margin-bottom: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -166,111 +192,167 @@
     .broadsheet-controls {
       display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;
     }
-    .broadsheet-controls .form-group {
-      margin-bottom: 0; flex: 1; min-width: 150px;
-    }
-    #broadsheetContainer {
-      margin-top: 20px;
-      overflow-x: auto;
-    }
+    .broadsheet-controls .form-group { margin-bottom: 0; flex: 1; min-width: 150px; }
+    #broadsheetContainer { margin-top: 20px; overflow-x: auto; }
     .broadsheet-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      min-width: 800px;
+      width: 100%; border-collapse: collapse; font-size: 12px; min-width: 800px;
     }
     .broadsheet-table th, .broadsheet-table td {
-      border: 1px solid #cbd5e1;
-      padding: 8px 6px;
-      text-align: center;
-      vertical-align: middle;
+      border: 1px solid #cbd5e1; padding: 8px 6px; text-align: center; vertical-align: middle;
     }
-    .broadsheet-table th {
-      background-color: #f8fafc;
-      font-weight: 700;
-      position: sticky;
-      top: 0;
-    }
-    .student-name-cell {
-      text-align: left !important;
-      font-weight: 600;
-    }
-    .action-buttons {
-      margin-top: 16px;
-      display: flex;
-      gap: 12px;
-      justify-content: flex-end;
-    }
-    .btn-primary, .btn-secondary {
-      padding: 10px 20px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      font-weight: 600;
-    }
+    .broadsheet-table th { background-color: #f8fafc; font-weight: 700; position: sticky; top: 0; }
+    .student-name-cell { text-align: left !important; font-weight: 600; }
+    .action-buttons { margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end; }
+    .btn-primary, .btn-secondary { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
     .btn-primary { background-color: #3b82f6; color: white; }
     .btn-secondary { background-color: #64748b; color: white; }
 
-    /* ========== CLASS PAGE LAYOUT ========== */
     .class-report-container {
-      display: flex;
-      gap: 1.5rem;
-      flex-wrap: wrap;
-      margin-top: 1rem;
+      display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 1rem;
     }
     .student-list-sidebar {
-      flex: 1.2;
-      min-width: 240px;
-      background: white;
-      border-radius: 16px;
-      padding: 1rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      flex: 1.2; min-width: 240px; background: white; border-radius: 16px;
+      padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .report-card-area {
-      flex: 3;
-      min-width: 280px;
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
+    .report-card-area { flex: 3; min-width: 280px; display: flex; flex-direction: column; height: 100%; }
     .student-list-item {
-      padding: 8px 12px;
-      margin: 4px 0;
-      border-radius: 40px;
-      cursor: pointer;
+      padding: 8px 12px; margin: 4px 0; border-radius: 40px; cursor: pointer;
       background: #f8fafc;
     }
-    .student-list-item.active {
-      background: #3b82f6;
-      color: white;
-    }
+    .student-list-item.active { background: #3b82f6; color: white; }
     .term-session-sidebar {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 1rem;
-      background: #f8fafc;
-      padding: 8px 12px;
-      border-radius: 32px;
-      align-items: center;
-      flex-wrap: wrap;
+      display: flex; gap: 12px; margin-bottom: 1rem; background: #f8fafc;
+      padding: 8px 12px; border-radius: 32px; align-items: center; flex-wrap: wrap;
     }
-    select, textarea {
-      font-size: 12px;
-      padding: 6px;
-      border-radius: 8px;
-      border: 1px solid #cbd5e1;
-    }
+    select, textarea { font-size: 12px; padding: 6px; border-radius: 8px; border: 1px solid #cbd5e1; }
     .section-heading {
-      font-size: 1.5rem;
-      font-weight: 600;
-      margin: 1rem 0 0.5rem 0;
-      color: #1e293b;
-      border-left: 5px solid #3b82f6;
-      padding-left: 15px;
+      font-size: 1.5rem; font-weight: 600; margin: 1rem 0 0.5rem 0;
+      color: #1e293b; border-left: 5px solid #3b82f6; padding-left: 15px;
     }
+
+    /* ========== PRINT STYLES – OPTIMISED FOR ONE PAGE ========== */
     @media print {
-      .print-value, .print-comment-text { display: block !important; }
-      .rating-tick, .tick, .comment-controls, button, select, textarea { display: none !important; }
+      /* Hide UI elements */
+      .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
+      .action-buttons, .attendance-input {
+        display: none !important;
+      }
+      /* Show print-only values */
+      .print-value, .print-comment-text {
+        display: block !important;
+      }
+      /* Page setup – smaller margins to fit content */
+      @page {
+        size: A4;
+        margin: 5mm;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      .report-card {
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+        font-size: 9px; /* slightly smaller base font */
+      }
+      /* Prevent page breaks inside the report card */
+      .report-card, .report-card * {
+        page-break-inside: avoid;
+        page-break-after: avoid;
+        page-break-before: avoid;
+      }
+      /* Reduce spacing to fit on one page */
+      .report-header {
+        padding: 2px 5px;
+        margin-bottom: 2px;
+      }
+      .student-details-grid {
+        gap: 2px 6px;
+        padding: 4px 6px;
+        margin: 2px 4px;
+        font-size: 8px;
+      }
+      .subject-table {
+        font-size: 8px;
+        margin: 4px 0;
+      }
+      .subject-table th, .subject-table td {
+        padding: 3px 2px;
+      }
+      .subject-table th:not(:first-child) {
+        height: 40px;
+        width: 28px;
+        padding: 4px 1px;
+      }
+      .skills-table {
+        font-size: 7px;
+        margin: 0;
+      }
+      .skills-table th, .skills-table td {
+        padding: 2px 2px;
+      }
+      .summary-grading-wrapper {
+        margin: 4px 4px;
+        gap: 6px;
+      }
+      .summary-table, .grade-scale-table {
+        font-size: 7px;
+      }
+      .summary-table th, .summary-table td {
+        padding: 2px 3px;
+      }
+      .section-title {
+        font-size: 8px;
+        margin-bottom: 2px;
+      }
+      .rating-guide {
+        margin: 2px 4px;
+        padding: 2px 4px;
+        font-size: 7px;
+      }
+      .comments-section {
+        margin: 4px 4px;
+      }
+      .comments-section h3 {
+        font-size: 9px;
+        margin: 2px 0;
+      }
+      .comment-group {
+        margin-bottom: 4px;
+      }
+      .comment-group label {
+        font-size: 8px;
+        margin-bottom: 2px;
+      }
+      .print-comment-text {
+        font-size: 8px;
+      }
+      .signature-stamp {
+        margin: 6px 4px;
+        padding-top: 4px;
+        gap: 6px;
+      }
+      .signature-item strong {
+        font-size: 8px;
+      }
+      .signature-line {
+        margin-top: 2px;
+        height: 8px;
+      }
+      .stamp-placeholder {
+        padding: 2px 4px;
+        font-size: 7px;
+      }
+      /* Keep attendance table width and left alignment */
+      .attendance-table {
+        width: 40%;
+        margin-left: 0;
+        font-size: 8px;
+      }
+      .attendance-table td {
+        padding: 3px 6px;
+      }
     }
   </style>
 </head>
@@ -326,11 +408,10 @@
         <div id="broadsheetContainer"></div>
         <div id="broadsheetActions" style="display:none;">
           <button id="saveBroadsheetBtn" class="btn-primary">💾 Save Broadsheet</button>
-          <!-- PRINT BUTTON REMOVED -->
         </div>
       </div>
 
-      <!-- REPORT CARD EDITOR SECTION WITH TITLE -->
+      <!-- REPORT CARD EDITOR SECTION -->
       <div class="section-heading">📄 Class Report Card</div>
       <div class="class-report-container">
         <div class="student-list-sidebar print-hide">
@@ -346,7 +427,6 @@
           <div id="reportCardContent" class="report-card"><p style="text-align:center; padding:2rem;">Select a student</p></div>
           <div class="action-buttons print-hide" id="reportActions" style="display: none;">
             <button id="saveReportBtn" class="btn-primary">💾 Save Report</button>
-            <!-- PRINT BUTTON REMOVED -->
           </div>
         </div>
       </div>

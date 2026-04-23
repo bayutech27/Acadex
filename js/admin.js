@@ -15,6 +15,7 @@ import {
   getSubscriptionStatus,
   approveExtraStudents
 } from './plan.js';
+import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 // ------------------- Auth State -------------------
 let currentUser = null;
@@ -33,7 +34,7 @@ function initAuthListener() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         currentUserData = userDoc.exists() ? userDoc.data() : null;
       } catch (err) {
-        console.error('Failed to fetch user document:', err);
+        handleError(err, "Failed to load user data. Please refresh the page.");
         currentUserData = null;
       }
     } else {
@@ -66,31 +67,48 @@ export async function protectAdminPage() {
   await waitForAuth();
 
   if (!currentUser) {
+    showNotification("You must be logged in to access this page.", "error");
     window.location.href = '/';
     return null;
   }
   if (!currentUserData || currentUserData.role !== 'admin') {
+    showNotification("Access denied. Admin only.", "error");
     window.location.href = '/';
     return null;
   }
 
   const schoolId = currentUserData.schoolId;
   if (!schoolId) {
-    console.error('Admin user has no schoolId');
+    handleError(new Error("Admin user has no schoolId"), "Invalid school configuration. Please contact support.");
     window.location.href = '/';
     return null;
   }
 
-  await initAcademicCalendar(schoolId);
+  try {
+    await initAcademicCalendar(schoolId);
+  } catch (err) {
+    handleError(err, "Failed to initialize academic calendar.");
+  }
 
   const lastCheck = localStorage.getItem(`autoLockLastCheck_${schoolId}`);
   const today = new Date().toDateString();
   if (lastCheck !== today) {
-    await autoLockExpiredSubscriptions();
-    localStorage.setItem(`autoLockLastCheck_${schoolId}`, today);
+    try {
+      await autoLockExpiredSubscriptions();
+      localStorage.setItem(`autoLockLastCheck_${schoolId}`, today);
+    } catch (err) {
+      handleError(err, "Failed to check subscription status.");
+    }
   }
 
-  const access = await enforceAccessGuard(currentUserData, schoolId);
+  let access;
+  try {
+    access = await enforceAccessGuard(currentUserData, schoolId);
+  } catch (err) {
+    handleError(err, "Failed to verify access rights.");
+    window.location.href = '/subscription-required.html';
+    return null;
+  }
   
   if (!access.allowed) {
     if (access.onboardingOnly) {
@@ -128,7 +146,8 @@ function showSubscriptionExpiredBanner() {
     z-index: 1000;
   `;
   banner.innerHTML = `⚠️ You have not subscribed for this term. You can still manage students and teachers onboarding, but other features are restricted. Subscribe now to unlock all Features.`;
-  document.body.prepend(banner);
+  const body = document.body;
+  if (body) body.prepend(banner);
 }
 
 function hideSubscriptionExpiredBanner() {
@@ -163,7 +182,6 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  // Attach Paystack button event
   const payBtn = document.getElementById('paystackPaymentBtn');
   if (payBtn) {
     payBtn.addEventListener('click', () => {
@@ -222,7 +240,9 @@ function injectSubscriptionUI() {
 
 export function setupSidebar() {
   const currentPage = window.location.pathname.split('/').pop();
-  document.querySelectorAll('.sidebar-nav a').forEach(link => {
+  const links = document.querySelectorAll('.sidebar-nav a');
+  if (links.length === 0) return;
+  links.forEach(link => {
     const href = link.getAttribute('href');
     if (href === currentPage) link.classList.add('active');
     else link.classList.remove('active');
@@ -230,11 +250,15 @@ export function setupSidebar() {
 }
 
 async function updateSubscriptionBadge(schoolId) {
-  const active = await isSubscriptionActive(schoolId);
-  const badge = document.getElementById('subscriptionBadge');
-  if (badge) {
-    badge.innerText = active ? '✅ Active' : '⚠️ Expired';
-    badge.style.color = active ? '#10b981' : '#ef4444';
+  try {
+    const active = await isSubscriptionActive(schoolId);
+    const badge = document.getElementById('subscriptionBadge');
+    if (badge) {
+      badge.innerText = active ? '✅ Active' : '⚠️ Expired';
+      badge.style.color = active ? '#10b981' : '#ef4444';
+    }
+  } catch (err) {
+    handleError(err, "Failed to update subscription badge.");
   }
 }
 
@@ -259,7 +283,7 @@ export function initSubscriptionUI(schoolId) {
       if (!document.getElementById('subscriptionExpiredBanner')) showSubscriptionExpiredBanner();
       showPaymentBanner();
     }
-  }, (err) => console.error('Subscription listener error:', err));
+  }, (err) => handleError(err, "Subscription listener error."));
 }
 
 async function updateFeeDisplay(schoolId, sub) {
@@ -277,7 +301,8 @@ async function updateFeeDisplay(schoolId, sub) {
       const studentsSnap = await getDocs(studentsQuery);
       totalActiveStudents = studentsSnap.size;
     } catch (err) {
-      console.error('Failed to count active students:', err);
+      handleError(err, "Failed to count active students.");
+      totalActiveStudents = 0;
     }
     const totalFee = totalActiveStudents * costPerStudent;
     feeContainer.innerHTML = `
@@ -312,7 +337,8 @@ async function updatePendingExtraDisplay(schoolId) {
     const lockedSnap = await getDocs(lockedQuery);
     lockedCount = lockedSnap.size;
   } catch (err) {
-    console.error('Failed to count locked students:', err);
+    handleError(err, "Failed to count locked students.");
+    lockedCount = 0;
   }
 
   if (lockedCount > 0) {
@@ -378,13 +404,13 @@ export async function initAcademicCalendar(schoolId) {
       });
     }
   } catch (err) {
-    console.error('initAcademicCalendar error:', err);
+    handleError(err, "Failed to initialize academic calendar.");
   }
 }
 
 // ------------------- Logo Upload -------------------
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -407,8 +433,10 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
         }
         resolve(dataUrl);
       };
+      img.onerror = () => reject(new Error("Image loading failed"));
       img.src = e.target.result;
     };
+    reader.onerror = () => reject(new Error("File reading failed"));
     reader.readAsDataURL(file);
   });
 }
@@ -417,10 +445,10 @@ async function uploadSchoolLogo(schoolId, file) {
   try {
     let compressed = await compressImage(file, 500, 500);
     await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
+    showNotification("Logo uploaded successfully", "success");
     return compressed;
   } catch (error) {
-    console.error('Logo upload error:', error);
-    alert('Failed to upload logo. Please try again.');
+    handleError(error, "Failed to upload logo. Please try again with a smaller image.");
     return null;
   }
 }
@@ -441,24 +469,28 @@ export async function loadAcademicInfo() {
 export async function loadSchoolInfo() {
   const userData = currentUserData;
   if (!userData) return;
-  const school = await getSchoolById(userData.schoolId);
-  const schoolNameEl = document.getElementById('schoolName');
-  const schoolAddressEl = document.getElementById('schoolAddress');
-  const adminEmailEl = document.getElementById('adminEmail');
-  
-  if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
-  if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
-  if (adminEmailEl) adminEmailEl.textContent = userData.email;
+  try {
+    const school = await getSchoolById(userData.schoolId);
+    const schoolNameEl = document.getElementById('schoolName');
+    const schoolAddressEl = document.getElementById('schoolAddress');
+    const adminEmailEl = document.getElementById('adminEmail');
+    
+    if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
+    if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
+    if (adminEmailEl) adminEmailEl.textContent = userData.email;
 
-  const logoImg = document.getElementById('schoolLogoImg');
-  if (logoImg && school && school.logo) logoImg.src = school.logo;
-  else if (logoImg) logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
+    const logoImg = document.getElementById('schoolLogoImg');
+    if (logoImg && school && school.logo) logoImg.src = school.logo;
+    else if (logoImg) logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
 
-  await loadAcademicInfo();
-  const schoolId = userData.schoolId;
-  if (schoolId) {
-    updateSubscriptionBadge(schoolId);
-    initSubscriptionUI(schoolId);
+    await loadAcademicInfo();
+    const schoolId = userData.schoolId;
+    if (schoolId) {
+      updateSubscriptionBadge(schoolId);
+      initSubscriptionUI(schoolId);
+    }
+  } catch (err) {
+    handleError(err, "Failed to load school information.");
   }
 }
 
@@ -467,7 +499,7 @@ async function getSchoolById(schoolId) {
     const snap = await getDoc(doc(db, 'schools', schoolId));
     return snap.exists() ? snap.data() : null;
   } catch (err) {
-    console.error('getSchoolById error:', err);
+    handleError(err, "Failed to fetch school data.");
     return null;
   }
 }
@@ -481,13 +513,18 @@ export function setupLogoUpload() {
       const file = e.target.files[0];
       if (file && file.type.startsWith('image/')) {
         const schoolId = await getCurrentSchoolId();
-        if (!schoolId) return;
+        if (!schoolId) {
+          showNotification("School ID not found.", "error");
+          return;
+        }
         const newLogo = await uploadSchoolLogo(schoolId, file);
         if (newLogo) {
           const logoImg = document.getElementById('schoolLogoImg');
           if (logoImg) logoImg.src = newLogo;
         }
-      } else if (file) alert('Please select a valid image file.');
+      } else if (file) {
+        showNotification("Please select a valid image file.", "error");
+      }
       if (fileInput) fileInput.value = '';
     });
   }
@@ -499,8 +536,9 @@ export function setupLogout() {
   logoutBtn.addEventListener('click', async () => {
     try {
       await logoutUser();
+      showNotification("Logged out successfully.", "success");
     } catch (err) {
-      console.error('Logout failed:', err);
+      handleError(err, "Logout failed. Please try again.");
     }
   });
 }
@@ -513,20 +551,20 @@ export async function loadDashboardCounts() {
     const snap = await getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalTeachers');
     if (el) el.textContent = snap.size;
-  } catch (err) { console.error('Teachers count error:', err); }
+  } catch (err) { handleError(err, "Failed to load teacher count."); }
 
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalStudents');
     if (el) el.textContent = snap.size;
-  } catch (err) { console.error('Total students error:', err); }
+  } catch (err) { handleError(err, "Failed to load total students."); }
 
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active')));
     const el = document.getElementById('activeStudents');
     if (el) el.textContent = snap.size;
   } catch (err) {
-    console.error('Active students error:', err);
+    handleError(err, "Failed to load active students.");
     const el = document.getElementById('activeStudents');
     if (el) el.textContent = err.code === 'failed-precondition' ? '⚠️ Create Index' : 'Error';
   }
@@ -535,5 +573,5 @@ export async function loadDashboardCounts() {
     const snap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalSubjects');
     if (el) el.textContent = snap.size;
-  } catch (err) { console.error('Subjects error:', err); }
+  } catch (err) { handleError(err, "Failed to load subjects."); }
 }

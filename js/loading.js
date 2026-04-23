@@ -1,4 +1,7 @@
-// loading.js
+// loading.js - Loading utilities with safe DOM access
+// Provides global page loader and button-specific loaders
+
+// ---------- Button-specific Loading ----------
 export function showLoading(buttonElement, originalText = null) {
   if (!buttonElement) return;
   if (originalText === null) originalText = buttonElement.innerText;
@@ -15,24 +18,38 @@ export function hideLoading(buttonElement) {
   else buttonElement.innerHTML = buttonElement.dataset.originalText || 'Submit';
 }
 
-// Global page loading overlay
+// ---------- Global Page Loader Overlay ----------
+let pageLoaderElement = null;
+
 export function showPageLoader() {
-  let loader = document.getElementById('globalLoader');
-  if (!loader) {
-    loader = document.createElement('div');
-    loader.id = 'globalLoader';
-    loader.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5); display: flex; align-items: center;
-      justify-content: center; z-index: 9999; backdrop-filter: blur(2px);
-    `;
-    loader.innerHTML = '<div class="spinner-border text-light" style="width: 3rem; height: 3rem;" role="status"></div>';
-    document.body.appendChild(loader);
+  // If loader already exists, just show it
+  if (pageLoaderElement) {
+    pageLoaderElement.style.display = 'flex';
+    return;
   }
-  loader.style.display = 'flex';
+
+  // Create loader element if it doesn't exist
+  pageLoaderElement = document.createElement('div');
+  pageLoaderElement.id = 'globalPageLoader';
+  pageLoaderElement.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(2px);
+  `;
+  pageLoaderElement.innerHTML = '<div class="spinner-border text-light" style="width: 3rem; height: 3rem;" role="status"></div>';
+  document.body.appendChild(pageLoaderElement);
 }
 
 export function hidePageLoader() {
-  const loader = document.getElementById('globalLoader');
-  if (loader) loader.style.display = 'none';
+  if (pageLoaderElement) {
+    pageLoaderElement.style.display = 'none';
+  }
 }

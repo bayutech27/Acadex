@@ -1,11 +1,12 @@
-// students.js - Manage students with subscription tracking + locked field
+// students.js - Manage students with subscription tracking + locked field + payment banner
 import { db } from './firebase-config.js';
 import { 
-  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc
+  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
 import { handleNewStudentAddition } from './plan.js';
 import { isSubscriptionActive } from './plan.js';
+import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
 let subjectsMap = new Map();
@@ -13,6 +14,7 @@ let classesMap = new Map();
 let editingStudentId = null;
 let currentFilter = 'all';
 let schoolName = '';
+let unsubscribeSub = null;
 
 // DOM elements
 let studentForm, modal, nameInput, emailInput, classSelect, subjectsSelect, statusSelect;
@@ -23,7 +25,7 @@ export async function initStudentsPage() {
   await protectAdminPage();
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) {
-    alert('School ID missing.');
+    showNotification("School ID missing.", "error");
     return;
   }
 
@@ -60,14 +62,16 @@ export async function initStudentsPage() {
   await loadAndDisplayStudents();
 
   // Event listeners
-  document.getElementById('addStudentBtn').addEventListener('click', () => openModal());
+  const addBtn = document.getElementById('addStudentBtn');
+  if (addBtn) addBtn.addEventListener('click', () => openModal());
   const closeBtn = document.querySelector('#studentModal .close-modal');
   if (closeBtn) closeBtn.addEventListener('click', closeModal);
-  document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
+  const cancelBtn = document.getElementById('cancelModalBtn');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
   studentForm.addEventListener('submit', handleStudentSubmit);
   
-  dobInput.addEventListener('change', () => calculateAndDisplayAge());
-  passportInput.addEventListener('change', handlePassportUpload);
+  if (dobInput) dobInput.addEventListener('change', () => calculateAndDisplayAge());
+  if (passportInput) passportInput.addEventListener('change', handlePassportUpload);
 
   // Filter buttons
   const filterBtns = document.querySelectorAll('.filter-btn');
@@ -79,6 +83,10 @@ export async function initStudentsPage() {
       loadAndDisplayStudents();
     });
   });
+
+  // Setup subscription UI and listener
+  setupSubscriptionUI();
+  initSubscriptionListener();
 }
 
 // Helper: calculate age from DOB (YYYY-MM-DD)
@@ -95,6 +103,7 @@ function calculateAge(dobString) {
 }
 
 function calculateAndDisplayAge() {
+  if (!dobInput || !ageDisplay) return;
   const dob = dobInput.value;
   if (dob) {
     const age = calculateAge(dob);
@@ -112,27 +121,32 @@ function getSchoolCode() {
 }
 
 async function getNextSequenceNumber() {
-  const studentsRef = collection(db, 'students');
-  const q = query(studentsRef, where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  const students = snapshot.docs.map(doc => doc.data());
-  
-  const schoolCode = getSchoolCode();
-  const currentYear = new Date().getFullYear();
-  const pattern = new RegExp(`^${schoolCode}/${currentYear}/0*(\\d+)$`);
-  
-  let maxSeq = 0;
-  for (const student of students) {
-    const admissionNo = student.admissionNumber;
-    if (admissionNo) {
-      const match = admissionNo.match(pattern);
-      if (match) {
-        const seq = parseInt(match[1], 10);
-        if (seq > maxSeq) maxSeq = seq;
+  try {
+    const studentsRef = collection(db, 'students');
+    const q = query(studentsRef, where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    const students = snapshot.docs.map(doc => doc.data());
+    
+    const schoolCode = getSchoolCode();
+    const currentYear = new Date().getFullYear();
+    const pattern = new RegExp(`^${schoolCode}/${currentYear}/0*(\\d+)$`);
+    
+    let maxSeq = 0;
+    for (const student of students) {
+      const admissionNo = student.admissionNumber;
+      if (admissionNo) {
+        const match = admissionNo.match(pattern);
+        if (match) {
+          const seq = parseInt(match[1], 10);
+          if (seq > maxSeq) maxSeq = seq;
+        }
       }
     }
+    return maxSeq + 1;
+  } catch (err) {
+    handleError(err, "Failed to generate admission number.");
+    return 1;
   }
-  return maxSeq + 1;
 }
 
 async function generateAdmissionNumber() {
@@ -144,12 +158,17 @@ async function generateAdmissionNumber() {
 }
 
 async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
-  const studentsRef = collection(db, 'students');
-  const q = query(studentsRef, where('schoolId', '==', currentSchoolId), where('admissionNumber', '==', admissionNo));
-  const snapshot = await getDocs(q);
-  if (snapshot.empty) return true;
-  if (excludeStudentId && snapshot.docs.length === 1 && snapshot.docs[0].id === excludeStudentId) return true;
-  return false;
+  try {
+    const studentsRef = collection(db, 'students');
+    const q = query(studentsRef, where('schoolId', '==', currentSchoolId), where('admissionNumber', '==', admissionNo));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return true;
+    if (excludeStudentId && snapshot.docs.length === 1 && snapshot.docs[0].id === excludeStudentId) return true;
+    return false;
+  } catch (err) {
+    handleError(err, "Failed to check admission number uniqueness.");
+    return false;
+  }
 }
 
 // Image compression
@@ -203,6 +222,7 @@ async function compressAndResizeImage(file, maxSizeKB = 800, targetWidth = 100, 
 }
 
 async function handlePassportUpload(e) {
+  if (!passportErrorSpan || !passportPreviewContainer || !passportInput) return;
   const file = e.target.files[0];
   passportErrorSpan.style.display = 'none';
   passportPreviewContainer.innerHTML = '';
@@ -232,45 +252,57 @@ async function handlePassportUpload(e) {
 }
 
 async function loadSubjects() {
-  const subjectsRef = collection(db, 'subjects');
-  const q = query(subjectsRef, where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  subjectsMap.clear();
-  snapshot.forEach(doc => {
-    subjectsMap.set(doc.id, doc.data().name);
-  });
+  try {
+    const subjectsRef = collection(db, 'subjects');
+    const q = query(subjectsRef, where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    subjectsMap.clear();
+    snapshot.forEach(doc => {
+      subjectsMap.set(doc.id, doc.data().name);
+    });
 
-  subjectsSelect.innerHTML = '';
-  if (subjectsMap.size === 0) {
-    const option = document.createElement('option');
-    option.disabled = true;
-    option.textContent = 'No subjects available. Create subjects in Setup page first.';
-    subjectsSelect.appendChild(option);
-  } else {
-    for (let [id, name] of subjectsMap) {
-      const option = document.createElement('option');
-      option.value = id;
-      option.textContent = name;
-      subjectsSelect.appendChild(option);
+    if (subjectsSelect) {
+      subjectsSelect.innerHTML = '';
+      if (subjectsMap.size === 0) {
+        const option = document.createElement('option');
+        option.disabled = true;
+        option.textContent = 'No subjects available. Create subjects in Setup page first.';
+        subjectsSelect.appendChild(option);
+      } else {
+        for (let [id, name] of subjectsMap) {
+          const option = document.createElement('option');
+          option.value = id;
+          option.textContent = name;
+          subjectsSelect.appendChild(option);
+        }
+      }
     }
+  } catch (err) {
+    handleError(err, "Failed to load subjects.");
   }
 }
 
 async function loadClasses() {
-  const classesRef = collection(db, 'classes');
-  const q = query(classesRef, where('schoolId', '==', currentSchoolId));
-  const snapshot = await getDocs(q);
-  classesMap.clear();
-  snapshot.forEach(doc => {
-    classesMap.set(doc.id, doc.data().name);
-  });
+  try {
+    const classesRef = collection(db, 'classes');
+    const q = query(classesRef, where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    classesMap.clear();
+    snapshot.forEach(doc => {
+      classesMap.set(doc.id, doc.data().name);
+    });
 
-  classSelect.innerHTML = '<option value="">Select Class</option>';
-  for (let [id, name] of classesMap) {
-    const option = document.createElement('option');
-    option.value = id;
-    option.textContent = name;
-    classSelect.appendChild(option);
+    if (classSelect) {
+      classSelect.innerHTML = '<option value="">Select Class</option>';
+      for (let [id, name] of classesMap) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = name;
+        classSelect.appendChild(option);
+      }
+    }
+  } catch (err) {
+    handleError(err, "Failed to load classes.");
   }
 }
 
@@ -293,7 +325,8 @@ async function loadAndDisplayStudents() {
       }
     }
     if (!classId) {
-      document.getElementById('studentsList').innerHTML = '<p>No students found.</p>';
+      const container = document.getElementById('studentsList');
+      if (container) container.innerHTML = '<p>No students found.</p>';
       return;
     }
     studentsQuery = query(
@@ -304,16 +337,22 @@ async function loadAndDisplayStudents() {
     );
   }
   
-  const snapshot = await getDocs(studentsQuery);
+  let snapshot;
+  try {
+    snapshot = await getDocs(studentsQuery);
+  } catch (err) {
+    handleError(err, "Failed to load students.");
+    return;
+  }
   const students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
   const container = document.getElementById('studentsList');
+  if (!container) return;
   if (students.length === 0) {
     container.innerHTML = `<p>No active students found${currentFilter !== 'all' ? ` in ${currentFilter}` : ''}.</p>`;
     return;
   }
 
-  // Table without Subjects column, column header "Unlocked"
   container.innerHTML = `
     <div class="table-container">
       <table class="data-table">
@@ -325,7 +364,7 @@ async function loadAndDisplayStudents() {
             <th>Email</th>
             <th>Class</th>
             <th>Status</th>
-            <th>Unlocked</th>
+            <th>Locked</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -370,37 +409,57 @@ async function loadAndDisplayStudents() {
       const className = await getStudentClass(studentId);
       if (newStatus === 'graduated') {
         if (className !== 'JSS 3' && className !== 'SSS 3') {
-          alert('Graduated status can only be set for JSS 3 or SSS 3 students.');
+          showNotification('Graduated status can only be set for JSS 3 or SSS 3 students.', "error");
           select.value = select.getAttribute('data-current');
           return;
         }
       }
-      await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
-      select.setAttribute('data-current', newStatus);
-      await loadAndDisplayStudents();
+      showLoader();
+      try {
+        await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
+        select.setAttribute('data-current', newStatus);
+        await loadAndDisplayStudents();
+        showNotification("Student status updated.", "success");
+      } catch (err) {
+        handleError(err, "Failed to update student status.");
+      } finally {
+        hideLoader();
+      }
     });
   });
 
   window.editStudent = (id) => openModal(id);
   window.deleteStudent = async (id) => {
     if (confirm('Delete this student? This will also remove their results!')) {
-      await deleteDoc(doc(db, 'students', id));
-      const resultsRef = collection(db, 'results');
-      const qResults = query(resultsRef, where('studentId', '==', id));
-      const resultsSnap = await getDocs(qResults);
-      for (const resultDoc of resultsSnap.docs) {
-        await deleteDoc(doc(db, 'results', resultDoc.id));
+      showLoader();
+      try {
+        await deleteDoc(doc(db, 'students', id));
+        const resultsRef = collection(db, 'results');
+        const qResults = query(resultsRef, where('studentId', '==', id));
+        const resultsSnap = await getDocs(qResults);
+        for (const resultDoc of resultsSnap.docs) {
+          await deleteDoc(doc(db, 'results', resultDoc.id));
+        }
+        await loadAndDisplayStudents();
+        showNotification("Student deleted.", "success");
+      } catch (err) {
+        handleError(err, "Failed to delete student.");
+      } finally {
+        hideLoader();
       }
-      await loadAndDisplayStudents();
     }
   };
 }
 
 async function getStudentClass(studentId) {
-  const studentDoc = await getDoc(doc(db, 'students', studentId));
-  if (studentDoc.exists()) {
-    const classId = studentDoc.data().classId;
-    return classesMap.get(classId) || 'Unknown';
+  try {
+    const studentDoc = await getDoc(doc(db, 'students', studentId));
+    if (studentDoc.exists()) {
+      const classId = studentDoc.data().classId;
+      return classesMap.get(classId) || 'Unknown';
+    }
+  } catch (err) {
+    console.warn(err);
   }
   return 'Unknown';
 }
@@ -408,87 +467,94 @@ async function getStudentClass(studentId) {
 function openModal(studentId = null) {
   editingStudentId = studentId;
   const modalTitle = document.getElementById('modalTitle');
+  if (!modalTitle) return;
   // Reset form
   studentForm.reset();
-  passportPreviewContainer.innerHTML = '';
-  passportErrorSpan.style.display = 'none';
-  passportInput.dataset.base64 = '';
-  ageDisplay.textContent = '-';
-  genderSelect.value = '';
-  dobInput.value = '';
-  clubInput.value = '';
-  admissionNoInput.value = '';   // leave empty – will generate on save
+  if (passportPreviewContainer) passportPreviewContainer.innerHTML = '';
+  if (passportErrorSpan) passportErrorSpan.style.display = 'none';
+  if (passportInput) passportInput.dataset.base64 = '';
+  if (ageDisplay) ageDisplay.textContent = '-';
+  if (genderSelect) genderSelect.value = '';
+  if (dobInput) dobInput.value = '';
+  if (clubInput) clubInput.value = '';
+  if (admissionNoInput) admissionNoInput.value = '';
   
   if (studentId) {
     modalTitle.textContent = 'Edit Student';
     loadStudentData(studentId);
   } else {
     modalTitle.textContent = 'Add Student';
-    statusSelect.value = 'active';
+    if (statusSelect) statusSelect.value = 'active';
   }
-  modal.style.display = 'flex';
+  if (modal) modal.style.display = 'flex';
 }
 
 async function loadStudentData(studentId) {
-  const studentDoc = await getDoc(doc(db, 'students', studentId));
-  if (studentDoc.exists()) {
-    const data = studentDoc.data();
-    admissionNoInput.value = data.admissionNumber || '';
-    nameInput.value = data.name || '';
-    emailInput.value = data.email || '';
-    classSelect.value = data.classId || '';
-    statusSelect.value = data.status || 'active';
-    genderSelect.value = data.gender || '';
-    dobInput.value = data.dob || '';
-    clubInput.value = data.club || '';
-    if (data.dob) calculateAndDisplayAge();
-    
-    const subjectIds = data.subjects || [];
-    Array.from(subjectsSelect.options).forEach(opt => {
-      opt.selected = subjectIds.includes(opt.value);
-    });
-    
-    if (data.passport) {
-      const img = document.createElement('img');
-      img.src = data.passport;
-      img.className = 'passport-preview';
-      img.alt = 'Passport';
-      passportPreviewContainer.appendChild(img);
-      passportInput.dataset.base64 = data.passport;
+  try {
+    const studentDoc = await getDoc(doc(db, 'students', studentId));
+    if (studentDoc.exists()) {
+      const data = studentDoc.data();
+      if (admissionNoInput) admissionNoInput.value = data.admissionNumber || '';
+      if (nameInput) nameInput.value = data.name || '';
+      if (emailInput) emailInput.value = data.email || '';
+      if (classSelect) classSelect.value = data.classId || '';
+      if (statusSelect) statusSelect.value = data.status || 'active';
+      if (genderSelect) genderSelect.value = data.gender || '';
+      if (dobInput) dobInput.value = data.dob || '';
+      if (clubInput) clubInput.value = data.club || '';
+      if (data.dob && ageDisplay) calculateAndDisplayAge();
+      
+      const subjectIds = data.subjects || [];
+      if (subjectsSelect) {
+        Array.from(subjectsSelect.options).forEach(opt => {
+          opt.selected = subjectIds.includes(opt.value);
+        });
+      }
+      
+      if (data.passport && passportPreviewContainer) {
+        const img = document.createElement('img');
+        img.src = data.passport;
+        img.className = 'passport-preview';
+        img.alt = 'Passport';
+        passportPreviewContainer.appendChild(img);
+        if (passportInput) passportInput.dataset.base64 = data.passport;
+      }
     }
+  } catch (err) {
+    handleError(err, "Failed to load student data.");
   }
 }
 
 function closeModal() {
-  modal.style.display = 'none';
+  if (modal) modal.style.display = 'none';
   editingStudentId = null;
   studentForm.reset();
-  passportPreviewContainer.innerHTML = '';
-  passportInput.dataset.base64 = '';
+  if (passportPreviewContainer) passportPreviewContainer.innerHTML = '';
+  if (passportInput) passportInput.dataset.base64 = '';
 }
 
 async function handleStudentSubmit(e) {
   e.preventDefault();
   
-  let admissionNumber = admissionNoInput.value.trim();
-  const name = nameInput.value.trim();
-  const email = emailInput.value.trim();
-  const classId = classSelect.value;
-  const selectedSubjects = Array.from(subjectsSelect.selectedOptions).map(opt => opt.value);
-  const status = statusSelect.value;
-  const gender = genderSelect.value;
-  const dob = dobInput.value;
-  const club = clubInput.value.trim() || null;
-  let passport = passportInput.dataset.base64 || null;
+  let admissionNumber = admissionNoInput ? admissionNoInput.value.trim() : '';
+  const name = nameInput ? nameInput.value.trim() : '';
+  const email = emailInput ? emailInput.value.trim() : '';
+  const classId = classSelect ? classSelect.value : '';
+  const selectedSubjects = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
+  const status = statusSelect ? statusSelect.value : 'active';
+  const gender = genderSelect ? genderSelect.value : '';
+  const dob = dobInput ? dobInput.value : '';
+  const club = clubInput ? clubInput.value.trim() : null;
+  let passport = passportInput ? passportInput.dataset.base64 : null;
 
   // Validation
   if (!name || !email || !classId || !gender || !dob) {
-    alert('Please fill in all required fields (Name, Email, Class, Gender, Date of Birth).');
+    showNotification("Please fill in all required fields (Name, Email, Class, Gender, Date of Birth).", "error");
     return;
   }
   const age = calculateAge(dob);
   if (age === null || age < 0 || age > 100) {
-    alert('Please enter a valid date of birth.');
+    showNotification("Please enter a valid date of birth.", "error");
     return;
   }
 
@@ -500,7 +566,7 @@ async function handleStudentSubmit(e) {
   // Check uniqueness
   const isUnique = await isAdmissionNumberUnique(admissionNumber, editingStudentId);
   if (!isUnique) {
-    alert(`Admission number "${admissionNumber}" already exists. Please use a different one.`);
+    showNotification(`Admission number "${admissionNumber}" already exists. Please use a different one.`, "error");
     return;
   }
 
@@ -532,20 +598,24 @@ async function handleStudentSubmit(e) {
     studentData.createdAt = new Date();
   }
 
+  showLoader();
   try {
     if (editingStudentId) {
       // For update, never modify the 'locked' field
       delete studentData.locked;
       await updateDoc(doc(db, 'students', editingStudentId), studentData);
+      showNotification("Student updated successfully.", "success");
     } else {
       await addDoc(collection(db, 'students'), studentData);
       await handleNewStudentAddition(currentSchoolId, 1);
+      showNotification("Student added successfully.", "success");
     }
     closeModal();
     await loadAndDisplayStudents();
   } catch (error) {
-    console.error('Error saving student:', error);
-    alert('Failed to save student. Check console for details.');
+    handleError(error, "Failed to save student.");
+  } finally {
+    hideLoader();
   }
 }
 
@@ -557,4 +627,80 @@ function escapeHtml(str) {
     if (m === '>') return '&gt;';
     return m;
   });
+}
+
+// ========== SUBSCRIPTION PAYMENT BANNER ==========
+function injectSubscriptionUI() {
+  if (!document.getElementById('paymentBannerContainer')) {
+    const contentDiv = document.querySelector('.content');
+    if (contentDiv) {
+      const paymentDiv = document.createElement('div');
+      paymentDiv.id = 'paymentBannerContainer';
+      paymentDiv.style.margin = '16px 0';
+      contentDiv.insertBefore(paymentDiv, contentDiv.firstChild);
+    }
+  }
+}
+
+function showPaymentBanner() {
+  const container = document.getElementById('paymentBannerContainer');
+  if (!container) return;
+  const existing = document.getElementById('paymentBanner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'paymentBanner';
+  banner.className = 'payment-banner';
+  banner.innerHTML = `
+    <div class="payment-banner-content">
+      <h3>💰 Activate Your Subscription</h3>
+      <p>Pay securely online with your ATM card via Paystack, or contact us on WhatsApp for assistance.</p>
+    </div>
+    <div class="payment-buttons">
+      <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now (Card/Online)</button>
+      <a id="whatsappLink" href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">
+        <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91zm0 2c4.4 0 7.91 3.51 7.91 7.91 0 4.4-3.51 7.91-7.91 7.91-1.43 0-2.78-.38-3.97-1.07l-.6-.34-3.11.82.83-3.04-.34-.6c-.7-1.2-1.07-2.55-1.07-3.97 0-4.4 3.51-7.91 7.91-7.91zM8.53 7.5c-.18 0-.48.07-.73.33-.26.26-.95.93-.95 2.28 0 1.35.98 2.66 1.12 2.84.14.18 1.88 2.98 4.56 4.07.64.26 1.14.42 1.53.54.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.26-.18-.55-.31-.29-.13-1.7-.84-1.96-.94-.26-.1-.45-.15-.64.15-.19.3-.73.94-.9 1.13-.17.19-.34.21-.63.07-.29-.13-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.61-1.99-.17-.29-.02-.45.13-.59.13-.13.29-.34.44-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.03-.51-.08-.15-.64-1.54-.88-2.11-.23-.56-.46-.48-.64-.49h-.55z"/>
+        </svg>
+        09044784225 (WhatsApp)
+      </a>
+    </div>
+  `;
+  container.appendChild(banner);
+
+  const payBtn = document.getElementById('paystackPaymentBtn');
+  if (payBtn) {
+    payBtn.addEventListener('click', () => {
+      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+    });
+  }
+}
+
+function hidePaymentBanner() {
+  const banner = document.getElementById('paymentBanner');
+  if (banner) banner.remove();
+}
+
+async function setupSubscriptionUI() {
+  injectSubscriptionUI();
+  hidePaymentBanner();
+}
+
+async function initSubscriptionListener() {
+  if (!currentSchoolId) return;
+  if (unsubscribeSub) unsubscribeSub();
+  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
+  unsubscribeSub = onSnapshot(subRef, (snap) => {
+    if (!snap.exists()) {
+      showPaymentBanner();
+      return;
+    }
+    const sub = snap.data();
+    const isActive = sub.status === 'active' && sub.locked === false;
+    if (isActive) {
+      hidePaymentBanner();
+    } else {
+      showPaymentBanner();
+    }
+  }, (err) => handleError(err, "Subscription listener error."));
 }

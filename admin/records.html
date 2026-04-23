@@ -132,7 +132,7 @@
     .btn-primary { background-color: #3b82f6; color: white; }
     .btn-secondary { background-color: #64748b; color: white; }
 
-    /* ========== REPORT CARD STYLES (copied from results.html) ========== */
+    /* ========== REPORT CARD STYLES (copied from results.html with layout updates) ========== */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column;
@@ -201,7 +201,7 @@
 
     /* Summary + Grading Scale */
     .summary-grading-wrapper {
-      display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: nowrap;
+      display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: wrap;
     }
     .summary-wrapper { flex: 2; min-width: 160px; }
     .grading-wrapper { flex: 1; min-width: 140px; }
@@ -308,6 +308,77 @@
     .tick.selected { background: #3b82f6; color: white; }
     .print-value { display: none; }
 
+    /* Attendance table */
+    .attendance-section {
+      margin: 8px 8px 4px 8px;
+    }
+    .attendance-table {
+      width: 40%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin: 6px 0;
+      margin-left: 0;
+    }
+    .attendance-table td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+    .attendance-label {
+      font-weight: 600;
+      background-color: #f8fafc;
+      width: 50%;
+    }
+    .attendance-input-cell { text-align: center; }
+    .attendance-input {
+      width: 80px;
+      padding: 4px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font-size: 10px;
+      text-align: center;
+    }
+    .attendance-value { display: none; }
+
+    /* ========== NEW LAYOUT GRID (70% / 30%) ========== */
+    .report-main-grid {
+      display: grid;
+      grid-template-columns: 70% 30%;
+      gap: 12px;
+      margin: 8px 8px;
+    }
+    .subject-table-col { width: 100%; }
+    .subject-table th, .subject-table td {
+      padding: 6px 3px;        /* original height */
+    }
+    .subject-table td, .subject-table th {
+      word-break: break-word;
+      white-space: normal;
+    }
+    .skills-stack-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .psychomotor-wrapper, .affective-wrapper { width: 100%; }
+    .psychomotor-table, .affective-table {
+      width: 80%;
+      margin: 0 auto;
+      font-size: 9px;
+    }
+    .skills-table td, .skills-table th {
+      word-break: break-word;
+      white-space: normal;
+    }
+
+    /* Summary table: 50% width, left-aligned */
+    .summary-wrapper {
+      flex: 0 0 50%;
+      width: 50%;
+      margin-left: 0;
+      margin-right: auto;
+    }
+
     /* Broadsheet table */
     .broadsheet-table {
       width: 100%;
@@ -330,6 +401,125 @@
     .student-name-cell {
       text-align: left !important;
       font-weight: 600;
+    }
+
+    /* ========== PRINT STYLES – OPTIMISED FOR ONE PAGE ========== */
+    @media print {
+      .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
+      .action-buttons, .attendance-input, #getDocBtn, .filters {
+        display: none !important;
+      }
+      .print-value, .print-comment-text {
+        display: block !important;
+      }
+      @page {
+        size: A4;
+        margin: 5mm;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      .report-card {
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+        font-size: 9px;
+      }
+      .report-card, .report-card * {
+        page-break-inside: avoid;
+        page-break-after: avoid;
+        page-break-before: avoid;
+      }
+      .report-header {
+        padding: 2px 5px;
+        margin-bottom: 2px;
+      }
+      .student-details-grid {
+        gap: 2px 6px;
+        padding: 4px 6px;
+        margin: 2px 4px;
+        font-size: 8px;
+      }
+      .subject-table {
+        font-size: 8px;
+        margin: 4px 0;
+      }
+      .subject-table th, .subject-table td {
+        padding: 3px 2px;
+      }
+      .subject-table th:not(:first-child) {
+        height: 40px;
+        width: 28px;
+        padding: 4px 1px;
+      }
+      .skills-table {
+        font-size: 7px;
+        margin: 0;
+      }
+      .skills-table th, .skills-table td {
+        padding: 2px 2px;
+      }
+      .summary-grading-wrapper {
+        margin: 4px 4px;
+        gap: 6px;
+      }
+      .summary-table, .grade-scale-table {
+        font-size: 7px;
+      }
+      .summary-table th, .summary-table td {
+        padding: 2px 3px;
+      }
+      .section-title {
+        font-size: 8px;
+        margin-bottom: 2px;
+      }
+      .rating-guide {
+        margin: 2px 4px;
+        padding: 2px 4px;
+        font-size: 7px;
+      }
+      .comments-section {
+        margin: 4px 4px;
+      }
+      .comments-section h3 {
+        font-size: 9px;
+        margin: 2px 0;
+      }
+      .comment-group {
+        margin-bottom: 4px;
+      }
+      .comment-group label {
+        font-size: 8px;
+        margin-bottom: 2px;
+      }
+      .print-comment-text {
+        font-size: 8px;
+      }
+      .signature-stamp {
+        margin: 6px 4px;
+        padding-top: 4px;
+        gap: 6px;
+      }
+      .signature-item strong {
+        font-size: 8px;
+      }
+      .signature-line {
+        margin-top: 2px;
+        height: 8px;
+      }
+      .stamp-placeholder {
+        padding: 2px 4px;
+        font-size: 7px;
+      }
+      .attendance-table {
+        width: 40%;
+        margin-left: 0;
+        font-size: 8px;
+      }
+      .attendance-table td {
+        padding: 3px 6px;
+      }
     }
   </style>
 </head>
@@ -391,6 +581,15 @@
               <option value="">Select Term</option>
             </select>
           </div>
+          <div class="filter-group">
+            <label for="docTypeSelect">Document Type</label>
+            <select id="docTypeSelect">
+              <option value="">Select Type</option>
+              <option value="report">Report Cards</option>
+              <option value="broadsheet">Broadsheet</option>
+            </select>
+          </div>
+          <button id="getDocBtn" class="btn-primary">Get Doc</button>
         </div>
 
         <!-- Dynamic content (student list + report card OR broadsheet) -->

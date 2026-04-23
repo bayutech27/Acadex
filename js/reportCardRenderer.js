@@ -1,23 +1,17 @@
-// reportCardRenderer.js - Shared report card rendering engine
-// Provides 100% identical HTML structure and styling logic for both admin and teacher pages
+// reportCardRenderer.js - Shared report card rendering engine (UPDATED)
+import { showNotification } from './error-handler.js';
 
 export function renderReportCardUI({
-  student,           // { id, name, admissionNumber, gender, dob, club, passport }
-  scores,            // array of { subjectId, ca, exam }
-  className,         // string
-  school,            // { name, address, logo }
-  grading,           // { ca, exam }
-  psychomotor,       // object mapping skill keys to ratings (1-5)
-  comments,          // { teacherComment, principalComment }
-  term,              // '1', '2', '3'
-  session,           // e.g., '2025/2026'
-  subjectStats,      // Map: subjectId -> { rankMap, classAverage }
-  container,         // DOM element to inject the HTML into
-  onRatingChange,    // optional callback (skillKey, newValue)
-  onTeacherCommentChange, // optional callback (newComment)
-  onPrincipalCommentChange // optional callback (newComment)
+  student, scores, className, school, grading, psychomotor, comments,
+  term, session, subjectStats, container, attendance = {},
+  onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
 }) {
-  // Helper functions (should be pure and self-contained)
+  if (!container) {
+    console.error("renderReportCardUI: container element is required");
+    showNotification("Failed to render report card: container missing.", "error");
+    return;
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
@@ -56,20 +50,13 @@ export function renderReportCardUI({
 
   function getGradeScaleHtml() {
     const scale = [
-      ['A1','85-100','Excellent'],
-      ['B2','75-84.9','Very Good'],
-      ['B3','70-74.9','Good'],
-      ['C4','65-69.9','Credit'],
-      ['C5','60-64.9','Credit'],
-      ['C6','50-59.9','Credit'],
-      ['D7','45-49.9','Pass'],
-      ['E8','40-44.9','Pass'],
-      ['F9','0-39.9','Fail']
+      ['A1','85-100','Excellent'], ['B2','75-84.9','Very Good'], ['B3','70-74.9','Good'],
+      ['C4','65-69.9','Credit'], ['C5','60-64.9','Credit'], ['C6','50-59.9','Credit'],
+      ['D7','45-49.9','Pass'], ['E8','40-44.9','Pass'], ['F9','0-39.9','Fail']
     ];
-    return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+    return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
   }
 
-  // Psychomotor & Affective skills lists (shared)
   const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
   const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
 
@@ -81,26 +68,31 @@ export function renderReportCardUI({
   let tableRows = '';
   let totalScore = 0;
   let subjectCount = 0;
-
-  for (const score of scores) {
-    const subjectName = score.subjectName || score.subjectId; // subjectName must be resolved before calling
-    const total = (score.ca || 0) + (score.exam || 0);
-    totalScore += total;
-    subjectCount++;
-    const grade = calculateGrade(total);
-    const remark = getGradeRemark(grade);
-    let positionHtml = '—';
-    let classAvg = '—';
-    const stat = subjectStats?.get(score.subjectId);
-    if (stat) {
-      const rank = stat.rankMap?.get(student.id);
-      if (rank) {
-        const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
-        positionHtml = `${rank}<sup>${suffix}</sup>`;
+  if (scores && scores.length) {
+    for (const score of scores) {
+      const subjectName = score.subjectName || score.subjectId;
+      const total = (score.ca || 0) + (score.exam || 0);
+      totalScore += total;
+      subjectCount++;
+      const grade = calculateGrade(total);
+      const remark = getGradeRemark(grade);
+      let positionHtml = '—';
+      let classAvg = '—';
+      const stat = subjectStats?.get(score.subjectId);
+      if (stat) {
+        const rank = stat.rankMap?.get(student.id);
+        if (rank) {
+          const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+          positionHtml = `${rank}<sup>${suffix}</sup>`;
+        }
+        classAvg = stat.classAverage ?? '—';
       }
-      classAvg = stat.classAverage ?? '—';
+      tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
+        <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+        <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
     }
-    tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td><td>${score.ca}</td><td>${score.exam}</td><td>${total}</td><td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+  } else {
+    tableRows = '<tr><td colspan="8">No scores found</td></tr>';
   }
 
   const average = subjectCount ? (totalScore / subjectCount).toFixed(1) : 0;
@@ -110,27 +102,37 @@ export function renderReportCardUI({
   const overallRemark = getGradeRemark(overallGrade);
 
   // Generate skills tables
-  let psychomotorHtml = `<table class="skills-table"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  let psychomotorHtml = `<table class="skills-table psychomotor-table"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
-    psychomotorHtml += `<tr><td>${escapeHtml(skill)}</td><td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
+    psychomotorHtml += `<tr><td>${escapeHtml(skill)}</td>
+      <td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
   }
   psychomotorHtml += `</tbody></table>`;
 
-  let affectiveHtml = `<table class="skills-table"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  let affectiveHtml = `<table class="skills-table affective-table"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of affectiveSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
-    affectiveHtml += `<tr><td>${escapeHtml(skill)}</td><td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
+    affectiveHtml += `<tr><td>${escapeHtml(skill)}</td>
+      <td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
   }
   affectiveHtml += `</tbody></table>`;
 
   // Summary table
-  const summaryHtml = `<div class="section-title">📊 Summary of Performance</div><table class="summary-table"><tr><th>Total Obtained</th><td>${totalScore}</td></tr><tr><th>Total Obtainable</th><td>${totalObtainable}</td></tr><tr><th>Total Subjects</th><td>${subjectCount}</td></tr><tr><th>% Average</th><td>${percentageAvg}%</td></tr><tr><th>Grade</th><td>${overallGrade}</td></tr><tr><th>Remark</th><td>${overallRemark}</td></tr></table>`;
+  const summaryHtml = `<div class="section-title">📊 Summary of Performance</div>
+    <table class="summary-table">
+      <tr><th>Total Obtained</th><td>${totalScore}</td></tr>
+      <tr><th>Total Obtainable</th><td>${totalObtainable}</td></tr>
+      <tr><th>Total Subjects</th><td>${subjectCount}</td></tr>
+      <tr><th>% Average</th><td>${percentageAvg}%</td></tr>
+      <tr><th>Grade</th><td>${overallGrade}</td></tr>
+      <tr><th>Remark</th><td>${overallRemark}</td></tr>
+    </table>`;
   const gradeScaleHtml = `<div class="section-title">📈 Grade Distribution</div>${getGradeScaleHtml()}`;
 
-  // Header with logo, school name, address, passport
+  // Header
   const headerHtml = `<div class="report-header">
     <div class="school-logo-area">${school.logo ? `<img src="${school.logo}" class="school-logo-small" alt="Logo">` : ''}</div>
     <div class="school-name-area">
@@ -140,7 +142,6 @@ export function renderReportCardUI({
     <div class="passport-area">${student.passport ? `<img src="${student.passport}" class="student-passport-img" alt="Passport">` : ''}</div>
   </div>`;
 
-  // Student details grid
   const age = student.dob ? calculateAge(student.dob) : '—';
   const studentDetailsHtml = `<div class="student-details-grid">
     <div><strong>Name:</strong> <span class="student-name-caps">${escapeHtml(student.name).toUpperCase()}</span></div>
@@ -153,39 +154,70 @@ export function renderReportCardUI({
     <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
   </div>`;
 
-  const tableHtml = `<table class="subject-table"><thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead><tbody>${tableRows || '<tr><td colspan="8">No scores found</td></tr>'}</tbody></table>`;
+  // Attendance table
+  const attendanceHtml = `
+    <div class="attendance-section">
+      <div class="section-title">📅 Attendance Record</div>
+      <table class="attendance-table">
+        <tbody>
+          <tr><td class="attendance-label">No of times School opened</td>
+            <td class="attendance-input-cell">
+              <input type="number" class="attendance-input school-opened" value="${attendance.schoolOpened || 0}" min="0" step="1">
+              <span class="print-value attendance-value school-opened-value">${attendance.schoolOpened || 0}</span>
+            </td>
+          </tr>
+          <tr><td class="attendance-label">No of times present</td>
+            <td class="attendance-input-cell">
+              <input type="number" class="attendance-input present" value="${attendance.present || 0}" min="0" step="1">
+              <span class="print-value attendance-value present-value">${attendance.present || 0}</span>
+            </td>
+          </tr>
+          <tr><td class="attendance-label">No of times absent</td>
+            <td class="attendance-input-cell">
+              <input type="number" class="attendance-input absent" value="${attendance.absent || 0}" min="0" step="1">
+              <span class="print-value attendance-value absent-value">${attendance.absent || 0}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const subjectTableHtml = `<table class="subject-table"><thead>
+    <tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr>
+    </thead><tbody>${tableRows}</tbody></table>`;
+
+  const mainGridHtml = `
+    <div class="report-main-grid">
+      <div class="subject-table-col">${subjectTableHtml}</div>
+      <div class="skills-stack-col">
+        <div class="psychomotor-wrapper">${psychomotorHtml}</div>
+        <div class="affective-wrapper">${affectiveHtml}</div>
+      </div>
+    </div>
+  `;
 
   // Comments section
-  const commentOptions = getCommentOptionsByGrade(overallGrade);
   function getCommentOptionsByGrade(grade) {
     const generalComments = [
       'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
-      'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.',
-      'Continue to participate actively in class.', 'You are capable of achieving even more.', 'Great teamwork and collaboration skills.',
-      'Your curiosity and willingness to learn are assets.'
+      'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
     ];
     const gradeSpecific = {
-      'A1': ['Excellent performance! Keep setting high standards.', 'Outstanding achievement across all subjects.', 'Your dedication is truly exceptional.', 'You are a role model for your peers.', 'Maintain this brilliant performance.', 'Your hard work has paid off remarkably.'],
-      'B2': ['Very good performance. Aim for excellence next term.', 'You are doing well; a little more effort can push you to the top.', 'Consistent good work – keep it up!', 'You have strong understanding of the subjects.', 'Well done! Strive for even greater heights.'],
-      'B3': ['Good performance. Continue to build on this foundation.', 'You have the potential to move up to a higher grade.', 'Keep working hard; you are on the right track.', 'Good understanding, but aim for deeper mastery.', 'Solid performance. Stay motivated.'],
-      'C4': ['Credit level performance. Focus on areas needing improvement.', 'You are capable of better results with more revision.', 'Good effort, but consistency is key to moving up.', 'Identify weak topics and work on them diligently.', 'Keep practicing; you are making steady progress.'],
-      'C5': ['Credit level. More attention to detail will help.', 'You have the ability; apply yourself more consistently.', 'Work on completing assignments on time.', 'Seek help when you find topics challenging.', 'Your effort is noted; increase revision time.'],
-      'C6': ['Credit performance. A little more push will yield better grades.', 'You are capable of higher scores with extra practice.', 'Avoid distractions and stay focused on your studies.', 'Consistent hard work is needed to improve.', 'You can do better; believe in yourself.'],
-      'D7': ['Pass grade. Significant improvement is required.', 'You need to dedicate more time to your studies.', 'Attend extra lessons if possible to catch up.', 'Do not be discouraged; work harder next term.', 'Focus on building your foundational knowledge.'],
-      'E8': ['Pass, but serious effort is needed to progress.', 'You must prioritize your academic work.', 'Seek assistance from teachers and peers.', 'There is room for major improvement.', 'Commit to a regular study schedule.'],
-      'F9': ['Fail grade. Urgent attention and effort are required.', 'This is a wake-up call to change your approach.', 'You need to attend remedial classes.', 'Do not give up; you can turn this around with hard work.', 'Please meet with your teacher for a study plan.']
+      'A1': ['Excellent performance! Keep setting high standards.'], 'B2': ['Very good performance. Aim for excellence next term.'],
+      'B3': ['Good performance. Continue to build on this foundation.'], 'C4': ['Credit level performance. Focus on areas needing improvement.'],
+      'C5': ['Credit level. More attention to detail will help.'], 'C6': ['Credit performance. A little more push will yield better grades.'],
+      'D7': ['Pass grade. Significant improvement is required.'], 'E8': ['Pass, but serious effort is needed to progress.'],
+      'F9': ['Fail grade. Urgent attention and effort are required.']
     };
-    const gradeComments = gradeSpecific[grade] || ['Keep working hard.', 'Your effort matters.', 'Stay positive and persistent.'];
+    const gradeComments = gradeSpecific[grade] || ['Keep working hard.'];
     let allComments = [...generalComments, ...gradeComments];
-    const extraComments = [
-      'Your participation in class discussions is valued.', 'You have shown growth in problem-solving skills.', 'Excellent punctuality and attendance.',
-      'You are a pleasure to have in class.', 'Continue to ask questions when in doubt.', 'Your homework assignments are improving.',
-      'You have a bright future ahead.', 'Remember that learning is a journey.', 'Celebrate your small victories.', 'Stay curious and never stop learning.'
-    ];
+    const extraComments = ['Your participation is valued.', 'You have shown growth.', 'Excellent punctuality.'];
     while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
     return [...new Set(allComments)];
   }
 
+  const commentOptions = getCommentOptionsByGrade(overallGrade);
   const commentsHtml = `<div class="comments-section"><h3>Comments</h3>
     <div class="comment-group">
       <label>Teacher's Comment:</label>
@@ -212,14 +244,35 @@ export function renderReportCardUI({
   </div>`;
   const ratingGuideHtml = `<div class="rating-guide">Rating Guide: 1 - Poor | 2 - Fair | 3 - Good | 4 - Very Good | 5 - Excellent</div>`;
 
-  const fullHtml = headerHtml + studentDetailsHtml + tableHtml +
+  const fullHtml = headerHtml + studentDetailsHtml + attendanceHtml + mainGridHtml +
     `<div class="summary-grading-wrapper"><div class="summary-wrapper">${summaryHtml}</div><div class="grading-wrapper">${gradeScaleHtml}</div></div>` +
-    `<div class="skills-wrapper"><div class="skills-half">${psychomotorHtml}</div><div class="skills-half">${affectiveHtml}</div></div>` +
     ratingGuideHtml + commentsHtml + signatureHtml;
 
-  if (container) container.innerHTML = fullHtml;
+  container.innerHTML = fullHtml;
 
-  // Attach interactive components (rating ticks, comment sync)
+  // Sync attendance inputs to print spans
+  const syncAttendanceSpans = () => {
+    const openedInput = document.querySelector('.attendance-input.school-opened');
+    const presentInput = document.querySelector('.attendance-input.present');
+    const absentInput = document.querySelector('.attendance-input.absent');
+    if (openedInput) {
+      const openedSpan = document.querySelector('.school-opened-value');
+      if (openedSpan) openedSpan.textContent = openedInput.value;
+    }
+    if (presentInput) {
+      const presentSpan = document.querySelector('.present-value');
+      if (presentSpan) presentSpan.textContent = presentInput.value;
+    }
+    if (absentInput) {
+      const absentSpan = document.querySelector('.absent-value');
+      if (absentSpan) absentSpan.textContent = absentInput.value;
+    }
+  };
+  document.querySelectorAll('.attendance-input').forEach(input => {
+    input.addEventListener('input', syncAttendanceSpans);
+  });
+
+  // Rating ticks
   function createTickRating(skillKey, currentValue) {
     const containerDiv = document.createElement('div');
     containerDiv.className = 'rating-tick';
@@ -244,7 +297,6 @@ export function renderReportCardUI({
     return containerDiv;
   }
 
-  // Inject rating widgets
   document.querySelectorAll('.rating-container').forEach(containerEl => {
     const skillKey = containerEl.dataset.skillKey;
     if (skillKey) {
@@ -254,7 +306,7 @@ export function renderReportCardUI({
     }
   });
 
-  // Setup comment sync
+  // Comment sync
   const teacherSelect = document.getElementById('teacherCommentSelect');
   const teacherText = document.getElementById('teacherCommentText');
   const principalSelect = document.getElementById('principalCommentSelect');
@@ -293,6 +345,5 @@ export function renderReportCardUI({
     };
   }
 
-  // Return the generated HTML and the DOM elements for external use if needed
   return { fullHtml, totalScore, totalObtainable, average, overallGrade };
 }
