@@ -1,4 +1,4 @@
-// students.js - Manage students with subscription tracking + locked field + payment banner
+// students.js - Manage students with name parts, level filtering, dynamic class/subject loading, and primary class filters
 import { db } from './firebase-config.js';
 import { 
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, onSnapshot
@@ -9,17 +9,18 @@ import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
-let subjectsMap = new Map();
-let classesMap = new Map();
+let subjectsMap = new Map();      // full map { id: { name, level } }
+let classesMap = new Map();       // full map { id: { name, level } }
 let editingStudentId = null;
 let currentFilter = 'all';
 let schoolName = '';
 let unsubscribeSub = null;
 
 // DOM elements
-let studentForm, modal, nameInput, emailInput, classSelect, subjectsSelect, statusSelect;
+let studentForm, modal, admissionNoInput;
+let surnameInput, firstNameInput, otherNameInput;
+let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
-let admissionNoInput;
 
 export async function initStudentsPage() {
   await protectAdminPage();
@@ -33,8 +34,11 @@ export async function initStudentsPage() {
   studentForm = document.getElementById('studentForm');
   modal = document.getElementById('studentModal');
   admissionNoInput = document.getElementById('studentAdmissionNo');
-  nameInput = document.getElementById('studentName');
+  surnameInput = document.getElementById('studentSurname');
+  firstNameInput = document.getElementById('studentFirstName');
+  otherNameInput = document.getElementById('studentOtherName');
   emailInput = document.getElementById('studentEmail');
+  levelSelect = document.getElementById('studentLevel');
   classSelect = document.getElementById('studentClass');
   subjectsSelect = document.getElementById('studentSubjects');
   statusSelect = document.getElementById('studentStatus');
@@ -46,7 +50,7 @@ export async function initStudentsPage() {
   passportPreviewContainer = document.getElementById('passportPreviewContainer');
   passportErrorSpan = document.getElementById('passportError');
 
-  if (!studentForm || !modal) {
+  if (!studentForm || !modal || !surnameInput || !firstNameInput || !levelSelect || !classSelect || !subjectsSelect) {
     console.error('Required DOM elements not found');
     return;
   }
@@ -57,8 +61,9 @@ export async function initStudentsPage() {
     schoolName = schoolDoc.data().name || '';
   }
   
-  await loadSubjects();
-  await loadClasses();
+  // Load all classes and subjects for reference
+  await loadAllClasses();
+  await loadAllSubjects();
   await loadAndDisplayStudents();
 
   // Event listeners
@@ -72,8 +77,30 @@ export async function initStudentsPage() {
   
   if (dobInput) dobInput.addEventListener('change', () => calculateAndDisplayAge());
   if (passportInput) passportInput.addEventListener('change', handlePassportUpload);
+  
+  // Level change: load dynamic class and subject options
+  if (levelSelect) {
+    levelSelect.addEventListener('change', async (e) => {
+      const level = e.target.value;
+      if (level) {
+        await loadClassesByLevel(level);
+        await loadSubjectsByLevel(level);
+        if (classSelect) classSelect.disabled = false;
+        if (subjectsSelect) subjectsSelect.disabled = false;
+      } else {
+        if (classSelect) {
+          classSelect.innerHTML = '<option value="">-- Select level first --</option>';
+          classSelect.disabled = true;
+        }
+        if (subjectsSelect) {
+          subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
+          subjectsSelect.disabled = true;
+        }
+      }
+    });
+  }
 
-  // Filter buttons
+  // Filter buttons - now includes primary classes
   const filterBtns = document.querySelectorAll('.filter-btn');
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -87,6 +114,118 @@ export async function initStudentsPage() {
   // Setup subscription UI and listener
   setupSubscriptionUI();
   initSubscriptionListener();
+}
+
+// Helper: capitalize first letter of each word
+function capitalizeWords(str) {
+  if (!str) return '';
+  return str.trim().replace(/\b\w/g, char => char.toUpperCase());
+}
+
+// Helper: format name parts into full name
+function formatFullName(surname, firstName, otherName) {
+  const parts = [surname, firstName];
+  if (otherName && otherName.trim()) parts.push(otherName);
+  return parts.join(' ');
+}
+
+// Load all classes (for reference)
+async function loadAllClasses() {
+  try {
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    classesMap.clear();
+    snapshot.forEach(doc => {
+      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    });
+  } catch (err) {
+    handleError(err, "Failed to load classes reference.");
+  }
+}
+
+// Load all subjects (for reference)
+async function loadAllSubjects() {
+  try {
+    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(q);
+    subjectsMap.clear();
+    snapshot.forEach(doc => {
+      subjectsMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    });
+  } catch (err) {
+    handleError(err, "Failed to load subjects reference.");
+  }
+}
+
+// Load classes filtered by level
+async function loadClassesByLevel(level) {
+  if (!level) return;
+  showLoader();
+  try {
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
+    const snapshot = await getDocs(q);
+    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    if (!classSelect) return;
+    classSelect.innerHTML = '<option value="">Select Class</option>';
+    if (classes.length === 0) {
+      classSelect.innerHTML = '<option value="">No classes available for this level</option>';
+      classSelect.disabled = true;
+    } else {
+      for (const cls of classes) {
+        const option = document.createElement('option');
+        option.value = cls.id;
+        option.textContent = cls.name;
+        classSelect.appendChild(option);
+      }
+      classSelect.disabled = false;
+    }
+  } catch (err) {
+    handleError(err, "Failed to load classes for selected level.");
+    if (classSelect) {
+      classSelect.innerHTML = '<option value="">Error loading classes</option>';
+      classSelect.disabled = true;
+    }
+  } finally {
+    hideLoader();
+  }
+}
+
+// Load subjects filtered by level
+async function loadSubjectsByLevel(level) {
+  if (!level) return;
+  showLoader();
+  try {
+    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
+    const snapshot = await getDocs(q);
+    const subjects = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    if (!subjectsSelect) return;
+    subjectsSelect.innerHTML = '';
+    if (subjects.length === 0) {
+      const option = document.createElement('option');
+      option.disabled = true;
+      option.textContent = 'No subjects available for this level';
+      subjectsSelect.appendChild(option);
+      subjectsSelect.disabled = true;
+    } else {
+      for (const sub of subjects) {
+        const option = document.createElement('option');
+        option.value = sub.id;
+        option.textContent = sub.name;
+        subjectsSelect.appendChild(option);
+      }
+      subjectsSelect.disabled = false;
+    }
+  } catch (err) {
+    handleError(err, "Failed to load subjects for selected level.");
+    if (subjectsSelect) {
+      subjectsSelect.innerHTML = '<option value="">Error loading subjects</option>';
+      subjectsSelect.disabled = true;
+    }
+  } finally {
+    hideLoader();
+  }
 }
 
 // Helper: calculate age from DOB (YYYY-MM-DD)
@@ -171,7 +310,7 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   }
 }
 
-// Image compression
+// Image compression (unchanged)
 async function compressAndResizeImage(file, maxSizeKB = 800, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -251,61 +390,6 @@ async function handlePassportUpload(e) {
   }
 }
 
-async function loadSubjects() {
-  try {
-    const subjectsRef = collection(db, 'subjects');
-    const q = query(subjectsRef, where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    subjectsMap.clear();
-    snapshot.forEach(doc => {
-      subjectsMap.set(doc.id, doc.data().name);
-    });
-
-    if (subjectsSelect) {
-      subjectsSelect.innerHTML = '';
-      if (subjectsMap.size === 0) {
-        const option = document.createElement('option');
-        option.disabled = true;
-        option.textContent = 'No subjects available. Create subjects in Setup page first.';
-        subjectsSelect.appendChild(option);
-      } else {
-        for (let [id, name] of subjectsMap) {
-          const option = document.createElement('option');
-          option.value = id;
-          option.textContent = name;
-          subjectsSelect.appendChild(option);
-        }
-      }
-    }
-  } catch (err) {
-    handleError(err, "Failed to load subjects.");
-  }
-}
-
-async function loadClasses() {
-  try {
-    const classesRef = collection(db, 'classes');
-    const q = query(classesRef, where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    classesMap.clear();
-    snapshot.forEach(doc => {
-      classesMap.set(doc.id, doc.data().name);
-    });
-
-    if (classSelect) {
-      classSelect.innerHTML = '<option value="">Select Class</option>';
-      for (let [id, name] of classesMap) {
-        const option = document.createElement('option');
-        option.value = id;
-        option.textContent = name;
-        classSelect.appendChild(option);
-      }
-    }
-  } catch (err) {
-    handleError(err, "Failed to load classes.");
-  }
-}
-
 async function loadAndDisplayStudents() {
   let studentsQuery;
   const studentsRef = collection(db, 'students');
@@ -317,16 +401,17 @@ async function loadAndDisplayStudents() {
       where('status', '==', 'active')
     );
   } else {
+    // Find class ID by name (case-sensitive; classesMap stores id->{name, level})
     let classId = null;
-    for (let [id, name] of classesMap) {
-      if (name === currentFilter) {
+    for (let [id, data] of classesMap.entries()) {
+      if (data.name === currentFilter) {
         classId = id;
         break;
       }
     }
     if (!classId) {
       const container = document.getElementById('studentsList');
-      if (container) container.innerHTML = '<p>No students found.</p>';
+      if (container) container.innerHTML = '<p>No students found for this class.</p>';
       return;
     }
     studentsQuery = query(
@@ -370,7 +455,8 @@ async function loadAndDisplayStudents() {
         </thead>
         <tbody>
           ${students.map(student => {
-            const className = classesMap.get(student.classId) || 'Unknown';
+            const classInfo = classesMap.get(student.classId);
+            const className = classInfo ? classInfo.name : 'Unknown';
             const passportSrc = student.passport || '';
             const lockedDisplay = student.locked ? 'Yes' : 'No';
             return `
@@ -406,10 +492,13 @@ async function loadAndDisplayStudents() {
     select.addEventListener('change', async (e) => {
       const studentId = select.getAttribute('data-id');
       const newStatus = select.value;
-      const className = await getStudentClass(studentId);
+      const studentDoc = await getDoc(doc(db, 'students', studentId));
+      const classInfo = classesMap.get(studentDoc.data().classId);
+      const className = classInfo ? classInfo.name : '';
       if (newStatus === 'graduated') {
-        if (className !== 'JSS 3' && className !== 'SSS 3') {
-          showNotification('Graduated status can only be set for JSS 3 or SSS 3 students.', "error");
+        // Graduation allowed only for final year classes (Primary 6, JSS 3, SSS 3)
+        if (className !== 'Primary 6' && className !== 'JSS 3' && className !== 'SSS 3') {
+          showNotification('Graduated status can only be set for final year classes (Primary 6, JSS 3, or SSS 3).', "error");
           select.value = select.getAttribute('data-current');
           return;
         }
@@ -451,23 +540,11 @@ async function loadAndDisplayStudents() {
   };
 }
 
-async function getStudentClass(studentId) {
-  try {
-    const studentDoc = await getDoc(doc(db, 'students', studentId));
-    if (studentDoc.exists()) {
-      const classId = studentDoc.data().classId;
-      return classesMap.get(classId) || 'Unknown';
-    }
-  } catch (err) {
-    console.warn(err);
-  }
-  return 'Unknown';
-}
-
 function openModal(studentId = null) {
   editingStudentId = studentId;
   const modalTitle = document.getElementById('modalTitle');
   if (!modalTitle) return;
+  
   // Reset form
   studentForm.reset();
   if (passportPreviewContainer) passportPreviewContainer.innerHTML = '';
@@ -478,6 +555,17 @@ function openModal(studentId = null) {
   if (dobInput) dobInput.value = '';
   if (clubInput) clubInput.value = '';
   if (admissionNoInput) admissionNoInput.value = '';
+  
+  // Reset class and subject selects to disabled state
+  if (classSelect) {
+    classSelect.innerHTML = '<option value="">-- Select level first --</option>';
+    classSelect.disabled = true;
+  }
+  if (subjectsSelect) {
+    subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
+    subjectsSelect.disabled = true;
+  }
+  if (levelSelect) levelSelect.value = '';
   
   if (studentId) {
     modalTitle.textContent = 'Edit Student';
@@ -495,21 +583,40 @@ async function loadStudentData(studentId) {
     if (studentDoc.exists()) {
       const data = studentDoc.data();
       if (admissionNoInput) admissionNoInput.value = data.admissionNumber || '';
-      if (nameInput) nameInput.value = data.name || '';
+      // Extract name parts from stored 'name' field (format: "Surname FirstName OtherName")
+      const nameParts = (data.name || '').split(' ');
+      if (surnameInput) surnameInput.value = nameParts[0] || '';
+      if (firstNameInput) firstNameInput.value = nameParts[1] || '';
+      if (otherNameInput) otherNameInput.value = nameParts.slice(2).join(' ') || '';
+      
       if (emailInput) emailInput.value = data.email || '';
-      if (classSelect) classSelect.value = data.classId || '';
+      
+      // Set level
+      const studentLevel = data.level || 'secondary';
+      if (levelSelect) levelSelect.value = studentLevel;
+      
+      // Trigger level change to load classes and subjects
+      if (levelSelect && studentLevel) {
+        await loadClassesByLevel(studentLevel);
+        await loadSubjectsByLevel(studentLevel);
+        if (classSelect) classSelect.disabled = false;
+        if (subjectsSelect) subjectsSelect.disabled = false;
+        
+        // Set selected class and subjects
+        if (classSelect && data.classId) classSelect.value = data.classId;
+        const subjectIds = data.subjects || [];
+        if (subjectsSelect) {
+          Array.from(subjectsSelect.options).forEach(opt => {
+            opt.selected = subjectIds.includes(opt.value);
+          });
+        }
+      }
+      
       if (statusSelect) statusSelect.value = data.status || 'active';
       if (genderSelect) genderSelect.value = data.gender || '';
       if (dobInput) dobInput.value = data.dob || '';
       if (clubInput) clubInput.value = data.club || '';
       if (data.dob && ageDisplay) calculateAndDisplayAge();
-      
-      const subjectIds = data.subjects || [];
-      if (subjectsSelect) {
-        Array.from(subjectsSelect.options).forEach(opt => {
-          opt.selected = subjectIds.includes(opt.value);
-        });
-      }
       
       if (data.passport && passportPreviewContainer) {
         const img = document.createElement('img');
@@ -537,8 +644,12 @@ async function handleStudentSubmit(e) {
   e.preventDefault();
   
   let admissionNumber = admissionNoInput ? admissionNoInput.value.trim() : '';
-  const name = nameInput ? nameInput.value.trim() : '';
+  const surname = surnameInput ? capitalizeWords(surnameInput.value) : '';
+  const firstName = firstNameInput ? capitalizeWords(firstNameInput.value) : '';
+  const otherName = otherNameInput ? capitalizeWords(otherNameInput.value) : '';
+  const fullName = formatFullName(surname, firstName, otherName);
   const email = emailInput ? emailInput.value.trim() : '';
+  const level = levelSelect ? levelSelect.value : '';
   const classId = classSelect ? classSelect.value : '';
   const selectedSubjects = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const status = statusSelect ? statusSelect.value : 'active';
@@ -548,8 +659,8 @@ async function handleStudentSubmit(e) {
   let passport = passportInput ? passportInput.dataset.base64 : null;
 
   // Validation
-  if (!name || !email || !classId || !gender || !dob) {
-    showNotification("Please fill in all required fields (Name, Email, Class, Gender, Date of Birth).", "error");
+  if (!surname || !firstName || !email || !classId || !gender || !dob || !level) {
+    showNotification("Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).", "error");
     return;
   }
   const age = calculateAge(dob);
@@ -579,14 +690,18 @@ async function handleStudentSubmit(e) {
 
   const studentData = {
     admissionNumber,
-    name,
+    surname,
+    firstName,
+    otherName: otherName || null,
+    name: fullName,
     email,
+    level,
     classId,
     subjects: selectedSubjects,
     status,
     gender,
     dob,
-    club,
+    club: club || null,
     passport: passport || null,
     schoolId: currentSchoolId,
     updatedAt: new Date(),
@@ -601,7 +716,6 @@ async function handleStudentSubmit(e) {
   showLoader();
   try {
     if (editingStudentId) {
-      // For update, never modify the 'locked' field
       delete studentData.locked;
       await updateDoc(doc(db, 'students', editingStudentId), studentData);
       showNotification("Student updated successfully.", "success");
@@ -629,7 +743,7 @@ function escapeHtml(str) {
   });
 }
 
-// ========== SUBSCRIPTION PAYMENT BANNER ==========
+// ========== SUBSCRIPTION PAYMENT BANNER (unchanged) ==========
 function injectSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');

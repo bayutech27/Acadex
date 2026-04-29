@@ -396,7 +396,7 @@
     <nav class="sidebar-nav">
       <a href="admin-dashboard.html">Dashboard</a>
       <a href="teachers.html">Teachers</a>
-      <a href="students.html">Students</a>
+      <a href="students.html">Students & Pupils</a>
       <a href="setup.html">Subjects & Classes</a>
       <a href="results.html" class="active">Results</a>
       <a href="records.html">Records</a>
@@ -424,22 +424,39 @@
     <div class="content">
       <div class="welcome-card print-hide">
         <h1>Exam Results Management</h1>
-        <p>Configure grading, edit student report cards, and generate class broadsheets.</p>
+        <p>Configure grading (secondary/primary), edit student report cards, and generate class broadsheets.</p>
       </div>
 
+      <!-- Secondary Grading Section -->
       <div class="grading-section print-hide">
-        <h2>Grading System (C.A / Exam)</h2>
+        <h2>Grading System (For Secondary Only)</h2>
         <div class="grading-controls">
           <div class="form-group">
-            <label>Select Grading</label>
+            <label>Select Grading (CA/Exam Split)</label>
             <select id="gradingSelect">
               <option value="30/70">30/70 (CA 30%, Exam 70%)</option>
               <option value="40/60">40/60 (CA 40%, Exam 60%)</option>
             </select>
           </div>
-          <button id="saveGradingBtn" class="btn-primary">Save Grading</button>
+          <button id="saveGradingBtn" class="btn-primary">Save Secondary Grading</button>
         </div>
         <div id="gradingMessage" class="alert success" style="display:none;"></div>
+      </div>
+
+      <!-- Primary Grading Section (NEW) -->
+      <div class="grading-section print-hide">
+        <h2>Grading System (For Primary Only)</h2>
+        <div class="grading-controls">
+          <div class="form-group">
+            <label>Select Grading (CA/Exam Split)</label>
+            <select id="primaryGradingSelect">
+              <option value="30/70">30/70 (CA 30%, Exam 70%)</option>
+              <option value="40/60">40/60 (CA 40%, Exam 60%)</option>
+            </select>
+          </div>
+          <button id="savePrimaryGradingBtn" class="btn-primary">Save Primary Grading</button>
+        </div>
+        <div id="primaryGradingMessage" class="alert success" style="display:none;"></div>
       </div>
 
       <div class="broadsheet-section print-hide">

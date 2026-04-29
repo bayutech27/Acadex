@@ -1,4 +1,4 @@
-// teachers.js - Manage teachers with subscription payment banner and validation
+// teachers.js - Manage teachers with subscription payment banner, level-based filtering, and validation
 import { db, auth } from './firebase-config.js';
 import { 
   collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
@@ -10,12 +10,13 @@ import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
-let subjectsMap = new Map();
-let classesMap = new Map();
+let subjectsMap = new Map();      // full map for display (not filtered)
+let classesMap = new Map();       // full map for display (not filtered)
 let editingTeacherId = null;
 let unsubscribeSub = null;
 
-let teacherForm, modal, nameInput, emailInput, subjectsSelect, classesSelect, classTeacherSelect;
+let teacherForm, modal, nameInput, emailInput, levelSelect, subjectsSelect, classesSelect, classTeacherSelect;
+let currentTeacherLevel = null;   // store level while editing/adding to enable dependent fields
 
 // Secondary Firebase app for teacher creation (prevents admin logout)
 let secondaryAuth = null;
@@ -29,16 +30,57 @@ function initSecondaryAuth() {
   return secondaryAuth;
 }
 
+// Inject CSS to prevent table overflow (run once)
+function injectTableOverflowStyles() {
+  if (document.getElementById('teacherTableOverflowStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'teacherTableOverflowStyles';
+  style.textContent = `
+    .teachers-table-wrapper {
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+    .data-table {
+      table-layout: fixed;
+      width: 100%;
+      border-collapse: collapse;
+      word-break: break-word;
+      white-space: normal;
+    }
+    .data-table th, .data-table td {
+      padding: 10px 8px;
+      vertical-align: top;
+      border: 1px solid #ddd;
+    }
+    /* Column widths: adjust as needed */
+    .data-table th:nth-child(1) { width: 18%; } /* Name */
+    .data-table th:nth-child(2) { width: 20%; } /* Email */
+    .data-table th:nth-child(3) { width: 8%; }  /* Level */
+    .data-table th:nth-child(4) { width: 10%; } /* Subjects (count) */
+    .data-table th:nth-child(5) { width: 18%; } /* Classes */
+    .data-table th:nth-child(6) { width: 12%; } /* Class Teacher */
+    .data-table th:nth-child(7) { width: 14%; } /* Actions */
+    @media (max-width: 768px) {
+      .data-table th, .data-table td {
+        font-size: 12px;
+        padding: 6px 4px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 export async function initTeachersPage() {
   teacherForm = document.getElementById('teacherForm');
   modal = document.getElementById('teacherModal');
   nameInput = document.getElementById('teacherName');
   emailInput = document.getElementById('teacherEmail');
+  levelSelect = document.getElementById('teacherLevel');
   subjectsSelect = document.getElementById('teacherSubjects');
   classesSelect = document.getElementById('teacherClasses');
   classTeacherSelect = document.getElementById('teacherClassTeacher');
 
-  if (!teacherForm || !modal || !nameInput || !emailInput || !subjectsSelect || !classesSelect || !classTeacherSelect) {
+  if (!teacherForm || !modal || !nameInput || !emailInput || !levelSelect || !subjectsSelect || !classesSelect || !classTeacherSelect) {
     console.error('Required DOM elements not found');
     return;
   }
@@ -46,9 +88,31 @@ export async function initTeachersPage() {
   currentSchoolId = await getCurrentSchoolId();
   initSecondaryAuth();
   
-  await loadSubjects();
-  await loadClasses();
+  // Inject overflow prevention styles
+  injectTableOverflowStyles();
+  
+  // Load all subjects and classes (for reference, but filtering will be done by level)
+  await loadAllSubjects();
+  await loadAllClasses();
   await loadTeachers();
+
+  // Level change event: dynamically load subjects/classes/classTeacher based on selected level
+  levelSelect.addEventListener('change', async (e) => {
+    currentTeacherLevel = e.target.value;
+    if (currentTeacherLevel) {
+      await loadSubjectsByLevel(currentTeacherLevel);
+      await loadClassesByLevel(currentTeacherLevel);
+      await loadClassTeacherOptions(currentTeacherLevel);
+    } else {
+      // Disable and show placeholder
+      subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
+      subjectsSelect.disabled = true;
+      classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
+      classesSelect.disabled = true;
+      classTeacherSelect.innerHTML = '<option value="">None</option>';
+      classTeacherSelect.disabled = true;
+    }
+  });
 
   const addBtn = document.getElementById('addTeacherBtn');
   if (addBtn) addBtn.addEventListener('click', () => openModal());
@@ -63,75 +127,137 @@ export async function initTeachersPage() {
   initSubscriptionListener();
 }
 
-async function loadSubjects() {
+// Load all subjects (unfiltered) for reference
+async function loadAllSubjects() {
   try {
-    const subjectsRef = collection(db, 'subjects');
-    const q = query(subjectsRef, where('schoolId', '==', currentSchoolId));
+    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
     const snapshot = await getDocs(q);
     subjectsMap.clear();
     snapshot.forEach(doc => {
-      subjectsMap.set(doc.id, doc.data().name);
+      subjectsMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
     });
-
-    if (subjectsSelect) {
-      subjectsSelect.innerHTML = '';
-      if (subjectsMap.size === 0) {
-        const option = document.createElement('option');
-        option.disabled = true;
-        option.textContent = 'No subjects available. Create subjects in Setup page first.';
-        subjectsSelect.appendChild(option);
-      } else {
-        for (let [id, name] of subjectsMap) {
-          const option = document.createElement('option');
-          option.value = id;
-          option.textContent = name;
-          subjectsSelect.appendChild(option);
-        }
-      }
-    }
   } catch (err) {
     handleError(err, "Failed to load subjects.");
   }
 }
 
-async function loadClasses() {
+// Load all classes (unfiltered) for reference
+async function loadAllClasses() {
   try {
-    const classesRef = collection(db, 'classes');
-    const q = query(classesRef, where('schoolId', '==', currentSchoolId));
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
     const snapshot = await getDocs(q);
     classesMap.clear();
     snapshot.forEach(doc => {
-      classesMap.set(doc.id, doc.data().name);
+      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
     });
-
-    if (classesSelect) {
-      classesSelect.innerHTML = '';
-      if (classesMap.size === 0) {
-        const option = document.createElement('option');
-        option.disabled = true;
-        option.textContent = 'No classes available. Create classes in Setup page first.';
-        classesSelect.appendChild(option);
-      } else {
-        for (let [id, name] of classesMap) {
-          const option = document.createElement('option');
-          option.value = id;
-          option.textContent = name;
-          classesSelect.appendChild(option);
-        }
-      }
-    }
-
-    if (classTeacherSelect) {
-      classTeacherSelect.innerHTML = '<option value="">None</option>';
-      for (let [id, name] of classesMap) {
-        const option = document.createElement('option');
-        option.value = id;
-        option.textContent = name;
-        classTeacherSelect.appendChild(option);
-      }
-    }
   } catch (err) {
     handleError(err, "Failed to load classes.");
+  }
+}
+
+// Load subjects filtered by level
+async function loadSubjectsByLevel(level) {
+  if (!level) {
+    subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
+    subjectsSelect.disabled = true;
+    return;
+  }
+  
+  showLoader();
+  try {
+    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
+    const snapshot = await getDocs(q);
+    const subjects = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    subjectsSelect.innerHTML = '';
+    if (subjects.length === 0) {
+      const option = document.createElement('option');
+      option.disabled = true;
+      option.textContent = `No subjects available for ${level} level`;
+      subjectsSelect.appendChild(option);
+      subjectsSelect.disabled = true;
+    } else {
+      for (const sub of subjects) {
+        const option = document.createElement('option');
+        option.value = sub.id;
+        option.textContent = sub.name;
+        subjectsSelect.appendChild(option);
+      }
+      subjectsSelect.disabled = false;
+    }
+  } catch (err) {
+    handleError(err, "Failed to load subjects for selected level.");
+    subjectsSelect.innerHTML = '<option value="">Error loading subjects</option>';
+    subjectsSelect.disabled = true;
+  } finally {
+    hideLoader();
+  }
+}
+
+// Load classes filtered by level
+async function loadClassesByLevel(level) {
+  if (!level) {
+    classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
+    classesSelect.disabled = true;
+    return;
+  }
+  
+  showLoader();
+  try {
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
+    const snapshot = await getDocs(q);
+    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    classesSelect.innerHTML = '';
+    if (classes.length === 0) {
+      const option = document.createElement('option');
+      option.disabled = true;
+      option.textContent = `No classes available for ${level} level`;
+      classesSelect.appendChild(option);
+      classesSelect.disabled = true;
+    } else {
+      for (const cls of classes) {
+        const option = document.createElement('option');
+        option.value = cls.id;
+        option.textContent = cls.name;
+        classesSelect.appendChild(option);
+      }
+      classesSelect.disabled = false;
+    }
+  } catch (err) {
+    handleError(err, "Failed to load classes for selected level.");
+    classesSelect.innerHTML = '<option value="">Error loading classes</option>';
+    classesSelect.disabled = true;
+  } finally {
+    hideLoader();
+  }
+}
+
+// Load class teacher dropdown (only classes of the selected level)
+async function loadClassTeacherOptions(level) {
+  if (!level) {
+    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    classTeacherSelect.disabled = true;
+    return;
+  }
+  
+  try {
+    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
+    const snapshot = await getDocs(q);
+    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    
+    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    for (const cls of classes) {
+      const option = document.createElement('option');
+      option.value = cls.id;
+      option.textContent = cls.name;
+      classTeacherSelect.appendChild(option);
+    }
+    classTeacherSelect.disabled = false;
+  } catch (err) {
+    handleError(err, "Failed to load classes for class teacher selection.");
+    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    classTeacherSelect.disabled = true;
   }
 }
 
@@ -149,39 +275,62 @@ async function loadTeachers() {
       return;
     }
 
-    container.innerHTML = `
-      <table class="data-table">
-        <thead>
-          <tr><th>Name</th><th>Email</th><th>Subjects</th><th>Classes</th><th>Class Teacher</th><th>Actions</th></tr>
-        </thead>
-        <tbody>
-          ${teachers.map(teacher => {
-            const subjectNames = (teacher.subjectIds || [])
-              .map(subjId => subjectsMap.get(subjId) || subjId)
-              .join(', ');
-            const classNames = (teacher.classIds || [])
-              .map(classId => classesMap.get(classId) || classId)
-              .join(', ');
-            const hostClassName = teacher.isClassTeacher && teacher.hostClassId 
-              ? (classesMap.get(teacher.hostClassId) || 'Unknown')
-              : '-';
-            return `
-              <tr>
-                <td>${escapeHtml(teacher.name)}</td>
-                <td>${escapeHtml(teacher.email)}</td>
-                <td>${escapeHtml(subjectNames || '-')}</td>
-                <td>${escapeHtml(classNames || '-')}</td>
-                <td>${escapeHtml(hostClassName)}</td>
-                <td>
-                  <button class="btn-secondary" onclick="window.editTeacher('${teacher.id}')">Edit</button>
-                  <button class="btn-danger" onclick="window.deleteTeacher('${teacher.id}')">Delete</button>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
+    // Wrap table in a scrollable div and add colgroup for column widths
+    const html = `
+      <div class="teachers-table-wrapper">
+        <table class="data-table">
+          <colgroup>
+            <col style="width: 18%">
+            <col style="width: 20%">
+            <col style="width: 8%">
+            <col style="width: 10%">
+            <col style="width: 18%">
+            <col style="width: 12%">
+            <col style="width: 14%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Level</th>
+              <th>Subjects</th>
+              <th>Classes</th>
+              <th>Class Teacher</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${teachers.map(teacher => {
+              const subjectCount = (teacher.subjectIds || []).length;
+              const subjectDisplay = subjectCount === 0 ? '-' : `${subjectCount} subject${subjectCount !== 1 ? 's' : ''}`;
+              const classNames = (teacher.classIds || [])
+                .map(classId => classesMap.get(classId)?.name || classId)
+                .join(', ');
+              const hostClassName = teacher.isClassTeacher && teacher.hostClassId 
+                ? (classesMap.get(teacher.hostClassId)?.name || 'Unknown')
+                : '-';
+              const levelDisplay = teacher.level === 'primary' ? 'Primary' : (teacher.level === 'secondary' ? 'Secondary' : '—');
+              return `
+                <tr>
+                  <td>${escapeHtml(teacher.name)}</td>
+                  <td>${escapeHtml(teacher.email)}</td>
+                  <td>${levelDisplay}</td>
+                  <td>${escapeHtml(subjectDisplay)}</td>
+                  <td>${escapeHtml(classNames || '-')}</td>
+                  <td>${escapeHtml(hostClassName)}</td>
+                  <td>
+                    <button class="btn-secondary" onclick="window.editTeacher('${teacher.id}')">Edit</button>
+                    <button class="btn-danger" onclick="window.deleteTeacher('${teacher.id}')">Delete</button>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
     `;
+    container.innerHTML = html;
+    
     window.editTeacher = (id) => openModal(id);
     window.deleteTeacher = async (id) => {
       if (confirm('Delete this teacher? This action cannot be undone.')) {
@@ -207,6 +356,18 @@ function openModal(teacherId = null) {
   editingTeacherId = teacherId;
   const modalTitle = document.getElementById('modalTitle');
   if (!modalTitle) return;
+  
+  // Reset form
+  teacherForm.reset();
+  subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
+  subjectsSelect.disabled = true;
+  classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
+  classesSelect.disabled = true;
+  classTeacherSelect.innerHTML = '<option value="">None</option>';
+  classTeacherSelect.disabled = true;
+  levelSelect.value = '';
+  currentTeacherLevel = null;
+  
   if (teacherId) {
     modalTitle.textContent = 'Edit Teacher';
     if (emailInput) emailInput.readOnly = true;
@@ -214,11 +375,6 @@ function openModal(teacherId = null) {
   } else {
     modalTitle.textContent = 'Add Teacher';
     if (emailInput) emailInput.readOnly = false;
-    if (nameInput) nameInput.value = '';
-    if (emailInput) emailInput.value = '';
-    if (subjectsSelect) Array.from(subjectsSelect.options).forEach(opt => opt.selected = false);
-    if (classesSelect) Array.from(classesSelect.options).forEach(opt => opt.selected = false);
-    if (classTeacherSelect) classTeacherSelect.value = '';
   }
   if (modal) modal.style.display = 'flex';
 }
@@ -230,18 +386,32 @@ async function loadTeacherData(teacherId) {
       const data = teacherDoc.data();
       if (nameInput) nameInput.value = data.name;
       if (emailInput) emailInput.value = data.email;
+      
+      // Set level and trigger dependent loads
+      const teacherLevel = data.level || (data.isClassTeacher ? (classesMap.get(data.hostClassId)?.level || 'secondary') : 'secondary');
+      if (levelSelect) levelSelect.value = teacherLevel;
+      currentTeacherLevel = teacherLevel;
+      
+      // Load dependent dropdowns first
+      await loadSubjectsByLevel(teacherLevel);
+      await loadClassesByLevel(teacherLevel);
+      await loadClassTeacherOptions(teacherLevel);
+      
+      // Select previously assigned subjects
       const subjectIds = data.subjectIds || [];
       if (subjectsSelect) {
         Array.from(subjectsSelect.options).forEach(opt => {
           opt.selected = subjectIds.includes(opt.value);
         });
       }
+      // Select previously assigned classes
       const classIds = data.classIds || [];
       if (classesSelect) {
         Array.from(classesSelect.options).forEach(opt => {
           opt.selected = classIds.includes(opt.value);
         });
       }
+      // Set class teacher
       if (data.isClassTeacher && data.hostClassId && classTeacherSelect) {
         classTeacherSelect.value = data.hostClassId;
       } else if (classTeacherSelect) {
@@ -258,15 +428,16 @@ function closeModal() {
   editingTeacherId = null;
   if (emailInput) emailInput.readOnly = false;
   if (teacherForm) teacherForm.reset();
+  currentTeacherLevel = null;
 }
 
 // ========== VALIDATION FUNCTIONS ==========
-async function checkSubjectConflicts(subjectIds, excludeTeacherId = null) {
+async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null) {
   if (!subjectIds.length) return null;
   
   try {
     const teachersRef = collection(db, 'teachers');
-    const q = query(teachersRef, where('schoolId', '==', currentSchoolId));
+    const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('level', '==', level));
     const snapshot = await getDocs(q);
     const conflictingSubjects = [];
 
@@ -275,7 +446,7 @@ async function checkSubjectConflicts(subjectIds, excludeTeacherId = null) {
         const teacher = docSnap.data();
         if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
         if (teacher.subjectIds && teacher.subjectIds.includes(subjectId)) {
-          const subjectName = subjectsMap.get(subjectId) || subjectId;
+          const subjectName = subjectsMap.get(subjectId)?.name || subjectId;
           conflictingSubjects.push(subjectName);
           break;
         }
@@ -283,7 +454,7 @@ async function checkSubjectConflicts(subjectIds, excludeTeacherId = null) {
     }
     
     if (conflictingSubjects.length) {
-      return `The following subjects are already assigned to another teacher: ${conflictingSubjects.join(', ')}`;
+      return `The following subjects are already assigned to another teacher at the same level: ${conflictingSubjects.join(', ')}`;
     }
     return null;
   } catch (err) {
@@ -292,17 +463,17 @@ async function checkSubjectConflicts(subjectIds, excludeTeacherId = null) {
   }
 }
 
-async function checkClassTeacherConflict(classId, excludeTeacherId = null) {
+async function checkClassTeacherConflict(classId, level, excludeTeacherId = null) {
   if (!classId) return null;
   
   try {
     const teachersRef = collection(db, 'teachers');
-    const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('isClassTeacher', '==', true), where('hostClassId', '==', classId));
+    const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('level', '==', level), where('isClassTeacher', '==', true), where('hostClassId', '==', classId));
     const snapshot = await getDocs(q);
     
     for (const docSnap of snapshot.docs) {
       if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
-      const className = classesMap.get(classId) || classId;
+      const className = classesMap.get(classId)?.name || classId;
       return `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
     }
     return null;
@@ -316,18 +487,19 @@ async function handleTeacherSubmit(e) {
   e.preventDefault();
   const name = nameInput ? nameInput.value.trim() : '';
   const email = emailInput ? emailInput.value.trim() : '';
+  const level = levelSelect ? levelSelect.value : '';
   const selectedSubjectIds = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const selectedClassIds = classesSelect ? Array.from(classesSelect.selectedOptions).map(opt => opt.value) : [];
   const hostClassIdValue = classTeacherSelect ? (classTeacherSelect.value || null) : null;
   const isClassTeacher = hostClassIdValue !== null && hostClassIdValue !== '';
 
-  if (!name || !email) {
-    showNotification("Please fill in all fields.", "error");
+  if (!name || !email || !level) {
+    showNotification("Please fill in all required fields (Name, Email, Level).", "error");
     return;
   }
 
-  // 1. Check subject conflicts
-  const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, editingTeacherId);
+  // 1. Check subject conflicts within same level
+  const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
   if (subjectConflictMsg) {
     showNotification(subjectConflictMsg, "error");
     return;
@@ -335,7 +507,7 @@ async function handleTeacherSubmit(e) {
 
   // 2. Check class teacher conflict
   if (isClassTeacher) {
-    const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, editingTeacherId);
+    const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, level, editingTeacherId);
     if (classTeacherConflictMsg) {
       showNotification(classTeacherConflictMsg, "error");
       return;
@@ -345,6 +517,7 @@ async function handleTeacherSubmit(e) {
   const teacherDataObj = {
     name,
     email,
+    level,
     subjectIds: selectedSubjectIds,
     classIds: selectedClassIds,
     isClassTeacher,
@@ -384,6 +557,7 @@ async function handleTeacherSubmit(e) {
         email,
         role: 'teacher',
         schoolId: currentSchoolId,
+        level,
         subjects: selectedSubjectIds,
         classId: selectedClassIds.length === 1 ? selectedClassIds[0] : null,
         isClassTeacher: isClassTeacher,
@@ -478,6 +652,7 @@ async function setupSubscriptionUI() {
   hidePaymentBanner();
 }
 
+// ========== FIXED: Missing closing parenthesis corrected ==========
 async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();

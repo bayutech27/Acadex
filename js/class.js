@@ -1,4 +1,5 @@
-// class.js - Teacher report card page + broadsheet (full functionality) + attendance fix + broadsheet enhancements with 3rd term
+// class.js - Teacher report card page + broadsheet (full functionality)
+// UPDATED: Level‑based grading, primary/secondary layout differences.
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
@@ -13,10 +14,10 @@ let teacherData = null;
 let classId = null;
 let classNameCache = '';
 let currentGrading = { ca: 40, exam: 60 };
-let classesMap = new Map();
-let subjectsMap = new Map();
+let classesMap = new Map();          // id -> { name, level }
+let subjectsMap = new Map();          // subjectId -> name
+let allSubjectsList = [];              // Array of { id, name, level }
 let studentsList = [];
-let allSubjectsList = [];
 let isSubscriptionAllowed = false;
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
@@ -83,8 +84,69 @@ async function getSchoolAcademicInfo() {
   }
 }
 
-function getScoringDocId(session, term) {
-  return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+// NEW: Load grading based on class level (primary/secondary)
+async function loadGradingSettingByLevel(level, session, term) {
+  if (!level) {
+    currentGrading = { ca: 40, exam: 60 };
+    return;
+  }
+  try {
+    // First try: schoolId + level
+    const q = query(
+      collection(db, 'scoring'),
+      where('schoolId', '==', currentSchoolId),
+      where('level', '==', level)
+    );
+    const snap = await getDocs(q);
+    let grading = null;
+    if (!snap.empty) {
+      const data = snap.docs[0].data();
+      grading = data.grading || `${data.caWeight}/${data.examWeight}`;
+    }
+    // Fallback: school‑wide scoring (no level)
+    if (!grading) {
+      const fallbackQ = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
+      const fallbackSnap = await getDocs(fallbackQ);
+      if (!fallbackSnap.empty) {
+        const data = fallbackSnap.docs[0].data();
+        grading = data.grading || `${data.caWeight}/${data.examWeight}`;
+      }
+    }
+    // Fallback to old composite ID method
+    if (!grading) {
+      const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+      const docSnap = await getDoc(doc(db, 'scoring', docId));
+      if (docSnap.exists()) grading = docSnap.data().grading;
+    }
+    if (grading) {
+      const [ca, exam] = grading.split('/').map(Number);
+      currentGrading = { ca, exam };
+    } else {
+      currentGrading = { ca: 40, exam: 60 };
+    }
+  } catch (err) {
+    handleError(err, "Failed to load grading by level. Using defaults.");
+    currentGrading = { ca: 40, exam: 60 };
+  }
+}
+
+// Legacy loadGradingSetting – kept for compatibility but now level‑aware when a class is known
+async function loadGradingSetting(session, term, classLevel = null) {
+  if (classLevel) {
+    await loadGradingSettingByLevel(classLevel, session, term);
+  } else {
+    // Fallback to old composite ID
+    try {
+      const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+      const docSnap = await getDoc(doc(db, 'scoring', docId));
+      let grading = '40/60';
+      if (docSnap.exists()) grading = docSnap.data().grading;
+      const [ca, exam] = grading.split('/').map(Number);
+      currentGrading = { ca, exam };
+    } catch (err) {
+      currentGrading = { ca: 40, exam: 60 };
+    }
+  }
 }
 
 // ------------------- Data Loading -------------------
@@ -93,6 +155,10 @@ async function fetchClassName() {
     const classRef = doc(db, 'classes', classId);
     const classSnap = await getDoc(classRef);
     classNameCache = classSnap.exists() ? classSnap.data().name : classId;
+    // Also store level in classesMap
+    if (classSnap.exists()) {
+      classesMap.set(classId, { name: classSnap.data().name, level: classSnap.data().level });
+    }
   } catch(e) {
     console.warn(e);
     classNameCache = classId;
@@ -105,12 +171,19 @@ async function loadSubjectsAndClasses() {
     subjectsMap.clear();
     allSubjectsList = [];
     subjSnap.forEach(doc => {
-      subjectsMap.set(doc.id, doc.data().name);
-      allSubjectsList.push({ id: doc.id, name: doc.data().name });
+      const data = doc.data();
+      subjectsMap.set(doc.id, data.name);
+      allSubjectsList.push({
+        id: doc.id,
+        name: data.name,
+        level: data.level || null   // store level (primary/secondary)
+      });
     });
     const classSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
     classesMap.clear();
-    classSnap.forEach(doc => classesMap.set(doc.id, doc.data().name));
+    classSnap.forEach(doc => {
+      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    });
   } catch (err) {
     handleError(err, "Failed to load subjects and classes.");
   }
@@ -142,20 +215,6 @@ async function fetchScores(studentId, term, session) {
   } catch (err) {
     handleError(err, "Failed to load student scores.");
     return [];
-  }
-}
-
-async function loadGradingSetting(session, term) {
-  try {
-    const docId = getScoringDocId(session, term);
-    const docSnap = await getDoc(doc(db, 'scoring', docId));
-    let grading = '40/60';
-    if (docSnap.exists()) grading = docSnap.data().grading;
-    const [ca, exam] = grading.split('/').map(Number);
-    currentGrading = { ca, exam };
-  } catch (err) {
-    handleError(err, "Failed to load grading settings. Using defaults.");
-    currentGrading = { ca: 40, exam: 60 };
   }
 }
 
@@ -372,6 +431,20 @@ async function loadReportCard(studentId, studentName) {
   reportState.term = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
 
+  // Fetch the student's class level
+  const student = studentsList.find(s => s.id === studentId);
+  const studentClassId = student ? student.classId : classId;
+  let classLevel = null;
+  if (studentClassId && classesMap.has(studentClassId)) {
+    classLevel = classesMap.get(studentClassId).level;
+  } else if (studentClassId) {
+    const classDoc = await getDoc(doc(db, 'classes', studentClassId));
+    if (classDoc.exists()) classLevel = classDoc.data().level;
+  }
+  // Load grading based on level
+  await loadGradingSetting(reportState.session, reportState.term, classLevel);
+  const isPrimary = (classLevel === 'primary');
+
   showLoader();
   try {
     const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
@@ -380,7 +453,6 @@ async function loadReportCard(studentId, studentName) {
       address: schoolDoc.exists() ? schoolDoc.data().address : '',
       logo: schoolDoc.exists() ? schoolDoc.data().logo : null
     };
-    const student = studentsList.find(s => s.id === studentId) || {};
     const rawScores = await fetchScores(studentId, reportState.term, reportState.session);
     const scoresWithNames = rawScores.map(score => ({
       subjectId: score.subjectId,
@@ -389,7 +461,7 @@ async function loadReportCard(studentId, studentName) {
       exam: score.exam
     }));
 
-    const subjectStats = await computeSubjectStats(classId, reportState.term, reportState.session);
+    const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
     await loadExistingReport(studentId);
 
     const studentData = {
@@ -402,6 +474,7 @@ async function loadReportCard(studentId, studentName) {
       passport: student.passport || null
     };
 
+    // Pass isPrimary to the renderer
     renderReportCardUI({
       student: studentData,
       scores: scoresWithNames,
@@ -415,6 +488,7 @@ async function loadReportCard(studentId, studentName) {
       session: reportState.session,
       subjectStats,
       container: document.getElementById('reportCardContent'),
+      isPrimary,
       onRatingChange: (skillKey, newValue) => {
         reportState.psychomotor[skillKey] = newValue;
       },
@@ -438,19 +512,47 @@ async function loadReportCard(studentId, studentName) {
 async function loadClassStudents() {
   reportState.term = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
+  // Load grading initially (will be refined when a student is selected)
   await loadGradingSetting(reportState.session, reportState.term);
   const classStudents = studentsList.filter(s => s.classId === classId);
   const container = document.getElementById('studentListContainer');
   if (!container) return;
+  
+  // Add a styled title for the student list
+  const titleHtml = `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; text-align: center;">📋 Students in Class</div>`;
+  
   if (!classStudents.length) {
-    container.innerHTML = '<p>No students</p>';
+    container.innerHTML = titleHtml + '<p style="padding: 20px; background: #f8f9fa; border-radius: 0 0 8px 8px;">No students</p>';
     return;
   }
-  let html = '';
+  
+  let html = titleHtml + '<div style="background: white; border-radius: 0 0 8px 8px; overflow: hidden;">';
   classStudents.forEach(s => {
-    html += `<div class="student-list-item" data-id="${s.id}">${escapeHtml(s.name)}</div>`;
+    html += `<div class="student-list-item" data-id="${s.id}" style="padding: 12px 15px; border-bottom: 1px solid #e0e0e0; background-color: #f8f9fa; cursor: pointer; transition: all 0.2s; font-weight: 500;">
+      ${escapeHtml(s.name)}
+    </div>`;
   });
+  html += '</div>';
   container.innerHTML = html;
+  
+  // Add hover effect via style (already inline background, but add hover style in head or inline)
+  const style = document.createElement('style');
+  style.textContent = `
+    .student-list-item:hover {
+      background-color: #e9ecef !important;
+      transform: translateX(5px);
+    }
+    .student-list-item.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+      color: white !important;
+      border-left: 4px solid gold;
+    }
+  `;
+  if (!document.querySelector('#student-list-styles')) {
+    style.id = 'student-list-styles';
+    document.head.appendChild(style);
+  }
+  
   document.querySelectorAll('.student-list-item').forEach(el => {
     el.addEventListener('click', async () => {
       document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
@@ -460,7 +562,7 @@ async function loadClassStudents() {
   });
 }
 
-// ==================== BROADSHEET FUNCTIONS (enhanced with 3rd term and combined average) ====================
+// ==================== BROADSHEET FUNCTIONS ====================
 async function fetchClassScores(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return [];
@@ -515,25 +617,46 @@ async function generateBroadsheet() {
     if (actions) actions.style.display = 'none';
     return;
   }
-  const classId = document.getElementById('broadsheetClassSelect')?.value;
+  
+  const container = document.getElementById('broadsheetContainer');
+  if (!container) {
+    showNotification("Broadsheet container not found.", "error");
+    return;
+  }
+
+  const classIdSel = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
   const term = document.getElementById('broadsheetTermSelect')?.value;
-  if (!classId || !session || !term) {
+  if (!classIdSel || !session || !term) {
     showNotification("Please select Class, Session and Term", "error");
     return;
   }
 
-  const className = classesMap.get(classId) || 'Class';
-  const classStudents = studentsList.filter(s => s.classId === classId);
+  const classInfo = classesMap.get(classIdSel);
+  const className = classInfo?.name || 'Class';
+  const classLevel = classInfo?.level;
+
+  // Filter subjects based on class level
+  let subjectsForClass = allSubjectsList;
+  if (classLevel) {
+    subjectsForClass = allSubjectsList.filter(subj => {
+      return !subj.level || subj.level === classLevel;
+    });
+  }
+  if (subjectsForClass.length === 0) {
+    container.innerHTML = '<div class="alert">No subjects found for the selected class level.</div>';
+    return;
+  }
+
+  const classStudents = studentsList.filter(s => s.classId === classIdSel);
   if (!classStudents.length) {
-    const container = document.getElementById('broadsheetContainer');
-    if (container) container.innerHTML = '<div class="alert">No students found in this class.</div>';
+    container.innerHTML = '<div class="alert">No students found in this class.</div>';
     return;
   }
 
   showLoader();
   try {
-    const allScores = await fetchClassScores(classId, term, session);
+    const allScores = await fetchClassScores(classIdSel, term, session);
     const scoresByStudent = new Map();
     for (const score of allScores) {
       if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
@@ -559,12 +682,12 @@ async function generateBroadsheet() {
       scores.forEach(s => { scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }); });
       let totalScore = 0;
       const subjectDetails = [];
-      for (const subj of allSubjectsList) {
+      for (const subj of subjectsForClass) {
         const score = scoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
         totalScore += score.total;
         subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
       }
-      const totalObtainable = allSubjectsList.length * 100;
+      const totalObtainable = subjectsForClass.length * 100;
       const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
       const grade = calculateGrade(average);
       const remark = getGradeRemark(grade);
@@ -598,7 +721,7 @@ async function generateBroadsheet() {
     studentResults.sort((a, b) => b.totalScore - a.totalScore);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
-      if (i > 0 && studentResults[i].totalScore < studentResults[i - 1].totalScore) rank = i + 1;
+      if (i > 0 && studentResults[i].totalScore < studentResults[i-1].totalScore) rank = i+1;
       studentResults[i].position = rank;
     }
 
@@ -606,17 +729,17 @@ async function generateBroadsheet() {
     html += `<div style="overflow-x: auto;"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
     html += `<thead>`;
     html += `<tr><th>S/N</th><th>Student Name</th>`;
-    for (const subj of allSubjectsList) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
+    for (const subj of subjectsForClass) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
     html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
     html += `<tr><th></th><th></th>`;
-    for (let i = 0; i < allSubjectsList.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
+    for (let i = 0; i < subjectsForClass.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>`;
     html += `</thead><tbody>`;
 
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
       html += `<tr>`;
-      html += `<td>${i + 1}</td>`;
+      html += `<td>${i+1}</td>`;
       html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td>`;
@@ -629,13 +752,11 @@ async function generateBroadsheet() {
       html += `<td>${r.remark}</td>`;
       html += `</tr>`;
     }
-    html += `</tbody></table></div>`;
-
-    const container = document.getElementById('broadsheetContainer');
-    if (container) container.innerHTML = html;
+    html += `</tbody></table>`;
+    container.innerHTML = html;
     const actions = document.getElementById('broadsheetActions');
     if (actions) actions.style.display = 'flex';
-    window.currentBroadsheetData = { classId, session, term, studentResults, subjects: allSubjectsList };
+    window.currentBroadsheetData = { classId: classIdSel, session, term, studentResults, subjects: subjectsForClass };
   } catch (err) {
     handleError(err, "Failed to generate broadsheet.");
   } finally {
@@ -652,11 +773,11 @@ async function saveBroadsheetToFirestore() {
     showNotification("No broadsheet data to save. Generate first.", "error");
     return;
   }
-  const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
-  const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
+  const { classId: classIdSel, session, term, studentResults, subjects } = window.currentBroadsheetData;
+  const docId = `${currentSchoolId}_${classIdSel}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
     schoolId: currentSchoolId,
-    classId,
+    classId: classIdSel,
     session,
     term,
     students: studentResults.map(s => ({
@@ -752,13 +873,28 @@ export async function initClassReportPage() {
   await loadSubjectsAndClasses();
   await loadStudentsList();
 
+  // BROADSHEET CLASS DROPDOWN: only the teacher's assigned class
   const broadsheetClassSelect = document.getElementById('broadsheetClassSelect');
   if (broadsheetClassSelect) {
-    broadsheetClassSelect.innerHTML = '<option value="">-- Select Class --</option>';
-    for (let [id, name] of classesMap) {
-      broadsheetClassSelect.innerHTML += `<option value="${id}">${escapeHtml(name)}</option>`;
+    broadsheetClassSelect.innerHTML = '';
+    const classInfo = classesMap.get(classId);
+    if (classInfo) {
+      const option = document.createElement('option');
+      option.value = classId;
+      option.textContent = escapeHtml(classInfo.name);
+      broadsheetClassSelect.appendChild(option);
+      broadsheetClassSelect.disabled = false; // enabled, but only one option
+    } else {
+      // Fallback: use classId directly (name unknown)
+      const option = document.createElement('option');
+      option.value = classId;
+      option.textContent = escapeHtml(classNameCache || classId);
+      broadsheetClassSelect.appendChild(option);
     }
+    // Optionally set as selected
+    broadsheetClassSelect.value = classId;
   }
+  
   const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
   const sessions = generateSessionOptions();
   if (broadsheetSessionSelect) broadsheetSessionSelect.innerHTML = sessions.map(s => `<option value="${s}">${s}</option>`).join('');

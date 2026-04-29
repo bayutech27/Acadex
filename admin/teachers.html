@@ -1,3 +1,4 @@
+<!-- teachers.html - Teacher management with Primary/Secondary level support -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,6 +102,15 @@
       background: #fee2e2;
       color: #b91c1c;
     }
+    select:disabled, input:disabled {
+      background-color: #f1f5f9;
+      cursor: not-allowed;
+    }
+    .loading-indicator {
+      font-size: 0.8rem;
+      color: #3b82f6;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -110,7 +120,7 @@
       <nav class="sidebar-nav">
         <a href="admin-dashboard.html">Dashboard</a>
         <a href="teachers.html" class="active">Teachers</a>
-        <a href="students.html">Students</a>
+        <a href="students.html">Students & Pupils</a>
         <a href="setup.html">Subjects & Classes</a>
         <a href="results.html">Results</a>
         <a href="records.html">Records</a>
@@ -165,21 +175,33 @@
           <input type="email" id="teacherEmail" required>
         </div>
         <div class="form-group">
+          <label for="teacherLevel">Level</label>
+          <select id="teacherLevel" required>
+            <option value="">-- Select Level --</option>
+            <option value="primary">Primary</option>
+            <option value="secondary">Secondary</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label for="teacherSubjects">Assign Subjects (hold Ctrl to select multiple)</label>
-          <select id="teacherSubjects" multiple></select>
+          <select id="teacherSubjects" multiple disabled>
+            <option value="">-- Select level first --</option>
+          </select>
           <small>Subjects this teacher teaches</small>
         </div>
         <div class="form-group">
           <label for="teacherClasses">Assign Classes (hold Ctrl to select multiple)</label>
-          <select id="teacherClasses" multiple></select>
+          <select id="teacherClasses" multiple disabled>
+            <option value="">-- Select level first --</option>
+          </select>
           <small>Classes this teacher teaches</small>
         </div>
         <div class="form-group">
           <label for="teacherClassTeacher">Class Teacher (optional)</label>
-          <select id="teacherClassTeacher">
+          <select id="teacherClassTeacher" disabled>
             <option value="">None</option>
           </select>
-          <small>Homeroom class teacher</small>
+          <small>Homeroom class teacher (only classes of selected level)</small>
         </div>
         <div class="form-actions">
           <button type="button" id="cancelModalBtn" class="btn-secondary">Cancel</button>

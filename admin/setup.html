@@ -1,3 +1,4 @@
+<!-- setup.html - Subjects & Classes with Primary/Secondary support -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,7 +16,7 @@
       flex: 1;
       min-width: 280px;
     }
-    select {
+    select, input[type="text"] {
       width: 100%;
       padding: 10px;
       border: 1px solid #e2e8f0;
@@ -34,7 +35,6 @@
       color: #64748b;
       margin-top: 4px;
     }
-    /* Header subscription badge styles */
     .header {
       display: flex;
       align-items: center;
@@ -67,6 +67,15 @@
       background: #fee2e2;
       color: #b91c1c;
     }
+    .form-divider {
+      margin: 24px 0 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    .manual-input-group {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px dashed #cbd5e1;
+    }
   </style>
 </head>
 <body>
@@ -76,7 +85,7 @@
       <nav class="sidebar-nav">
         <a href="admin-dashboard.html">Dashboard</a>
         <a href="teachers.html">Teachers</a>
-        <a href="students.html">Students</a>
+        <a href="students.html">Students & Pupils</a>
         <a href="setup.html" class="active">Subjects & Classes</a>
         <a href="results.html">Results</a>
         <a href="records.html">Records</a>
@@ -104,19 +113,20 @@
       <div class="content">
         <div class="welcome-card">
           <h1>Subjects & Classes</h1>
-          <p>Manage subjects and class groups.</p>
+          <p>Manage subjects (Primary/Secondary) and class groups.</p>
         </div>
 
         <div class="two-columns">
-          <!-- Subjects Section -->
+          <!-- Subjects Section (Secondary + Primary) -->
           <div>
+            <!-- SECONDARY SUBJECTS SECTION -->
             <div class="form-card">
-              <h2>Add New Subject</h2>
-              <form id="subjectForm">
+              <h2>Add New Subjects (For Secondary Only)</h2>
+              <form id="secondarySubjectForm">
                 <div class="form-group">
-                  <label for="subjectName">Subject Name</label>
-                  <select id="subjectName" required>
-                    <option value="">Select a subject</option>
+                  <label for="subjectName">Select from list</label>
+                  <select id="subjectName">
+                    <option value="">-- Choose a subject --</option>
                     <optgroup label="Junior Secondary">
                       <option value="English Studies">English Studies</option>
                       <option value="Mathematics">Mathematics</option>
@@ -182,20 +192,41 @@
                     </optgroup>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label for="subjectCode">Subject Code (optional)</label>
-                  <input type="text" id="subjectCode">
+                <div class="manual-input-group">
+                  <label for="manualSecondarySubject">Enter Subjects Manually (Optional)</label>
+                  <input type="text" id="manualSecondarySubject" placeholder="e.g., Robotics, Entrepreneurship">
                 </div>
-                <button type="submit" class="btn-primary">Add Subject</button>
+                <div class="form-group">
+                  <label for="secondarySubjectCode">Subject Code (optional)</label>
+                  <input type="text" id="secondarySubjectCode" placeholder="e.g., MAT101">
+                </div>
+                <button type="submit" class="btn-primary">Add Secondary Subject</button>
               </form>
             </div>
+
+            <!-- PRIMARY SUBJECTS SECTION -->
+            <div class="form-card" style="margin-top: 24px;">
+              <h2>Add New Subject (For Primary Only)</h2>
+              <form id="primarySubjectForm">
+                <div class="form-group">
+                  <label for="primarySubjectName">Subject Name</label>
+                  <input type="text" id="primarySubjectName" placeholder="e.g., Basic Science, Civic Education" required>
+                </div>
+                <div class="form-group">
+                  <label for="primarySubjectCode">Subject Code (optional)</label>
+                  <input type="text" id="primarySubjectCode" placeholder="e.g., SCI101">
+                </div>
+                <button type="submit" class="btn-primary">Add Primary Subject</button>
+              </form>
+            </div>
+
             <div id="subjectsList">
               <h3>Existing Subjects</h3>
               <p>Loading subjects...</p>
             </div>
           </div>
 
-          <!-- Classes Section -->
+          <!-- Classes Section (Now includes Primary) -->
           <div>
             <div class="form-card">
               <h2>Add New Class</h2>
@@ -204,6 +235,17 @@
                   <label for="className">Class Name</label>
                   <select id="className" required>
                     <option value="">Select a class</option>
+                    <optgroup label="Primary">
+                      <option value="Nursery 1">Nursery 1</option>
+                      <option value="Nursery 2">Nursery 2</option>
+                      <option value="Kindergarten (KG)">Kindergarten (KG)</option>
+                      <option value="Primary 1">Primary 1</option>
+                      <option value="Primary 2">Primary 2</option>
+                      <option value="Primary 3">Primary 3</option>
+                      <option value="Primary 4">Primary 4</option>
+                      <option value="Primary 5">Primary 5</option>
+                      <option value="Primary 6">Primary 6</option>
+                    </optgroup>
                     <optgroup label="Junior Secondary">
                       <option value="JSS 1">JSS 1</option>
                       <option value="JSS 2">JSS 2</option>

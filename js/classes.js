@@ -1,4 +1,4 @@
-// classes.js - Manage classes with subscription payment banner
+// classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './app.js';
@@ -32,6 +32,22 @@ async function loadClassesAndSetupForm() {
   setupClassForm();
 }
 
+// Determine class level based on name
+function getClassLevel(className) {
+  if (!className) return 'secondary'; // default
+  const lowerName = className.toLowerCase();
+  // Primary: Nursery, Kindergarten, Primary
+  if (lowerName.includes('nursery') || lowerName.includes('kindergarten') || lowerName.includes('primary')) {
+    return 'primary';
+  }
+  // Secondary: JSS, SSS
+  if (lowerName.includes('jss') || lowerName.includes('sss')) {
+    return 'secondary';
+  }
+  // Default to secondary for any other (e.g., custom classes)
+  return 'secondary';
+}
+
 async function loadClasses() {
   const container = document.getElementById('classesList');
   if (!container) return;
@@ -46,15 +62,17 @@ async function loadClasses() {
       return;
     }
 
+    // Display level column
     container.innerHTML = `
       <h3>Existing Classes</h3>
       <table class="data-table">
         <thead>
-          <tr><th>Name</th><th>Actions</th> </thead>
+          <tr><th>Name</th><th>Level</th><th>Actions</th> </thead>
         <tbody>
           ${classes.map(cls => `
             <tr>
               <td>${escapeHtml(cls.name)}</td>
+              <td>${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
               <td><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
             </tr>
           `).join('')}
@@ -112,7 +130,11 @@ function setupClassForm() {
         showNotification(`Class "${selectedValue}" already exists. Duplicate classes are not allowed.`, "error");
         return;
       }
-      await addClass(selectedValue);
+      
+      // Determine level based on class name
+      const level = getClassLevel(selectedValue);
+      
+      await addClass(selectedValue, level);
       classForm.reset();
       showNotification("Class added successfully.", "success");
     } catch (error) {
@@ -123,9 +145,10 @@ function setupClassForm() {
   });
 }
 
-async function addClass(name) {
+async function addClass(name, level) {
   await addDoc(collection(db, 'classes'), {
     name,
+    level,
     schoolId: currentSchoolId,
     createdAt: new Date()
   });

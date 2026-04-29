@@ -168,21 +168,23 @@
   </div>
 
   <script type="module">
-    import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload, checkClassTeacherStatus } from '../js/teacher-dashboard.js';
+    import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
     import { initScoresPage } from '../js/scores.js';
 
-    protectTeacherPage().then(async () => {
-      const isClassTeacher = await checkClassTeacherStatus();
-      if (!isClassTeacher) {
-        alert('You are not a class teacher. Redirecting...');
-        window.location.href = 'teacher-dashboard.html';
-        return;
-      }
+    // ✅ No class teacher check – any teacher can access scores page
+    protectTeacherPage().then(() => {
       loadSchoolInfo();
       setupSidebar();
       setupLogout();
       setupLogoUpload();
       initScoresPage();
+    }).catch(err => {
+      console.error("Failed to protect page:", err);
+      // Optionally show a notification instead of redirecting
+      const container = document.getElementById('scoresContainer');
+      if (container) {
+        container.innerHTML = '<div class="error-message">Unable to load scores. Please refresh or contact admin.</div>';
+      }
     });
   </script>
 </body>

@@ -1,9 +1,10 @@
-// reportCardRenderer.js - Shared report card rendering engine (UPDATED)
+// reportCardRenderer.js - Shared report card rendering engine
 import { showNotification } from './error-handler.js';
 
 export function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
+  isPrimary = false,
   onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
 }) {
   if (!container) {
@@ -17,7 +18,22 @@ export function renderReportCardUI({
     return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
   }
 
-  function calculateGrade(total) {
+  // ----- Grading scales (primary vs secondary only data) -----
+  function calculateGradePrimary(total) {
+    if (total >= 90) return 'A+';
+    if (total >= 80) return 'A';
+    if (total >= 70) return 'B+';
+    if (total >= 60) return 'B';
+    if (total >= 50) return 'C';
+    if (total >= 40) return 'D';
+    return 'F';
+  }
+  function getGradeRemarkPrimary(grade) {
+    const remarks = { 'A+':'Exceptional', 'A':'Excellent', 'B+':'Very Good', 'B':'Good', 'C':'Fairly Good', 'D':'Pass', 'F':'Fail' };
+    return remarks[grade] || '';
+  }
+
+  function calculateGradeSecondary(total) {
     if (total >= 85) return 'A1';
     if (total >= 75) return 'B2';
     if (total >= 70) return 'B3';
@@ -28,16 +44,17 @@ export function renderReportCardUI({
     if (total >= 40) return 'E8';
     return 'F9';
   }
-
-  function getGradeRemark(grade) {
+  function getGradeRemarkSecondary(grade) {
     const remarks = { A1:'Excellent', B2:'Very Good', B3:'Good', C4:'Credit', C5:'Credit', C6:'Credit', D7:'Pass', E8:'Pass', F9:'Fail' };
     return remarks[grade] || '';
   }
 
+  const calculateGrade = isPrimary ? calculateGradePrimary : calculateGradeSecondary;
+  const getGradeRemark = isPrimary ? getGradeRemarkPrimary : getGradeRemarkSecondary;
+
   function getTermSuffix(t) {
     return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd';
   }
-
   function calculateAge(dobString) {
     if (!dobString) return null;
     const birthDate = new Date(dobString);
@@ -48,18 +65,31 @@ export function renderReportCardUI({
     return age;
   }
 
+  // ----- Grade Distribution Table (under subject table for both levels) -----
   function getGradeScaleHtml() {
-    const scale = [
-      ['A1','85-100','Excellent'], ['B2','75-84.9','Very Good'], ['B3','70-74.9','Good'],
-      ['C4','65-69.9','Credit'], ['C5','60-64.9','Credit'], ['C6','50-59.9','Credit'],
-      ['D7','45-49.9','Pass'], ['E8','40-44.9','Pass'], ['F9','0-39.9','Fail']
-    ];
-    return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
+    if (isPrimary) {
+      const primaryScale = [
+        ['A+', '90-100', 'Exceptional'],
+        ['A', '80-89', 'Excellent'],
+        ['B+', '70-79', 'Very Good'],
+        ['B', '60-69', 'Good'],
+        ['C', '50-59', 'Fairly Good'],
+        ['D', '40-49', 'Pass'],
+        ['F', '0-39', 'Fail']
+      ];
+      return `<table class="grade-scale-table" style="width: 90%; margin-top: 20px;"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${primaryScale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+    } else {
+      const secondaryScale = [
+        ['A1','85-100','Excellent'], ['B2','75-84.9','Very Good'], ['B3','70-74.9','Good'],
+        ['C4','65-69.9','Credit'], ['C5','60-64.9','Credit'], ['C6','50-59.9','Credit'],
+        ['D7','45-49.9','Pass'], ['E8','40-44.9','Pass'], ['F9','0-39.9','Fail']
+      ];
+      return `<table class="grade-scale-table" style="width: 90%; margin-top: 20px;"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${secondaryScale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+    }
   }
 
   const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
   const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
-
   function getSkillKey(skill) {
     return skill.toLowerCase().replace(/[^a-z]/g, '');
   }
@@ -79,7 +109,7 @@ export function renderReportCardUI({
       let positionHtml = '—';
       let classAvg = '—';
       const stat = subjectStats?.get(score.subjectId);
-      if (stat) {
+      if (stat && !isPrimary) {
         const rank = stat.rankMap?.get(student.id);
         if (rank) {
           const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
@@ -87,12 +117,19 @@ export function renderReportCardUI({
         }
         classAvg = stat.classAverage ?? '—';
       }
-      tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-        <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-        <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+      if (isPrimary) {
+        tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
+                <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                <td>${grade}</td><td>${remark}</td></tr>`;
+      } else {
+        tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
+                <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+      }
     }
   } else {
-    tableRows = '<tr><td colspan="8">No scores found</td></tr>';
+    const colSpan = isPrimary ? 6 : 8;
+    tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
   }
 
   const average = subjectCount ? (totalScore / subjectCount).toFixed(1) : 0;
@@ -101,8 +138,8 @@ export function renderReportCardUI({
   const percentageAvg = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
   const overallRemark = getGradeRemark(overallGrade);
 
-  // Generate skills tables
-  let psychomotorHtml = `<table class="skills-table psychomotor-table"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  // Skills tables – side by side
+  let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:200px;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
@@ -111,7 +148,7 @@ export function renderReportCardUI({
   }
   psychomotorHtml += `</tbody></table>`;
 
-  let affectiveHtml = `<table class="skills-table affective-table"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  let affectiveHtml = `<table class="skills-table affective-table" style="flex:1; min-width:200px;"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of affectiveSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
@@ -119,6 +156,8 @@ export function renderReportCardUI({
       <td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
   }
   affectiveHtml += `</tbody></table>`;
+
+  const ratingGuideHtml = `<div class="rating-guide" style="margin-top:12px; font-size:0.8rem; color:#000;">Rating Guide: 1 - Poor | 2 - Fair | 3 - Good | 4 - Very Good | 5 - Excellent</div>`;
 
   // Summary table
   const summaryHtml = `<div class="section-title">📊 Summary of Performance</div>
@@ -130,29 +169,6 @@ export function renderReportCardUI({
       <tr><th>Grade</th><td>${overallGrade}</td></tr>
       <tr><th>Remark</th><td>${overallRemark}</td></tr>
     </table>`;
-  const gradeScaleHtml = `<div class="section-title">📈 Grade Distribution</div>${getGradeScaleHtml()}`;
-
-  // Header
-  const headerHtml = `<div class="report-header">
-    <div class="school-logo-area">${school.logo ? `<img src="${school.logo}" class="school-logo-small" alt="Logo">` : ''}</div>
-    <div class="school-name-area">
-      <h1 class="school-name-report">${escapeHtml(school.name)}</h1>
-      ${school.address ? `<div class="school-address">${escapeHtml(school.address)}</div>` : ''}
-    </div>
-    <div class="passport-area">${student.passport ? `<img src="${student.passport}" class="student-passport-img" alt="Passport">` : ''}</div>
-  </div>`;
-
-  const age = student.dob ? calculateAge(student.dob) : '—';
-  const studentDetailsHtml = `<div class="student-details-grid">
-    <div><strong>Name:</strong> <span class="student-name-caps">${escapeHtml(student.name).toUpperCase()}</span></div>
-    <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
-    <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
-    <div><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
-    <div><strong>Class:</strong> ${escapeHtml(className)}</div>
-    <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
-    <div><strong>Session:</strong> ${session}</div>
-    <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
-  </div>`;
 
   // Attendance table
   const attendanceHtml = `
@@ -180,45 +196,67 @@ export function renderReportCardUI({
           </tr>
         </tbody>
       </table>
+    </div>`;
+
+  // Header with larger logo, school name, address, and student photo
+  const headerHtml = `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+    <div style="flex: 0 0 auto;">${school.logo ? `<img src="${school.logo}" style="max-width: 100px; max-height: 100px; object-fit: contain;" alt="Logo">` : ''}</div>
+    <div style="flex: 1; text-align: center;">
+      <h1 style="font-size: 28px; margin: 0; color: #000;">${escapeHtml(school.name)}</h1>
+      ${school.address ? `<div style="font-size: 16px; margin-top: 5px; color: #000;">${escapeHtml(school.address)}</div>` : ''}
     </div>
-  `;
+    <div style="flex: 0 0 auto;">${student.passport ? `<img src="${student.passport}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;" alt="Passport">` : ''}</div>
+  </div>`;
 
-  const subjectTableHtml = `<table class="subject-table"><thead>
-    <tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr>
-    </thead><tbody>${tableRows}</tbody></table>`;
+  const age = student.dob ? calculateAge(student.dob) : '—';
+  // Student data container: height reduced by 30% from previous increased size (padding: 15px, line-height: 1.8)
+  // Text stays bigger (1.1em) and bold; student name extra prominent.
+  const studentDetailsHtml = `<div style="background-color:#D2B48C; padding:10px; line-height:1.2; border-radius:8px; margin-bottom:15px; color:#000; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; overflow: auto; font-size: 1.3em; font-weight: bold;">
+    <div><strong style="font-size: 1.2em;">Name:</strong> <span style="font-size: 1.3em; font-weight: 700;">${escapeHtml(student.name).toUpperCase()}</span></div>
+    <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
+    <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
+    <div><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
+    <div><strong>Class:</strong> ${escapeHtml(className)}</div>
+    <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
+    <div><strong>Session:</strong> ${session}</div>
+    <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
+  </div>`;
 
-  const mainGridHtml = `
-    <div class="report-main-grid">
-      <div class="subject-table-col">${subjectTableHtml}</div>
-      <div class="skills-stack-col">
-        <div class="psychomotor-wrapper">${psychomotorHtml}</div>
-        <div class="affective-wrapper">${affectiveHtml}</div>
-      </div>
-    </div>
-  `;
+  // Subject table header – different number of columns
+  let subjectTableHeader = '';
+  if (isPrimary) {
+    subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th></tr></thead>`;
+  } else {
+    subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead>`;
+  }
+  const subjectTableHtml = `<table class="subject-table" style="border-collapse: collapse; width: 100%; border: 2px solid #000; background: white;">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  // Comments section
-  function getCommentOptionsByGrade(grade) {
+  // Right column: psychomotor + affective side by side
+  const skillsSideBySide = `<div style="display:flex; gap:20px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
+  const rightColumnHtml = `<div class="skills-stack-col">${skillsSideBySide}</div>`;
+
+  // Left column: subject table + grade distribution
+  const leftColumnContent = subjectTableHtml + `<div style="margin-top:20px;">${getGradeScaleHtml()}</div>`;
+
+  const mainGridHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+    <div style="flex: 2; min-width: 250px;">${leftColumnContent}</div>
+    <div style="flex: 1; min-width: 250px;">${rightColumnHtml}</div>
+  </div>`;
+
+  // Comments – different label based on isPrimary
+  const commentOptions = (() => {
     const generalComments = [
       'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
       'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
     ];
-    const gradeSpecific = {
-      'A1': ['Excellent performance! Keep setting high standards.'], 'B2': ['Very good performance. Aim for excellence next term.'],
-      'B3': ['Good performance. Continue to build on this foundation.'], 'C4': ['Credit level performance. Focus on areas needing improvement.'],
-      'C5': ['Credit level. More attention to detail will help.'], 'C6': ['Credit performance. A little more push will yield better grades.'],
-      'D7': ['Pass grade. Significant improvement is required.'], 'E8': ['Pass, but serious effort is needed to progress.'],
-      'F9': ['Fail grade. Urgent attention and effort are required.']
-    };
-    const gradeComments = gradeSpecific[grade] || ['Keep working hard.'];
-    let allComments = [...generalComments, ...gradeComments];
+    let allComments = [...generalComments];
     const extraComments = ['Your participation is valued.', 'You have shown growth.', 'Excellent punctuality.'];
     while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
     return [...new Set(allComments)];
-  }
-
-  const commentOptions = getCommentOptionsByGrade(overallGrade);
-  const commentsHtml = `<div class="comments-section"><h3>Comments</h3>
+  })();
+  const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
+  const commentsHtml = `<div style="background-color:#f9f9f9; border:2px solid #ddd; border-radius:10px; padding:15px; margin-top:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); color:#000;">
+    <h3>Comments</h3>
     <div class="comment-group">
       <label>Teacher's Comment:</label>
       <div class="comment-controls">
@@ -228,7 +266,7 @@ export function renderReportCardUI({
       <div class="print-comment-text" id="printTeacherComment">${escapeHtml(comments.teacherComment || '')}</div>
     </div>
     <div class="comment-group">
-      <label>Principal's Comment:</label>
+      <label>${principalLabel}</label>
       <div class="comment-controls">
         <select id="principalCommentSelect">${commentOptions.map(opt => `<option value="${opt}" ${comments.principalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
         <textarea id="principalCommentText" rows="2" style="width:100%">${escapeHtml(comments.principalComment || '')}</textarea>
@@ -237,20 +275,38 @@ export function renderReportCardUI({
     </div>
   </div>`;
 
-  const signatureHtml = `<div class="signature-stamp">
-    <div class="signature-item"><strong>Principal's Signature:</strong><div class="signature-line"></div></div>
-    <div class="signature-item"><strong>School Stamp:</strong><div class="stamp-placeholder">(Official Stamp)</div></div>
-    <div class="signature-item"><strong>Date:</strong><div class="signature-line"></div></div>
+  const signatureHtml = `<div style="display: flex; justify-content: space-between; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc;">
+    <div><strong>Principal's Signature:</strong><div style="border-bottom: 1px solid #000; width: 180px; margin-top: 5px;"></div></div>
+    <div><strong>School Stamp:</strong><div style="margin-top: 5px;">(Official Stamp)</div></div>
+    <div><strong>Date:</strong><div style="border-bottom: 1px solid #000; width: 120px; margin-top: 5px;"></div></div>
   </div>`;
-  const ratingGuideHtml = `<div class="rating-guide">Rating Guide: 1 - Poor | 2 - Fair | 3 - Good | 4 - Very Good | 5 - Excellent</div>`;
 
-  const fullHtml = headerHtml + studentDetailsHtml + attendanceHtml + mainGridHtml +
-    `<div class="summary-grading-wrapper"><div class="summary-wrapper">${summaryHtml}</div><div class="grading-wrapper">${gradeScaleHtml}</div></div>` +
-    ratingGuideHtml + commentsHtml + signatureHtml;
+  // Top row: attendance (60%) + summary (35%), centered
+  const topRowHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
+    <div style="flex: 0 0 auto; width: 60%;">${attendanceHtml}</div>
+    <div style="flex: 0 0 auto; width: 35%;">${summaryHtml}</div>
+  </div>`;
 
-  container.innerHTML = fullHtml;
+  // Global styles
+  const globalStyles = `
+    <style>
+      * { color: #000000 !important; }
+      table, th, td { border: 2px solid #000 !important; border-collapse: collapse; }
+      .subject-table th, .attendance-table th, .summary-table th { background-color: #ADD8E6 !important; }
+      .grade-scale-table th { background-color: #FFD700 !important; }
+      .skills-table th, .skills-table td { border: 2px solid #000 !important; }
+      th, td { padding: 8px; text-align: left; }
+      .section-title { font-weight: bold; margin-bottom: 8px; }
+      select, textarea, input { color: #000 !important; background-color: #fff !important; }
+    </style>
+  `;
 
-  // Sync attendance inputs to print spans
+  const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml + signatureHtml;
+  const finalHtml = `<div style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
+
+  container.innerHTML = finalHtml;
+
+  // -------- Event handlers (unchanged) --------
   const syncAttendanceSpans = () => {
     const openedInput = document.querySelector('.attendance-input.school-opened');
     const presentInput = document.querySelector('.attendance-input.present');
@@ -272,7 +328,6 @@ export function renderReportCardUI({
     input.addEventListener('input', syncAttendanceSpans);
   });
 
-  // Rating ticks
   function createTickRating(skillKey, currentValue) {
     const containerDiv = document.createElement('div');
     containerDiv.className = 'rating-tick';
@@ -306,7 +361,6 @@ export function renderReportCardUI({
     }
   });
 
-  // Comment sync
   const teacherSelect = document.getElementById('teacherCommentSelect');
   const teacherText = document.getElementById('teacherCommentText');
   const principalSelect = document.getElementById('principalCommentSelect');
@@ -345,5 +399,5 @@ export function renderReportCardUI({
     };
   }
 
-  return { fullHtml, totalScore, totalObtainable, average, overallGrade };
+  return { fullHtml: finalHtml, totalScore, totalObtainable, average, overallGrade };
 }

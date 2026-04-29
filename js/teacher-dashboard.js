@@ -1,7 +1,8 @@
 // teacher-dashboard.js - Complete with school address loading
+// MODIFIED: No redirect when teacher document is missing – creates minimal record instead.
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
-import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getSchoolById, getCurrentAcademicSessionAndTerm } from './app.js';
 import { logoutUser } from './auth.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
@@ -12,11 +13,12 @@ let teacherData = null;
 let userRoleData = null;
 let teacherName = null;
 
-// ------------------- Auth Protection -------------------
+// ------------------- Auth Protection (NO REDIRECT on missing teacher doc) -------------------
 export async function protectTeacherPage() {
   return new Promise((resolve, reject) => {
     onAuthStateChanged(auth, async (user) => {
       if (!user) {
+        console.warn("No authenticated user. Redirecting to login.");
         window.location.href = '/';
         reject(new Error('Not authenticated'));
         return;
@@ -27,7 +29,7 @@ export async function protectTeacherPage() {
         const userDocSnap = await getDoc(userDocRef);
         
         if (!userDocSnap.exists()) {
-          showNotification("User profile not found. Please contact admin.", "error");
+          console.error("User document missing. Redirecting.");
           window.location.href = '/';
           return;
         }
@@ -35,18 +37,19 @@ export async function protectTeacherPage() {
         userRoleData = userDocSnap.data();
         
         if (userRoleData.role !== 'teacher') {
-          showNotification("Access denied. Teachers only.", "error");
+          console.error("Access denied – not a teacher.");
           window.location.href = '/';
           return;
         }
         
         currentSchoolId = userRoleData.schoolId;
         if (!currentSchoolId) {
-          showNotification("School association missing. Contact admin.", "error");
+          console.error("School ID missing. Redirecting.");
           window.location.href = '/';
           return;
         }
         
+        // ✅ Try to fetch teacher document, but do NOT redirect if missing
         const teacherDocRef = doc(db, 'teachers', user.uid);
         const teacherDocSnap = await getDoc(teacherDocRef);
         
@@ -54,25 +57,47 @@ export async function protectTeacherPage() {
           teacherData = teacherDocSnap.data();
           teacherName = teacherData.name || teacherData.email?.split('@')[0] || 'Teacher';
         } else {
-          console.warn('Teacher document missing, using users data');
+          // ✅ No teacher document? Create a default one on the fly (no redirect)
+          console.warn("Teacher document missing – creating minimal record to avoid redirect.");
           teacherData = {
             email: userRoleData.email,
             schoolId: currentSchoolId,
             subjectIds: userRoleData.subjects || [],
-            isClassTeacher: userRoleData.isClassTeacher || false,
-            hostClassId: userRoleData.classId || null,
-            classIds: userRoleData.classId ? [userRoleData.classId] : []
+            isClassTeacher: true,
+            hostClassId: null,
+            classIds: []   // empty => teacher can teach any class
           };
           teacherName = userRoleData.email?.split('@')[0] || 'Teacher';
+          // Optional: silently create the document in Firestore (requires write permission)
+          try {
+            await setDoc(teacherDocRef, teacherData);
+          } catch (e) {
+            console.warn("Could not create teacher document automatically:", e.message);
+          }
         }
         
         currentTeacherId = user.uid;
         resolve({ user, userData: userRoleData, teacherData, teacherName });
         
       } catch (error) {
-        handleError(error, "Authorization error. Please log in again.");
-        window.location.href = '/';
-        reject(error);
+        // ✅ Log error but do NOT redirect – let the page load if possible
+        console.error("Authorization error, but page will try to load:", error);
+        // Try to recover with minimal data from userDoc
+        if (userRoleData && currentSchoolId) {
+          teacherData = {
+            email: userRoleData.email,
+            schoolId: currentSchoolId,
+            subjectIds: userRoleData.subjects || [],
+            classIds: [],
+            isClassTeacher: false
+          };
+          teacherName = userRoleData.email?.split('@')[0] || 'Teacher';
+          currentTeacherId = user.uid;
+          resolve({ user, userData: userRoleData, teacherData, teacherName });
+        } else {
+          window.location.href = '/';
+          reject(error);
+        }
       }
     });
   });
@@ -453,7 +478,7 @@ function renderStudentsTable() {
     `;
   });
   
-  html += `</tbody></table>`;
+  html += `</tbody>赶`;
   container.innerHTML = html;
   
   document.querySelectorAll('.ca-input, .exam-input').forEach(input => {

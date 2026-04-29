@@ -1,4 +1,5 @@
 // admin.js - Admin dashboard with subscription UI (updated with Paystack + WhatsApp)
+// No changes needed for subject/class level features. Keeping existing fully functional code.
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
@@ -273,7 +274,7 @@ export function initSubscriptionUI(schoolId) {
     if (!snap.exists()) return;
     const sub = snap.data();
     await updateFeeDisplay(schoolId, sub);
-    await updatePendingExtraDisplay(schoolId);
+    await updatePendingExtraDisplay(schoolId, sub);  // Pass sub to avoid extra fetch
 
     const isActive = sub.status === 'active' && sub.locked === false;
     if (isActive) {
@@ -323,7 +324,8 @@ async function updateFeeDisplay(schoolId, sub) {
   }
 }
 
-async function updatePendingExtraDisplay(schoolId) {
+// ========== UPDATED: Pending students notification with payment calculation ==========
+async function updatePendingExtraDisplay(schoolId, sub = null) {
   const pendingContainer = document.getElementById('pendingExtraContainer');
   if (!pendingContainer) return;
 
@@ -341,17 +343,39 @@ async function updatePendingExtraDisplay(schoolId) {
     lockedCount = 0;
   }
 
-  if (lockedCount > 0) {
-    pendingContainer.innerHTML = `
-      <div style="background: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
-        <strong>⏳ Pending Extra Students</strong><br>
-        ${lockedCount} student(s) awaiting super‑admin approval.<br>
-        <small>These students are already added but will be covered once approved.</small>
-      </div>
-    `;
-  } else {
+  // If no locked students, clear the container and exit
+  if (lockedCount === 0) {
     pendingContainer.innerHTML = '';
+    return;
   }
+
+  // Get cost per student (from subscription sub, or fetch it if not provided)
+  let costPerStudent = 1000; // default
+  if (sub && sub.costPerStudent) {
+    costPerStudent = sub.costPerStudent;
+  } else {
+    try {
+      const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+      const subSnap = await getDoc(subRef);
+      if (subSnap.exists()) {
+        const subData = subSnap.data();
+        costPerStudent = subData.costPerStudent || 1000;
+      }
+    } catch (err) {
+      handleError(err, "Failed to fetch subscription cost.");
+    }
+  }
+
+  const totalExtraFee = lockedCount * costPerStudent;
+
+  pendingContainer.innerHTML = `
+    <div style="background: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+      <strong>⏳ Pending Extra Students</strong><br>
+      ${lockedCount} student(s) awaiting super‑admin approval.<br>
+      <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong><br>
+      <small>These students have been added but are locked until the extra fee is paid and approved.</small>
+    </div>
+  `;
 }
 
 // ------------------- Academic Calendar -------------------

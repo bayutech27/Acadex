@@ -222,8 +222,8 @@ export async function loginUser(email, password) {
     let errorMessage = 'Login failed. ';
     if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
       errorMessage += 'Invalid email or password.';
-    } else {
-      errorMessage += error.message;
+    }else {
+      errorMessage = 'Login failed due to network failure.' ;
     }
     showMessage(errorMessage, true);
   } finally {
