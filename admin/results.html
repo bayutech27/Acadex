@@ -392,7 +392,9 @@
 <body>
 <div class="dashboard-container">
   <aside class="sidebar">
-    <div class="sidebar-header">Acadex</div>
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
     <nav class="sidebar-nav">
       <a href="admin-dashboard.html">Dashboard</a>
       <a href="teachers.html">Teachers</a>
@@ -403,8 +405,25 @@
     </nav>
   </aside>
 
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html">Dashboard</a>
+      <a href="teachers.html">Teachers</a>
+      <a href="students.html">Students & Pupils</a>
+      <a href="setup.html">Subjects & Classes</a>
+      <a href="results.html" class="active">Results</a>
+      <a href="records.html">Records</a>
+    </nav>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
   <main class="main-content">
     <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
       <div class="school-header">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
@@ -443,7 +462,7 @@
         <div id="gradingMessage" class="alert success" style="display:none;"></div>
       </div>
 
-      <!-- Primary Grading Section (NEW) -->
+      <!-- Primary Grading Section -->
       <div class="grading-section print-hide">
         <h2>Grading System (For Primary Only)</h2>
         <div class="grading-controls">
@@ -462,25 +481,12 @@
       <div class="broadsheet-section print-hide">
         <h2>📊 Class Broadsheet</h2>
         <div class="broadsheet-controls">
-          <div class="form-group">
-            <label>Select Class *</label>
-            <select id="broadsheetClassSelect" required><option value="">-- Select Class --</option></select>
-          </div>
-          <div class="form-group">
-            <label>Select Session *</label>
-            <select id="broadsheetSessionSelect" required></select>
-          </div>
-          <div class="form-group">
-            <label>Select Term *</label>
-            <select id="broadsheetTermSelect" required>
-              <option value="1">1st Term</option>
-              <option value="2">2nd Term</option>
-              <option value="3">3rd Term</option>
-            </select>
-          </div>
+          <div class="form-group"><label>Select Class *</label><select id="broadsheetClassSelect" required><option value="">-- Select Class --</option></select></div>
+          <div class="form-group"><label>Select Session *</label><select id="broadsheetSessionSelect" required></select></div>
+          <div class="form-group"><label>Select Term *</label><select id="broadsheetTermSelect" required><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option></select></div>
           <button id="generateBroadsheetBtn" class="btn-primary">📄 Generate Broadsheet</button>
         </div>
-        <div id="broadsheetContainer"></div>
+        <div id="broadsheetContainer" class="table-responsive-wrapper"></div>
         <div id="broadsheetActions" style="display:none;">
           <button id="saveBroadsheetBtn" class="btn-primary">💾 Save Broadsheet</button>
           <button id="printBroadsheetBtn" class="btn-secondary">🖨️ Print / PDF</button>
@@ -520,13 +526,15 @@
 <script type="module">
   import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload, initAcademicCalendar } from '../js/admin.js';
   import { initResultsPage } from '../js/results.js';
-  
+  import { initMobileMenu } from '../js/menu.js';
+
   protectAdminPage().then(async () => {
     await initAcademicCalendar();
     loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
+    initMobileMenu();
     await initResultsPage();
   });
 </script>

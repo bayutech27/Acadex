@@ -30,46 +30,6 @@ function initSecondaryAuth() {
   return secondaryAuth;
 }
 
-// Inject CSS to prevent table overflow (run once)
-function injectTableOverflowStyles() {
-  if (document.getElementById('teacherTableOverflowStyles')) return;
-  const style = document.createElement('style');
-  style.id = 'teacherTableOverflowStyles';
-  style.textContent = `
-    .teachers-table-wrapper {
-      overflow-x: auto;
-      margin: 1rem 0;
-    }
-    .data-table {
-      table-layout: fixed;
-      width: 100%;
-      border-collapse: collapse;
-      word-break: break-word;
-      white-space: normal;
-    }
-    .data-table th, .data-table td {
-      padding: 10px 8px;
-      vertical-align: top;
-      border: 1px solid #ddd;
-    }
-    /* Column widths: adjust as needed */
-    .data-table th:nth-child(1) { width: 18%; } /* Name */
-    .data-table th:nth-child(2) { width: 20%; } /* Email */
-    .data-table th:nth-child(3) { width: 8%; }  /* Level */
-    .data-table th:nth-child(4) { width: 10%; } /* Subjects (count) */
-    .data-table th:nth-child(5) { width: 18%; } /* Classes */
-    .data-table th:nth-child(6) { width: 12%; } /* Class Teacher */
-    .data-table th:nth-child(7) { width: 14%; } /* Actions */
-    @media (max-width: 768px) {
-      .data-table th, .data-table td {
-        font-size: 12px;
-        padding: 6px 4px;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
 export async function initTeachersPage() {
   teacherForm = document.getElementById('teacherForm');
   modal = document.getElementById('teacherModal');
@@ -88,15 +48,10 @@ export async function initTeachersPage() {
   currentSchoolId = await getCurrentSchoolId();
   initSecondaryAuth();
   
-  // Inject overflow prevention styles
-  injectTableOverflowStyles();
-  
-  // Load all subjects and classes (for reference, but filtering will be done by level)
   await loadAllSubjects();
   await loadAllClasses();
   await loadTeachers();
 
-  // Level change event: dynamically load subjects/classes/classTeacher based on selected level
   levelSelect.addEventListener('change', async (e) => {
     currentTeacherLevel = e.target.value;
     if (currentTeacherLevel) {
@@ -104,7 +59,6 @@ export async function initTeachersPage() {
       await loadClassesByLevel(currentTeacherLevel);
       await loadClassTeacherOptions(currentTeacherLevel);
     } else {
-      // Disable and show placeholder
       subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
       subjectsSelect.disabled = true;
       classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
@@ -122,12 +76,10 @@ export async function initTeachersPage() {
   if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
   teacherForm.addEventListener('submit', handleTeacherSubmit);
 
-  // Setup subscription UI and listener
   setupSubscriptionUI();
   initSubscriptionListener();
 }
 
-// Load all subjects (unfiltered) for reference
 async function loadAllSubjects() {
   try {
     const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
@@ -141,7 +93,6 @@ async function loadAllSubjects() {
   }
 }
 
-// Load all classes (unfiltered) for reference
 async function loadAllClasses() {
   try {
     const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
@@ -155,7 +106,6 @@ async function loadAllClasses() {
   }
 }
 
-// Load subjects filtered by level
 async function loadSubjectsByLevel(level) {
   if (!level) {
     subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
@@ -194,7 +144,6 @@ async function loadSubjectsByLevel(level) {
   }
 }
 
-// Load classes filtered by level
 async function loadClassesByLevel(level) {
   if (!level) {
     classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
@@ -233,7 +182,6 @@ async function loadClassesByLevel(level) {
   }
 }
 
-// Load class teacher dropdown (only classes of the selected level)
 async function loadClassTeacherOptions(level) {
   if (!level) {
     classTeacherSelect.innerHTML = '<option value="">None</option>';
@@ -275,9 +223,9 @@ async function loadTeachers() {
       return;
     }
 
-    // Wrap table in a scrollable div and add colgroup for column widths
+    // Responsive: wrap table in scrollable container with global class
     const html = `
-      <div class="teachers-table-wrapper">
+      <div class="table-responsive-wrapper">
         <table class="data-table">
           <colgroup>
             <col style="width: 18%">
@@ -357,7 +305,6 @@ function openModal(teacherId = null) {
   const modalTitle = document.getElementById('modalTitle');
   if (!modalTitle) return;
   
-  // Reset form
   teacherForm.reset();
   subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
   subjectsSelect.disabled = true;
@@ -387,31 +334,26 @@ async function loadTeacherData(teacherId) {
       if (nameInput) nameInput.value = data.name;
       if (emailInput) emailInput.value = data.email;
       
-      // Set level and trigger dependent loads
       const teacherLevel = data.level || (data.isClassTeacher ? (classesMap.get(data.hostClassId)?.level || 'secondary') : 'secondary');
       if (levelSelect) levelSelect.value = teacherLevel;
       currentTeacherLevel = teacherLevel;
       
-      // Load dependent dropdowns first
       await loadSubjectsByLevel(teacherLevel);
       await loadClassesByLevel(teacherLevel);
       await loadClassTeacherOptions(teacherLevel);
       
-      // Select previously assigned subjects
       const subjectIds = data.subjectIds || [];
       if (subjectsSelect) {
         Array.from(subjectsSelect.options).forEach(opt => {
           opt.selected = subjectIds.includes(opt.value);
         });
       }
-      // Select previously assigned classes
       const classIds = data.classIds || [];
       if (classesSelect) {
         Array.from(classesSelect.options).forEach(opt => {
           opt.selected = classIds.includes(opt.value);
         });
       }
-      // Set class teacher
       if (data.isClassTeacher && data.hostClassId && classTeacherSelect) {
         classTeacherSelect.value = data.hostClassId;
       } else if (classTeacherSelect) {
@@ -431,7 +373,6 @@ function closeModal() {
   currentTeacherLevel = null;
 }
 
-// ========== VALIDATION FUNCTIONS ==========
 async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null) {
   if (!subjectIds.length) return null;
   
@@ -498,14 +439,12 @@ async function handleTeacherSubmit(e) {
     return;
   }
 
-  // 1. Check subject conflicts within same level
   const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
   if (subjectConflictMsg) {
     showNotification(subjectConflictMsg, "error");
     return;
   }
 
-  // 2. Check class teacher conflict
   if (isClassTeacher) {
     const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, level, editingTeacherId);
     if (classTeacherConflictMsg) {
@@ -652,7 +591,6 @@ async function setupSubscriptionUI() {
   hidePaymentBanner();
 }
 
-// ========== FIXED: Missing closing parenthesis corrected ==========
 async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();

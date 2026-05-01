@@ -1,4 +1,5 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
+// BROADSHEET LOGIC IDENTICAL TO class.js AND records.js
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId, getAcademicContext, initAcademicCalendar } from './admin.js';
@@ -7,10 +8,10 @@ import { canEnterScores } from './plan.js';
 
 // ------------------- Global State -------------------
 let currentSchoolId = null;
-let classesMap = new Map();
+let classesMap = new Map();          // id -> { name, level }
 let studentsList = [];
-let subjectsMap = new Map();
-let allSubjectsList = [];
+let subjectsMap = new Map();         // id -> { name, level }
+let allSubjectsList = [];            // { id, name, level }
 let currentGrading = { ca: 40, exam: 60 };
 let isSubscriptionAllowed = false;
 let unsubscribeSub = null;
@@ -93,7 +94,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -142,13 +143,14 @@ async function loadClassesAndSubjects() {
   try {
     const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
     classesMap.clear();
-    classesSnap.forEach(doc => classesMap.set(doc.id, doc.data().name));
+    classesSnap.forEach(doc => classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level }));
     const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
     subjectsMap.clear();
     allSubjectsList = [];
     subjSnap.forEach(doc => {
-      subjectsMap.set(doc.id, doc.data().name);
-      allSubjectsList.push({ id: doc.id, name: doc.data().name });
+      const data = doc.data();
+      subjectsMap.set(doc.id, { name: data.name, level: data.level });
+      allSubjectsList.push({ id: doc.id, name: data.name, level: data.level });
     });
   } catch (err) {
     console.error('Failed to load classes/subjects:', err);
@@ -163,7 +165,8 @@ async function loadAllStudents() {
     studentsList = snap.docs.map(doc => ({
       id: doc.id, name: doc.data().name, classId: doc.data().classId,
       admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
-      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null
+      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
+      subjects: doc.data().subjects || []
     }));
   } catch (err) {
     console.error('Failed to load students:', err);
@@ -254,15 +257,17 @@ async function saveGradingSetting() {
 }
 
 // ------------------- Compute Subject Stats -------------------
-async function computeSubjectStats(classId, term, session) {
+async function computeSubjectStats(classId, term, session, subjectIdsToInclude = null) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
   const allScores = await fetchClassScores(classId, term, session);
   const subjectMap = new Map();
-  for (const subjId of subjectsMap.keys()) {
+  let targetSubjectIds = subjectIdsToInclude ? new Set(subjectIdsToInclude) : new Set(subjectsMap.keys());
+  for (const subjId of targetSubjectIds) {
     subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
   }
   for (const score of allScores) {
+    if (!targetSubjectIds.has(score.subjectId)) continue;
     const total = (score.ca || 0) + (score.exam || 0);
     const stat = subjectMap.get(score.subjectId);
     if (stat) stat.totals.push({ studentId: score.studentId, total });
@@ -282,6 +287,43 @@ async function computeSubjectStats(classId, term, session) {
   return subjectMap;
 }
 
+// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
+async function getRelevantSubjectsForClass(classId, session) {
+  const classInfo = classesMap.get(classId);
+  if (!classInfo) return [];
+  const classLevel = classInfo.level;
+  let levelSubjects = allSubjectsList.filter(subj => subj.level === classLevel);
+  if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
+  const classStudents = studentsList.filter(s => s.classId === classId);
+  if (!classStudents.length) return levelSubjects;
+  const studentIds = classStudents.map(s => s.id);
+  const subjectIdsWithScores = new Set();
+  for (const term of ['1', '2', '3']) {
+    for (let i = 0; i < studentIds.length; i += 30) {
+      const chunk = studentIds.slice(i, i+30);
+      const q = query(
+        collection(db, 'scores'),
+        where('studentId', 'in', chunk),
+        where('schoolId', '==', currentSchoolId),
+        where('term', '==', term),
+        where('session', '==', session)
+      );
+      const snap = await getDocs(q);
+      snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
+    }
+  }
+  return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
+}
+
+async function getStudentAverageForTerm(studentId, term, session) {
+  const scores = await fetchStudentScores(studentId, term, session);
+  if (!scores.length) return null;
+  let total = 0, count = 0;
+  for (const s of scores) { total += (s.ca || 0) + (s.exam || 0); count++; }
+  if (count === 0) return null;
+  return ((total / (count * 100)) * 100).toFixed(1);
+}
+
 // ------------------- Report Card Rendering -------------------
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionAllowed) {
@@ -294,7 +336,7 @@ async function renderReportCard(studentId, studentName) {
   editorState.term = document.getElementById('editorTermSelect')?.value || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || '';
   const classId = document.getElementById('editorClassSelect')?.value;
-  const className = classesMap.get(classId) || 'Class';
+  const className = classesMap.get(classId)?.name || 'Class';
 
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
   const school = {
@@ -306,7 +348,7 @@ async function renderReportCard(studentId, studentName) {
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
   const scoresWithNames = scoresRaw.map(score => ({
     subjectId: score.subjectId,
-    subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
+    subjectName: subjectsMap.get(score.subjectId)?.name || score.subjectId,
     ca: score.ca,
     exam: score.exam
   }));
@@ -421,7 +463,6 @@ async function saveEditorReport() {
 
 // ========== IMPROVED PRINT HANDLER (forces one page + taller vertical headers) ==========
 function handlePrint() {
-  // Copy editable comments to their print-only placeholders
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
@@ -450,22 +491,16 @@ function handlePrint() {
     .map(style => style.innerHTML)
     .join('\n');
 
-  // Enhanced CSS to force exactly one page and increase vertical header height
   const extraPrintCSS = `
-    /* Remove any page breaks inside the report card */
     .report-card, .report-card * {
       page-break-inside: avoid;
       page-break-after: avoid;
       page-break-before: avoid;
     }
-
-    /* Page margins and size */
     @page {
       size: A4;
       margin: 8mm;
     }
-
-    /* Make the print container fill the page but prevent overflow */
     body, .print-container {
       margin: 0;
       padding: 0;
@@ -476,27 +511,21 @@ function handlePrint() {
       max-width: 210mm;
       margin: 0 auto;
     }
-
-    /* Overall report card layout - reduce spacing to fit one page */
     .report-card {
       padding: 4px !important;
       margin: 0 !important;
       font-size: 9px !important;
     }
-
-    /* Subject table – compact and readable */
     .subject-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 6.5px !important;        /* smaller font to save vertical space */
+      font-size: 6.5px !important;
       line-height: 1.2;
     }
     .subject-table th, .subject-table td {
       padding: 3px 2px !important;
       word-break: break-word;
     }
-
-    /* Increase height of the vertical header columns (CA, Exam, Total) */
     .subject-table th:not(:first-child) {
       height: 70px !important;
       width: 28px !important;
@@ -508,8 +537,6 @@ function handlePrint() {
       line-height: 1.2;
       vertical-align: middle;
     }
-
-    /* Ensure the first column (Subject names) also has enough height */
     .subject-table th:first-child,
     .subject-table td:first-child {
       white-space: normal;
@@ -517,15 +544,11 @@ function handlePrint() {
       line-height: 1.3;
       padding: 4px 3px !important;
     }
-
-    /* Compact student details area */
     .student-details-grid {
       font-size: 7px !important;
       gap: 2px 4px !important;
       margin-bottom: 4px !important;
     }
-
-    /* Even smaller fonts for skill tables and summary */
     .skills-table, .summary-table, .grade-scale-table {
       font-size: 6px !important;
     }
@@ -533,8 +556,6 @@ function handlePrint() {
     .summary-table th, .summary-table td {
       padding: 2px 3px !important;
     }
-
-    /* Comments and signature */
     .comments-section {
       font-size: 8px !important;
       margin-top: 4px !important;
@@ -543,8 +564,6 @@ function handlePrint() {
       margin-top: 4px !important;
       padding-top: 2px !important;
     }
-
-    /* Hide interactive elements */
     .rating-tick, select, textarea, button, .comment-controls, .tick {
       display: none !important;
     }
@@ -573,7 +592,6 @@ function handlePrint() {
     </body>
     </html>
   `);
-
   printWindow.document.close();
   setTimeout(() => {
     printWindow.focus();
@@ -581,7 +599,7 @@ function handlePrint() {
   }, 300);
 }
 
-// ------------------- Broadsheet Engine (with subscription check) -------------------
+// ------------------- BROADSHEET ENGINE (identical to class.js and records.js) -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionAllowed) {
     const container = document.getElementById('broadsheetContainer');
@@ -594,7 +612,8 @@ async function generateBroadsheet() {
   const term = document.getElementById('broadsheetTermSelect')?.value;
   if (!classId || !session || !term) { alert('Please select Class, Session and Term'); return; }
 
-  const className = classesMap.get(classId) || 'Class';
+  const classInfo = classesMap.get(classId);
+  const className = classInfo?.name || 'Class';
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) {
     const container = document.getElementById('broadsheetContainer');
@@ -602,75 +621,144 @@ async function generateBroadsheet() {
     return;
   }
 
-  const allScores = await fetchClassScores(classId, term, session);
-  const scoresByStudent = new Map();
-  for (const score of allScores) {
-    if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
-    scoresByStudent.get(score.studentId).push(score);
+  // Get relevant subjects: level + have scores in any term of this session
+  const relevantSubjects = await getRelevantSubjectsForClass(classId, session);
+  if (relevantSubjects.length === 0) {
+    const container = document.getElementById('broadsheetContainer');
+    container.innerHTML = '<div class="alert">No subjects with scores found for this class level.</div>';
+    document.getElementById('broadsheetActions').style.display = 'none';
+    return;
   }
 
-  const studentResults = [];
-  for (const student of classStudents) {
-    const scores = scoresByStudent.get(student.id) || [];
-    const scoreMap = new Map();
-    scores.forEach(s => { scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }); });
-    let totalScore = 0;
-    const subjectDetails = [];
-    for (const subj of allSubjectsList) {
-      const score = scoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
-      totalScore += score.total;
-      subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
+  showLoader();
+  try {
+    // Fetch scores for all three terms
+    const term1Scores = await fetchClassScores(classId, '1', session);
+    const term2Scores = await fetchClassScores(classId, '2', session);
+    const term3Scores = await fetchClassScores(classId, '3', session);
+    
+    const scoresByStudentTerm = new Map();
+    const storeScores = (termScores, termNum) => {
+      for (const score of termScores) {
+        if (!scoresByStudentTerm.has(score.studentId)) scoresByStudentTerm.set(score.studentId, new Map());
+        const studentMap = scoresByStudentTerm.get(score.studentId);
+        if (!studentMap.has(termNum)) studentMap.set(termNum, new Map());
+        studentMap.get(termNum).set(score.subjectId, { ca: score.ca, exam: score.exam, total: score.ca + score.exam });
+      }
+    };
+    storeScores(term1Scores, 1);
+    storeScores(term2Scores, 2);
+    storeScores(term3Scores, 3);
+    
+    // Compute term averages for each student
+    const termAverages = new Map(); // studentId -> { 1: avg%, 2: avg%, 3: avg%, combined: avg% }
+    for (const student of classStudents) {
+      const averages = {};
+      let sumCombined = 0;
+      let termsWithData = 0;
+      for (const t of [1,2,3]) {
+        const studentScoreMap = scoresByStudentTerm.get(student.id)?.get(t) || new Map();
+        let totalScore = 0;
+        let subjectCount = 0;
+        for (const subj of relevantSubjects) {
+          const score = studentScoreMap.get(subj.id);
+          if (score) {
+            totalScore += score.total;
+            subjectCount++;
+          }
+        }
+        if (subjectCount > 0) {
+          const avg = (totalScore / (subjectCount * 100)) * 100;
+          averages[t] = avg.toFixed(1);
+          sumCombined += avg;
+          termsWithData++;
+        } else {
+          averages[t] = null;
+        }
+      }
+      const combinedAvg = termsWithData > 0 ? (sumCombined / termsWithData).toFixed(1) : null;
+      termAverages.set(student.id, { ...averages, combined: combinedAvg });
     }
-    const totalObtainable = allSubjectsList.length * 100;
-    const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
-    const grade = calculateGrade(average);
-    const remark = getGradeRemark(grade);
-    studentResults.push({
-      studentId: student.id,
-      studentName: student.name,
-      totalScore,
-      average,
-      grade,
-      remark,
-      subjectDetails
-    });
+    
+    // Build student results array
+    const studentResults = [];
+    for (const student of classStudents) {
+      const subjectDetails = [];
+      let totalScoreOverall = 0;
+      // Use selected term for current term scores display
+      const studentScoreMap = scoresByStudentTerm.get(student.id)?.get(parseInt(term)) || new Map();
+      for (const subj of relevantSubjects) {
+        const score = studentScoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
+        totalScoreOverall += score.total;
+        subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
+      }
+      const totalObtainable = relevantSubjects.length * 100;
+      const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
+      const grade = calculateGrade(average);
+      const remark = getGradeRemark(grade);
+      
+      const tAvg = termAverages.get(student.id);
+      studentResults.push({
+        studentId: student.id,
+        studentName: student.name,
+        totalScore: totalScoreOverall,
+        average,
+        grade,
+        remark,
+        subjectDetails,
+        term1Avg: tAvg ? (tAvg[1] !== null ? tAvg[1] + '%' : '—') : '—',
+        term2Avg: tAvg ? (tAvg[2] !== null ? tAvg[2] + '%' : '—') : '—',
+        term3Avg: tAvg ? (tAvg[3] !== null ? tAvg[3] + '%' : '—') : '—',
+        combinedAvg: tAvg && tAvg.combined ? tAvg.combined + '%' : '—'
+      });
+    }
+    
+    // Sort and rank by current term average (selected term)
+    studentResults.sort((a, b) => b.average - a.average);
+    let rank = 1;
+    for (let i = 0; i < studentResults.length; i++) {
+      if (i > 0 && studentResults[i].average < studentResults[i-1].average) rank = i+1;
+      studentResults[i].position = rank;
+    }
+    
+    let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – Term ${term}</h3></div>`;
+    html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
+    html += `<thead>`;
+    html += `<tr><th>S/N</th><th>Student Name</th>`;
+    for (const subj of relevantSubjects) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
+    html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
+    html += `<tr><th></th><th></th>`;
+    for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
+    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>`;
+    html += `</thead><tbody>`;
+    
+    for (let i = 0; i < studentResults.length; i++) {
+      const r = studentResults[i];
+      html += `<tr>`;
+      html += `<td>${i+1}</td>`;
+      html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
+      html += `<td>${r.totalScore}</td>`;
+      html += `<td>${r.term1Avg}</td>`;
+      html += `<td>${r.term2Avg}</td>`;
+      html += `<td>${r.term3Avg}</td>`;
+      html += `<td>${r.combinedAvg}</td>`;
+      html += `<td>${r.grade}</td>`;
+      html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
+      html += `<td>${r.remark}</td>`;
+      html += `</tr>`;
+    }
+    html += `</tbody></tr></div>`;
+    const container = document.getElementById('broadsheetContainer');
+    if (container) container.innerHTML = html;
+    const actions = document.getElementById('broadsheetActions');
+    if (actions) actions.style.display = 'flex';
+    window.currentBroadsheetData = { classId, session, term, studentResults, subjects: relevantSubjects };
+  } catch (err) {
+    handleError(err, "Failed to generate broadsheet.");
+  } finally {
+    hideLoader();
   }
-
-  studentResults.sort((a, b) => b.totalScore - a.totalScore);
-  let rank = 1;
-  for (let i = 0; i < studentResults.length; i++) {
-    if (i > 0 && studentResults[i].totalScore < studentResults[i - 1].totalScore) rank = i + 1;
-    studentResults[i].position = rank;
-  }
-
-  let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
-  html += `<div style="overflow-x: auto;"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
-  html += `<thead><tr><th>S/N</th><th>Student Name</th>`;
-  for (const subj of allSubjectsList) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
-  html += `<th>% Avg</th><th>Grade</th><th>Remark</th><th>Position</th></tr>`;
-  html += `<tr><th></th><th></th>`;
-  for (let i = 0; i < allSubjectsList.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
-  html += `<th></th><th></th><th></th><th></th></tr></thead><tbody>`;
-
-  for (let i = 0; i < studentResults.length; i++) {
-    const r = studentResults[i];
-    html += `<tr>`;
-    html += `<td>${i + 1}</td>`;
-    html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
-    for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
-    html += `<td>${r.average.toFixed(1)}%</td>`;
-    html += `<td>${r.grade}</td>`;
-    html += `<td>${r.remark}</td>`;
-    html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
-    html += `</tr>`;
-  }
-  html += `</tbody></table></div>`;
-
-  const container = document.getElementById('broadsheetContainer');
-  if (container) container.innerHTML = html;
-  const actions = document.getElementById('broadsheetActions');
-  if (actions) actions.style.display = 'flex';
-  window.currentBroadsheetData = { classId, session, term, studentResults, subjects: allSubjectsList };
 }
 
 async function saveBroadsheetToFirestore() {
@@ -694,6 +782,10 @@ async function saveBroadsheetToFirestore() {
       grade: s.grade,
       remark: s.remark,
       position: s.position,
+      term1Avg: s.term1Avg,
+      term2Avg: s.term2Avg,
+      term3Avg: s.term3Avg,
+      combinedAvg: s.combinedAvg,
       subjectDetails: s.subjectDetails
     })),
     subjects: subjects.map(s => ({ id: s.id, name: s.name })),
@@ -713,6 +805,7 @@ async function saveBroadsheetToFirestore() {
   }
 }
 
+// ========== ENHANCED BROADSHEET PRINT (Landscape A4, one page, compact) ==========
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
   if (!container || !container.innerHTML.trim()) { alert('No broadsheet to print.'); return; }
@@ -727,18 +820,54 @@ function printBroadsheet() {
   const inlineStyles = Array.from(document.querySelectorAll('style'))
     .map(style => style.innerHTML)
     .join('\n');
+    
+  const printCSS = `
+    @page {
+      size: landscape;
+      margin: 1cm;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 10px;
+    }
+    .broadsheet-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8px;
+    }
+    .broadsheet-table th, .broadsheet-table td {
+      border: 1px solid #000;
+      padding: 4px 3px;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .student-name-cell {
+      text-align: left !important;
+    }
+    .table-responsive-wrapper {
+      overflow: visible !important;
+      border: none !important;
+      margin: 0 !important;
+    }
+    tr, td, th {
+      page-break-inside: avoid;
+      page-break-after: avoid;
+    }
+    .broadsheet-table {
+      page-break-after: avoid;
+    }
+  `;
+  
   printWindow.document.write(`
     <!DOCTYPE html>
     <html>
     <head><title>${title}</title>
     <link rel="stylesheet" href="${externalCssUrl}">
     <style>
-      body { font-family: 'Segoe UI', sans-serif; margin: 20px; }
-      .broadsheet-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-      .broadsheet-table th, .broadsheet-table td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
-      .student-name-cell { text-align: left; }
-      @media print { @page { size: landscape; margin: 1cm; } body { margin: 0; } }
       ${inlineStyles}
+      ${printCSS}
     </style>
     </head>
     <body>${originalContent.outerHTML}</body>
@@ -881,9 +1010,7 @@ export async function initResultsPage() {
     return;
   }
 
-  // Check subscription status
   isSubscriptionAllowed = await canEnterScores(currentSchoolId);
-
   await initAcademicCalendar(currentSchoolId);
 
   let academic;
@@ -914,7 +1041,7 @@ export async function initResultsPage() {
 
   const classSelect = document.getElementById('broadsheetClassSelect');
   if (classSelect) {
-    classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+    classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
   }
 
   const sessionOptions = generateSessionOptionsFromCurrent(currentSession);
@@ -927,7 +1054,7 @@ export async function initResultsPage() {
 
   const editorClassSelect = document.getElementById('editorClassSelect');
   if (editorClassSelect) {
-    editorClassSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join('');
+    editorClassSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
   }
   const editorSessionSelect = document.getElementById('editorSessionSelect');
   if (editorSessionSelect) {
@@ -957,7 +1084,6 @@ export async function initResultsPage() {
   if (editorSessionSelect) editorSessionSelect.addEventListener('change', onEditorFilterChange);
   if (editorTermSelect) editorTermSelect.addEventListener('change', onEditorFilterChange);
 
-  // Disable features if subscription not allowed
   if (!isSubscriptionAllowed) {
     if (saveGradingBtn) saveGradingBtn.disabled = true;
     if (generateBtn) generateBtn.disabled = true;
@@ -973,9 +1099,7 @@ export async function initResultsPage() {
     if (contentDiv) contentDiv.insertBefore(warningBanner, contentDiv.firstChild);
   }
 
-  // Setup subscription UI and listener (payment banner)
   setupSubscriptionUI();
   initSubscriptionListener();
-
   await onEditorClassChange();
 }

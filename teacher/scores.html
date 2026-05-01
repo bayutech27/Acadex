@@ -91,101 +91,88 @@
   </style>
 </head>
 <body>
-  <div class="dashboard-container">
-    <aside class="sidebar">
-      <div class="sidebar-header">Acadex</div>
-      <nav class="sidebar-nav">
-        <a href="teacher-dashboard.html">Dashboard</a>
-        <a href="class.html">Class Reports</a>
-        <a href="scores.html" class="active">Scores</a>
-      </nav>
-    </aside>
+<div class="dashboard-container">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">Dashboard</a>
+      <a href="class.html">Class Reports</a>
+      <a href="scores.html" class="active">Scores</a>
+    </nav>
+  </aside>
 
-    <main class="main-content">
-      <header class="header">
-        <div class="school-header">
-          <div class="school-logo">
-            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-            <div id="cameraIcon" class="camera-icon">📷</div>
-            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
-          </div>
-          <div class="school-name">
-            <h1 id="schoolName">Loading...</h1>
-            <div id="schoolAddress" class="school-address"></div>
-          </div>
-          <div id="academicInfo" class="academic-info"></div>
-        </div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
-      </header>
-
-      <div class="content">
-        <div class="welcome-card">
-          <h1>Enter Student Scores</h1>
-          <p>Record CA and Exam scores for your subjects.</p>
-        </div>
-
-        <div class="scores-container" id="scoresContainer">
-          <!-- Filters -->
-          <div class="filters">
-            <div class="filter-group">
-              <label for="classSelect">Class</label>
-              <select id="classSelect">
-                <option value="">Select Class</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label for="subjectSelect">Subject</label>
-              <select id="subjectSelect">
-                <option value="">Select Subject</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label for="termSelect">Term</label>
-              <select id="termSelect">
-                <option value="1">1st Term</option>
-                <option value="2">2nd Term</option>
-                <option value="3">3rd Term</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label for="sessionSelect">Session</label>
-              <select id="sessionSelect"></select>
-            </div>
-          </div>
-
-          <!-- Scores Table will be injected here -->
-          <div id="scoresTableContainer">
-            <p>Select class and subject to view scores</p>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="action-buttons">
-            <button id="saveScoresBtn" class="btn-primary">💾 Save Scores</button>
-          </div>
-        </div>
-      </div>
-    </main>
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">Dashboard</a>
+      <a href="class.html">Class Reports</a>
+      <a href="scores.html" class="active">Scores</a>
+    </nav>
   </div>
+  <div id="overlay" class="overlay"></div>
 
-  <script type="module">
-    import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
-    import { initScoresPage } from '../js/scores.js';
+  <main class="main-content">
+    <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
+      <div class="school-header">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+          <div id="cameraIcon" class="camera-icon">📷</div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+        <div id="academicInfo" class="academic-info"></div>
+      </div>
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </header>
 
-    // ✅ No class teacher check – any teacher can access scores page
-    protectTeacherPage().then(() => {
-      loadSchoolInfo();
-      setupSidebar();
-      setupLogout();
-      setupLogoUpload();
-      initScoresPage();
-    }).catch(err => {
-      console.error("Failed to protect page:", err);
-      // Optionally show a notification instead of redirecting
-      const container = document.getElementById('scoresContainer');
-      if (container) {
-        container.innerHTML = '<div class="error-message">Unable to load scores. Please refresh or contact admin.</div>';
-      }
-    });
-  </script>
+    <div class="content">
+      <div class="welcome-card">
+        <h1>Enter Student Scores</h1>
+        <p>Record CA and Exam scores for your subjects.</p>
+      </div>
+
+      <div class="scores-container" id="scoresContainer">
+        <div class="filters">
+          <div class="filter-group"><label for="classSelect">Class</label><select id="classSelect"><option value="">Select Class</option></select></div>
+          <div class="filter-group"><label for="subjectSelect">Subject</label><select id="subjectSelect"><option value="">Select Subject</option></select></div>
+          <div class="filter-group"><label for="termSelect">Term</label><select id="termSelect"><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option></select></div>
+          <div class="filter-group"><label for="sessionSelect">Session</label><select id="sessionSelect"></select></div>
+        </div>
+        <div id="scoresTableContainer"><p>Select class and subject to view scores</p></div>
+        <div class="action-buttons"><button id="saveScoresBtn" class="btn-primary">💾 Save Scores</button></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+  import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
+  import { initScoresPage } from '../js/scores.js';
+  import { initMobileMenu } from '../js/menu.js';
+
+  protectTeacherPage().then(() => {
+    loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
+    setupLogoUpload();
+    initMobileMenu();
+    initScoresPage();
+  }).catch(err => {
+    console.error("Failed to protect page:", err);
+    const container = document.getElementById('scoresContainer');
+    if (container) {
+      container.innerHTML = '<div class="error-message">Unable to load scores. Please refresh or contact admin.</div>';
+    }
+  });
+</script>
 </body>
 </html>

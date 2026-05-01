@@ -79,7 +79,8 @@ async function loadAllStudents() {
     studentsList = snap.docs.map(doc => ({
       id: doc.id, name: doc.data().name, classId: doc.data().classId, level: doc.data().level || 'secondary',
       admissionNumber: doc.data().admissionNumber || '—', gender: doc.data().gender || '—',
-      dob: doc.data().dob || '', club: doc.data().club || '—', passport: doc.data().passport || null
+      dob: doc.data().dob || '', club: doc.data().club || '—', passport: doc.data().passport || null,
+      subjects: doc.data().subjects || []
     }));
   } catch (err) { handleError(err, "Failed to load students."); throw err; }
 }
@@ -143,6 +144,32 @@ async function computeSubjectStats(classId, term, session) {
   return subjectMap;
 }
 
+// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
+async function getRelevantSubjectsForClass(classId, term, session) {
+  const classInfo = classesMap.get(classId);
+  if (!classInfo) return [];
+  const classLevel = classInfo.level;
+  let levelSubjects = allSubjectsList.filter(subj => subj.level === classLevel);
+  if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
+  const classStudents = studentsList.filter(s => s.classId === classId);
+  if (!classStudents.length) return levelSubjects;
+  const studentIds = classStudents.map(s => s.id);
+  const subjectIdsWithScores = new Set();
+  for (let i = 0; i < studentIds.length; i += 30) {
+    const chunk = studentIds.slice(i, i+30);
+    const q = query(
+      collection(db, 'scores'),
+      where('studentId', 'in', chunk),
+      where('schoolId', '==', currentSchoolId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snap = await getDocs(q);
+    snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
+  }
+  return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
+}
+
 // ------------------- Report Card Rendering (Level‑based) -------------------
 async function loadExistingReport(studentId, term, session) {
   resetRatingsToDefaults();
@@ -171,8 +198,7 @@ async function renderStudentReportCard(studentId, studentName, classId, session,
   let grading = { ca: 40, exam: 60 };
   try { grading = await loadScoringSetting(session, term, classLevel); } catch(e) {}
   
-  // Filter relevant subjects
-  const relevantSubjects = getSubjectsByLevel(classLevel);
+  const relevantSubjects = await getRelevantSubjectsForClass(classId, term, session);
   const subjectIds = new Set(relevantSubjects.map(s => s.id));
   
   await loadExistingReport(studentId, term, session);
@@ -248,7 +274,7 @@ async function saveReportCard() {
   } catch (err) { handleError(err, "Save failed."); } finally { hideLoader(); }
 }
 
-// ------------------- Print / PDF (one page, with full background) -------------------
+// ------------------- Print / PDF (one page, no overlap) -------------------
 function printReportCard() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -266,6 +292,74 @@ function printReportCard() {
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
   
+  const extraPrintCSS = `
+    .report-card, .report-card * {
+      page-break-inside: avoid;
+      page-break-after: avoid;
+      page-break-before: avoid;
+    }
+    @page {
+      size: A4;
+      margin: 5mm;
+    }
+    body, .print-container {
+      margin: 0;
+      padding: 0;
+      background: white;
+    }
+    .print-container {
+      width: 100%;
+      max-width: 210mm;
+      margin: 0 auto;
+    }
+    .report-card {
+      padding: 2px !important;
+      margin: 0 !important;
+      font-size: 8px !important;
+      line-height: 1.2;
+    }
+    .subject-table {
+      font-size: 5.5px !important;
+    }
+    .subject-table th, .subject-table td {
+      padding: 2px 2px !important;
+    }
+    .subject-table th:not(:first-child) {
+      height: 45px !important;
+      width: 24px !important;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 5px;
+    }
+    .student-details-grid {
+      font-size: 6px !important;
+    }
+    .skills-table, .summary-table, .grade-scale-table {
+      font-size: 5px !important;
+    }
+    .skills-table th, .skills-table td,
+    .summary-table th, .summary-table td {
+      padding: 1px 2px !important;
+    }
+    .comments-section {
+      font-size: 7px !important;
+      margin-top: 2px !important;
+    }
+    .signature-stamp {
+      margin-top: 2px !important;
+      padding-top: 2px !important;
+    }
+    .rating-tick, select, textarea, button, .comment-controls, .tick {
+      display: none !important;
+    }
+    .print-value, .print-comment-text {
+      display: block !important;
+    }
+    .report-card, .report-card * {
+      overflow: visible !important;
+    }
+  `;
+  
   printWindow.document.write(`
     <!DOCTYPE html>
     <html>
@@ -275,13 +369,8 @@ function printReportCard() {
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', sans-serif; }
       .print-container { width: 210mm; margin: 0 auto; background: white; }
-      @page { size: A4; margin: 5mm; }
-      .rating-tick, select, textarea, button, .comment-controls, .tick { display: none !important; }
-      .print-value, .print-comment-text { display: block !important; }
-      .report-card { page-break-after: avoid; page-break-inside: avoid; overflow: visible; }
-      /* Preserve background colors */
-      .student-details-grid, .subject-table th, .grade-scale-table th, .comments-section { background-color: inherit !important; }
       ${inlineStyles}
+      ${extraPrintCSS}
     </style>
     </head>
     <body><div class="print-container">${cloned.outerHTML}</div></body>
@@ -291,7 +380,7 @@ function printReportCard() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ------------------- Broadsheet Functions (Level‑based, same as results.js) -------------------
+// ------------------- Broadsheet Functions (Level‑based, using getRelevantSubjectsForClass) -------------------
 async function getStudentAverageForTerm(studentId, term, session) {
   const scores = await fetchStudentScores(studentId, term, session);
   if (!scores.length) return null;
@@ -305,12 +394,14 @@ async function generateBroadsheet(classId, session, term) {
   const classInfo = classesMap.get(classId);
   const className = classInfo?.name || 'Class';
   const classLevel = classInfo?.level;
-  let subjectsForClass = getSubjectsByLevel(classLevel);
-  if (subjectsForClass.length === 0) return '<div class="alert">No subjects found for the selected class level.</div>';
+  
+  const relevantSubjects = await getRelevantSubjectsForClass(classId, term, session);
+  if (relevantSubjects.length === 0) return '<div class="alert">No subjects found for the selected class level or no scores available.</div>';
+  
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return '<div class="alert">No students found.</div>';
   
-  const allScores = await fetchClassScores(classId, session, term);
+  const allScores = await fetchClassScores(classId, term, session);
   const scoresByStudent = new Map();
   for (const score of allScores) {
     if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
@@ -332,12 +423,12 @@ async function generateBroadsheet(classId, session, term) {
     scores.forEach(s => scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }));
     let totalScore = 0;
     const subjectDetails = [];
-    for (const subj of subjectsForClass) {
+    for (const subj of relevantSubjects) {
       const { ca = 0, exam = 0, total = 0 } = scoreMap.get(subj.id) || {};
       totalScore += total;
       subjectDetails.push({ subjectName: subj.name, ca, exam, total });
     }
-    const totalObtainable = subjectsForClass.length * 100;
+    const totalObtainable = relevantSubjects.length * 100;
     const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
     let grade = 'F9', remark = 'Fail';
     if (classLevel === 'primary') {
@@ -370,17 +461,18 @@ async function generateBroadsheet(classId, session, term) {
     studentResults[i].position = rank;
   }
   let html = `<div style="margin-bottom:1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
-  html += `<div style="overflow-x:auto;"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0"><thead>`;
+  html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0"><thead>`;
   html += `<tr><th>S/N</th><th>Student Name</th>`;
-  for (const subj of subjectsForClass) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
-  html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th><tr>`;
+  for (const subj of relevantSubjects) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
+  html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
   html += `<tr><th></th><th></th>`;
-  for (let i=0; i<subjectsForClass.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
+  for (let i=0; i<relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
   html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
   for (let i=0; i<studentResults.length; i++) {
     const r = studentResults[i];
     html += `<tr>`;
-    html += `<td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+    html += `<td>${i+1}</td>`;
+    html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
     for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
     html += `<td>${r.totalScore}</td>`;
     html += `<td>${r.term1Avg}</td>`;
@@ -472,7 +564,7 @@ async function onGetDoc() {
     if (printBtn) printBtn.addEventListener('click', printReportCard);
   } else if (docType === 'broadsheet') {
     const broadsheetHtml = await generateBroadsheet(classId, session, term);
-    container.innerHTML = `<div id="currentBroadsheetContainer">${broadsheetHtml}</div>`;
+    container.innerHTML = `<div id="currentBroadsheetContainer" class="table-responsive-wrapper">${broadsheetHtml}</div>`;
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'action-buttons';
     actionsDiv.style.marginTop = '16px';

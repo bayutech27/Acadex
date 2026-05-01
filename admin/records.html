@@ -80,7 +80,7 @@
       color: #b91c1c;
     }
 
-    /* ===== Two‑column layout for report cards (matches results.html) ===== */
+    /* ===== Two‑column layout for report cards ===== */
     .report-editor-container {
       display: flex;
       gap: 1.5rem;
@@ -132,7 +132,7 @@
     .btn-primary { background-color: #3b82f6; color: white; }
     .btn-secondary { background-color: #64748b; color: white; }
 
-    /* ========== REPORT CARD STYLES (copied from results.html with layout updates) ========== */
+    /* ========== REPORT CARD STYLES ========== */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column;
@@ -340,7 +340,7 @@
     }
     .attendance-value { display: none; }
 
-    /* ========== NEW LAYOUT GRID (70% / 30%) ========== */
+    /* ========== NEW LAYOUT GRID ========== */
     .report-main-grid {
       display: grid;
       grid-template-columns: 70% 30%;
@@ -349,7 +349,7 @@
     }
     .subject-table-col { width: 100%; }
     .subject-table th, .subject-table td {
-      padding: 6px 3px;        /* original height */
+      padding: 6px 3px;
     }
     .subject-table td, .subject-table th {
       word-break: break-word;
@@ -524,93 +524,110 @@
   </style>
 </head>
 <body>
-  <div class="dashboard-container">
-    <aside class="sidebar">
-      <div class="sidebar-header">Acadex</div>
-      <nav class="sidebar-nav">
-        <a href="admin-dashboard.html">Dashboard</a>
-        <a href="teachers.html">Teachers</a>
-        <a href="students.html">Students & Pupils</a>
-        <a href="setup.html">Subjects & Classes</a>
-        <a href="results.html">Results</a>
-        <a href="records.html" class="active">Records</a>
-      </nav>
-    </aside>
+<div class="dashboard-container">
+  <!-- Desktop Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html">Dashboard</a>
+      <a href="teachers.html">Teachers</a>
+      <a href="students.html">Students & Pupils</a>
+      <a href="setup.html">Subjects & Classes</a>
+      <a href="results.html">Results</a>
+      <a href="records.html" class="active">Records</a>
+    </nav>
+  </aside>
 
-    <main class="main-content">
-      <header class="header">
-        <div class="school-header">
-          <div class="school-logo">
-            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-            <div id="cameraIcon" class="camera-icon">📷</div>
-            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
-          </div>
-          <div class="school-name">
-            <h1 id="schoolName">Loading...</h1>
-            <div id="schoolAddress" class="school-address"></div>
-          </div>
-          <div id="academicInfo" class="academic-info"></div>
-        </div>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
-      </header>
-
-      <div class="content">
-        <div class="welcome-card">
-          <h1>Archived Records</h1>
-          <p>View student records from previous terms and sessions.</p>
-        </div>
-
-        <!-- Filters -->
-        <div class="filters">
-          <div class="filter-group">
-            <label for="classSelect">Class</label>
-            <select id="classSelect">
-              <option value="">Select Class</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label for="sessionSelect">Session</label>
-            <select id="sessionSelect">
-              <option value="">Select Session</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label for="termSelect">Term</label>
-            <select id="termSelect">
-              <option value="">Select Term</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label for="docTypeSelect">Document Type</label>
-            <select id="docTypeSelect">
-              <option value="">Select Type</option>
-              <option value="report">Report Cards</option>
-              <option value="broadsheet">Broadsheet</option>
-            </select>
-          </div>
-          <button id="getDocBtn" class="btn-primary">Get Doc</button>
-        </div>
-
-        <!-- Dynamic content (student list + report card OR broadsheet) -->
-        <div id="recordsList">
-          <p>Loading archived records...</p>
-        </div>
-      </div>
-    </main>
+  <!-- Mobile Sidebar -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html">Dashboard</a>
+      <a href="teachers.html">Teachers</a>
+      <a href="students.html">Students & Pupils</a>
+      <a href="setup.html">Subjects & Classes</a>
+      <a href="results.html">Results</a>
+      <a href="records.html" class="active">Records</a>
+    </nav>
   </div>
+  <div id="overlay" class="overlay"></div>
 
-  <script type="module">
-    import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
-    import { initRecordsPage } from '../js/records.js';
+  <main class="main-content">
+    <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
+      <div class="school-header">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+          <div id="cameraIcon" class="camera-icon">📷</div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+        <div id="academicInfo" class="academic-info"></div>
+      </div>
+      <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </header>
 
-    protectAdminPage().then(() => {
-      loadSchoolInfo();
-      setupSidebar();
-      setupLogout();
-      setupLogoUpload();
-      initRecordsPage();
-    });
-  </script>
+    <div class="content">
+      <div class="welcome-card">
+        <h1>Archived Records</h1>
+        <p>View student records from previous terms and sessions.</p>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters">
+        <div class="filter-group">
+          <label for="classSelect">Class</label>
+          <select id="classSelect"><option value="">Select Class</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="sessionSelect">Session</label>
+          <select id="sessionSelect"><option value="">Select Session</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="termSelect">Term</label>
+          <select id="termSelect"><option value="">Select Term</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="docTypeSelect">Document Type</label>
+          <select id="docTypeSelect">
+            <option value="">Select Type</option>
+            <option value="report">Report Cards</option>
+            <option value="broadsheet">Broadsheet</option>
+          </select>
+        </div>
+        <button id="getDocBtn" class="btn-primary">Get Doc</button>
+      </div>
+
+      <!-- Dynamic content -->
+      <div id="recordsList">
+        <p>Loading archived records...</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+  import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
+  import { initRecordsPage } from '../js/records.js';
+  import { initMobileMenu } from '../js/menu.js';
+
+  protectAdminPage().then(() => {
+    loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
+    setupLogoUpload();
+    initMobileMenu();
+    initRecordsPage();
+  });
+</script>
 </body>
 </html>

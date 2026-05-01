@@ -193,7 +193,7 @@
       display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;
     }
     .broadsheet-controls .form-group { margin-bottom: 0; flex: 1; min-width: 150px; }
-    #broadsheetContainer { margin-top: 20px; overflow-x: auto; }
+    #broadsheetContainer { margin-top: 20px; }
     .broadsheet-table {
       width: 100%; border-collapse: collapse; font-size: 12px; min-width: 800px;
     }
@@ -232,16 +232,13 @@
 
     /* ========== PRINT STYLES – OPTIMISED FOR ONE PAGE ========== */
     @media print {
-      /* Hide UI elements */
       .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
       .action-buttons, .attendance-input {
         display: none !important;
       }
-      /* Show print-only values */
       .print-value, .print-comment-text {
         display: block !important;
       }
-      /* Page setup – smaller margins to fit content */
       @page {
         size: A4;
         margin: 5mm;
@@ -254,15 +251,13 @@
         margin: 0;
         padding: 0;
         box-shadow: none;
-        font-size: 9px; /* slightly smaller base font */
+        font-size: 9px;
       }
-      /* Prevent page breaks inside the report card */
       .report-card, .report-card * {
         page-break-inside: avoid;
         page-break-after: avoid;
         page-break-before: avoid;
       }
-      /* Reduce spacing to fit on one page */
       .report-header {
         padding: 2px 5px;
         margin-bottom: 2px;
@@ -344,7 +339,6 @@
         padding: 2px 4px;
         font-size: 7px;
       }
-      /* Keep attendance table width and left alignment */
       .attendance-table {
         width: 40%;
         margin-left: 0;
@@ -358,16 +352,35 @@
 </head>
 <body>
 <div class="dashboard-container">
+  <!-- Desktop Sidebar -->
   <aside class="sidebar">
-    <div class="sidebar-header">Acadex</div>
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
     <nav class="sidebar-nav">
       <a href="teacher-dashboard.html">Dashboard</a>
       <a href="class.html" class="active">Class Reports</a>
       <a href="scores.html">Scores</a>
     </nav>
   </aside>
+
+  <!-- Mobile Sidebar -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">Dashboard</a>
+      <a href="class.html" class="active">Class Reports</a>
+      <a href="scores.html">Scores</a>
+    </nav>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
   <main class="main-content">
     <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
       <div class="school-header">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
@@ -382,6 +395,7 @@
       </div>
       <button id="logoutBtn" class="logout-btn">Logout</button>
     </header>
+
     <div class="content">
       <!-- BROADSHEET SECTION -->
       <div class="broadsheet-section print-hide">
@@ -405,7 +419,8 @@
           </div>
           <button id="generateBroadsheetBtn" class="btn-primary">📄 Generate Broadsheet</button>
         </div>
-        <div id="broadsheetContainer"></div>
+        <!-- Added class "table-responsive-wrapper" for horizontal scrolling -->
+        <div id="broadsheetContainer" class="table-responsive-wrapper"></div>
         <div id="broadsheetActions" style="display:none;">
           <button id="saveBroadsheetBtn" class="btn-primary">💾 Save Broadsheet</button>
         </div>
@@ -433,13 +448,20 @@
     </div>
   </main>
 </div>
+
 <script type="module">
   import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload, checkClassTeacherStatus } from '../js/teacher-dashboard.js';
   import { initClassReportPage } from '../js/class.js';
+  import { initMobileMenu } from '../js/menu.js';
+  
   protectTeacherPage().then(async () => {
     const isClassTeacher = await checkClassTeacherStatus();
     if (!isClassTeacher) { alert('Not a class teacher.'); window.location.href = 'teacher-dashboard.html'; return; }
-    loadSchoolInfo(); setupSidebar(); setupLogout(); setupLogoUpload();
+    loadSchoolInfo(); 
+    setupSidebar(); 
+    setupLogout(); 
+    setupLogoUpload();
+    initMobileMenu();
     initClassReportPage();
   });
 </script>

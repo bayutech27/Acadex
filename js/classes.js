@@ -62,22 +62,23 @@ async function loadClasses() {
       return;
     }
 
-    // Display level column
+    // Responsive: wrap table in scrollable container
     container.innerHTML = `
-      <h3>Existing Classes</h3>
-      <table class="data-table">
-        <thead>
-          <tr><th>Name</th><th>Level</th><th>Actions</th> </thead>
-        <tbody>
-          ${classes.map(cls => `
-            <tr>
-              <td>${escapeHtml(cls.name)}</td>
-              <td>${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
-              <td><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+      <div class="table-responsive-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr><th>Name</th><th>Level</th><th>Actions</th> </thead>
+          <tbody>
+            ${classes.map(cls => `
+              <tr>
+                <td>${escapeHtml(cls.name)}</td>
+                <td>${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
+                <td><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
     `;
     window.deleteClass = async (id) => {
       if (confirm('Delete this class?')) {

@@ -1,5 +1,6 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// UPDATED: Level‑based grading, primary/secondary layout differences.
+// UPDATED: Level‑based grading, primary/secondary layout differences,
+// subject filtering by level + scores, one‑page print, mobile responsive wrappers.
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
@@ -91,7 +92,6 @@ async function loadGradingSettingByLevel(level, session, term) {
     return;
   }
   try {
-    // First try: schoolId + level
     const q = query(
       collection(db, 'scoring'),
       where('schoolId', '==', currentSchoolId),
@@ -103,7 +103,6 @@ async function loadGradingSettingByLevel(level, session, term) {
       const data = snap.docs[0].data();
       grading = data.grading || `${data.caWeight}/${data.examWeight}`;
     }
-    // Fallback: school‑wide scoring (no level)
     if (!grading) {
       const fallbackQ = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
       const fallbackSnap = await getDocs(fallbackQ);
@@ -112,7 +111,6 @@ async function loadGradingSettingByLevel(level, session, term) {
         grading = data.grading || `${data.caWeight}/${data.examWeight}`;
       }
     }
-    // Fallback to old composite ID method
     if (!grading) {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
       const docSnap = await getDoc(doc(db, 'scoring', docId));
@@ -130,12 +128,10 @@ async function loadGradingSettingByLevel(level, session, term) {
   }
 }
 
-// Legacy loadGradingSetting – kept for compatibility but now level‑aware when a class is known
 async function loadGradingSetting(session, term, classLevel = null) {
   if (classLevel) {
     await loadGradingSettingByLevel(classLevel, session, term);
   } else {
-    // Fallback to old composite ID
     try {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
       const docSnap = await getDoc(doc(db, 'scoring', docId));
@@ -155,7 +151,6 @@ async function fetchClassName() {
     const classRef = doc(db, 'classes', classId);
     const classSnap = await getDoc(classRef);
     classNameCache = classSnap.exists() ? classSnap.data().name : classId;
-    // Also store level in classesMap
     if (classSnap.exists()) {
       classesMap.set(classId, { name: classSnap.data().name, level: classSnap.data().level });
     }
@@ -176,7 +171,7 @@ async function loadSubjectsAndClasses() {
       allSubjectsList.push({
         id: doc.id,
         name: data.name,
-        level: data.level || null   // store level (primary/secondary)
+        level: data.level || null
       });
     });
     const classSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
@@ -195,7 +190,8 @@ async function loadStudentsList() {
     studentsList = snap.docs.map(doc => ({
       id: doc.id, name: doc.data().name, classId: doc.data().classId,
       admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
-      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null
+      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
+      subjects: doc.data().subjects || []
     }));
   } catch (err) {
     handleError(err, "Failed to load students.");
@@ -263,6 +259,33 @@ async function computeSubjectStats(classId, term, session) {
     }
   }
   return subjectMap;
+}
+
+// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
+async function getRelevantSubjectsForClass(classId, term, session) {
+  const classInfo = classesMap.get(classId);
+  if (!classInfo) return [];
+  const classLevel = classInfo.level;
+  // Filter subjects by level
+  let levelSubjects = allSubjectsList.filter(subj => subj.level === classLevel);
+  if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
+  const classStudents = studentsList.filter(s => s.classId === classId);
+  if (!classStudents.length) return levelSubjects;
+  const studentIds = classStudents.map(s => s.id);
+  const subjectIdsWithScores = new Set();
+  for (let i = 0; i < studentIds.length; i += 30) {
+    const chunk = studentIds.slice(i, i+30);
+    const q = query(
+      collection(db, 'scores'),
+      where('studentId', 'in', chunk),
+      where('schoolId', '==', currentSchoolId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snap = await getDocs(q);
+    snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
+  }
+  return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
 }
 
 // ------------------- Report Card Helpers -------------------
@@ -353,6 +376,7 @@ async function saveReportCard() {
   }
 }
 
+// ========== IMPROVED PRINT HANDLER (forces one page, no overlap) ==========
 function printReportCard() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -380,6 +404,88 @@ function printReportCard() {
     .map(style => style.innerHTML)
     .join('\n');
 
+  // Enhanced CSS to force exactly one A4 page and prevent overlap
+  const extraPrintCSS = `
+    /* Remove any page breaks inside the report card */
+    .report-card, .report-card * {
+      page-break-inside: avoid;
+      page-break-after: avoid;
+      page-break-before: avoid;
+    }
+    @page {
+      size: A4;
+      margin: 8mm;
+    }
+    body, .print-container {
+      margin: 0;
+      padding: 0;
+      background: white;
+    }
+    .print-container {
+      width: 100%;
+      max-width: 210mm;
+      margin: 0 auto;
+    }
+    .report-card {
+      padding: 2px !important;
+      margin: 0 !important;
+      font-size: 8.5px !important;
+      line-height: 1.2;
+    }
+    /* Subject table – compact */
+    .subject-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 6px !important;
+    }
+    .subject-table th, .subject-table td {
+      padding: 2px 2px !important;
+      word-break: break-word;
+    }
+    .subject-table th:not(:first-child) {
+      height: 50px !important;
+      width: 24px !important;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      white-space: normal;
+      font-size: 5px;
+    }
+    /* Student details grid */
+    .student-details-grid {
+      font-size: 6px !important;
+      gap: 2px 4px !important;
+      margin-bottom: 2px !important;
+    }
+    /* Skills tables */
+    .skills-table, .summary-table, .grade-scale-table {
+      font-size: 5px !important;
+    }
+    .skills-table th, .skills-table td,
+    .summary-table th, .summary-table td {
+      padding: 1px 2px !important;
+    }
+    /* Comments and signature */
+    .comments-section {
+      font-size: 7px !important;
+      margin-top: 2px !important;
+    }
+    .signature-stamp {
+      margin-top: 2px !important;
+      padding-top: 2px !important;
+    }
+    /* Hide interactive elements */
+    .rating-tick, select, textarea, button, .comment-controls, .tick {
+      display: none !important;
+    }
+    .print-value, .print-comment-text {
+      display: block !important;
+    }
+    /* Force no overflow */
+    .report-card, .report-card * {
+      overflow: visible !important;
+    }
+  `;
+
   printWindow.document.write(`
     <!DOCTYPE html>
     <html>
@@ -389,13 +495,10 @@ function printReportCard() {
       <link rel="stylesheet" href="${externalCssUrl}">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', sans-serif; }
+        body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .print-container { width: 210mm; margin: 0 auto; background: white; }
-        @page { size: A4; margin: 10mm; }
-        .rating-tick, select, textarea, button, .comment-controls, .tick { display: none !important; }
-        .print-value, .print-comment-text { display: block !important; }
-        .report-card { page-break-after: avoid; page-break-inside: avoid; overflow: visible; }
         ${inlineStyles}
+        ${extraPrintCSS}
       </style>
     </head>
     <body>
@@ -431,7 +534,6 @@ async function loadReportCard(studentId, studentName) {
   reportState.term = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
 
-  // Fetch the student's class level
   const student = studentsList.find(s => s.id === studentId);
   const studentClassId = student ? student.classId : classId;
   let classLevel = null;
@@ -441,7 +543,6 @@ async function loadReportCard(studentId, studentName) {
     const classDoc = await getDoc(doc(db, 'classes', studentClassId));
     if (classDoc.exists()) classLevel = classDoc.data().level;
   }
-  // Load grading based on level
   await loadGradingSetting(reportState.session, reportState.term, classLevel);
   const isPrimary = (classLevel === 'primary');
 
@@ -474,7 +575,6 @@ async function loadReportCard(studentId, studentName) {
       passport: student.passport || null
     };
 
-    // Pass isPrimary to the renderer
     renderReportCardUI({
       student: studentData,
       scores: scoresWithNames,
@@ -512,13 +612,11 @@ async function loadReportCard(studentId, studentName) {
 async function loadClassStudents() {
   reportState.term = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
-  // Load grading initially (will be refined when a student is selected)
   await loadGradingSetting(reportState.session, reportState.term);
   const classStudents = studentsList.filter(s => s.classId === classId);
   const container = document.getElementById('studentListContainer');
   if (!container) return;
   
-  // Add a styled title for the student list
   const titleHtml = `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; text-align: center;">📋 Students in Class</div>`;
   
   if (!classStudents.length) {
@@ -535,7 +633,6 @@ async function loadClassStudents() {
   html += '</div>';
   container.innerHTML = html;
   
-  // Add hover effect via style (already inline background, but add hover style in head or inline)
   const style = document.createElement('style');
   style.textContent = `
     .student-list-item:hover {
@@ -562,7 +659,7 @@ async function loadClassStudents() {
   });
 }
 
-// ==================== BROADSHEET FUNCTIONS ====================
+// ==================== BROADSHEET FUNCTIONS (with subject filtering) ====================
 async function fetchClassScores(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return [];
@@ -636,15 +733,11 @@ async function generateBroadsheet() {
   const className = classInfo?.name || 'Class';
   const classLevel = classInfo?.level;
 
-  // Filter subjects based on class level
-  let subjectsForClass = allSubjectsList;
-  if (classLevel) {
-    subjectsForClass = allSubjectsList.filter(subj => {
-      return !subj.level || subj.level === classLevel;
-    });
-  }
-  if (subjectsForClass.length === 0) {
-    container.innerHTML = '<div class="alert">No subjects found for the selected class level.</div>';
+  // Get relevant subjects: level + have scores
+  const relevantSubjects = await getRelevantSubjectsForClass(classIdSel, term, session);
+  if (relevantSubjects.length === 0) {
+    container.innerHTML = '<div class="alert">No subjects found for the selected class level or no scores available.</div>';
+    document.getElementById('broadsheetActions').style.display = 'none';
     return;
   }
 
@@ -682,12 +775,12 @@ async function generateBroadsheet() {
       scores.forEach(s => { scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }); });
       let totalScore = 0;
       const subjectDetails = [];
-      for (const subj of subjectsForClass) {
+      for (const subj of relevantSubjects) {
         const score = scoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
         totalScore += score.total;
         subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
       }
-      const totalObtainable = subjectsForClass.length * 100;
+      const totalObtainable = relevantSubjects.length * 100;
       const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
       const grade = calculateGrade(average);
       const remark = getGradeRemark(grade);
@@ -726,13 +819,13 @@ async function generateBroadsheet() {
     }
 
     let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
-    html += `<div style="overflow-x: auto;"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
+    html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
     html += `<thead>`;
     html += `<tr><th>S/N</th><th>Student Name</th>`;
-    for (const subj of subjectsForClass) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
+    for (const subj of relevantSubjects) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
     html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
     html += `<tr><th></th><th></th>`;
-    for (let i = 0; i < subjectsForClass.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
+    for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>`;
     html += `</thead><tbody>`;
 
@@ -752,11 +845,11 @@ async function generateBroadsheet() {
       html += `<td>${r.remark}</td>`;
       html += `</tr>`;
     }
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
     container.innerHTML = html;
     const actions = document.getElementById('broadsheetActions');
     if (actions) actions.style.display = 'flex';
-    window.currentBroadsheetData = { classId: classIdSel, session, term, studentResults, subjects: subjectsForClass };
+    window.currentBroadsheetData = { classId: classIdSel, session, term, studentResults, subjects: relevantSubjects };
   } catch (err) {
     handleError(err, "Failed to generate broadsheet.");
   } finally {
@@ -883,15 +976,13 @@ export async function initClassReportPage() {
       option.value = classId;
       option.textContent = escapeHtml(classInfo.name);
       broadsheetClassSelect.appendChild(option);
-      broadsheetClassSelect.disabled = false; // enabled, but only one option
+      broadsheetClassSelect.disabled = false;
     } else {
-      // Fallback: use classId directly (name unknown)
       const option = document.createElement('option');
       option.value = classId;
       option.textContent = escapeHtml(classNameCache || classId);
       broadsheetClassSelect.appendChild(option);
     }
-    // Optionally set as selected
     broadsheetClassSelect.value = classId;
   }
   

@@ -42,14 +42,30 @@
 <body>
 <div class="dashboard-container">
   <aside class="sidebar">
-    <div class="sidebar-header">Acadex</div>
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
     <nav class="sidebar-nav">
       <a href="super-admin.html" class="active">Schools</a>
       <a href="super-admin-subscriptions.html">Subscriptions</a>
     </nav>
   </aside>
+
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="super-admin.html" class="active">Schools</a>
+      <a href="super-admin-subscriptions.html">Subscriptions</a>
+    </nav>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
   <main class="main-content">
     <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
       <div class="school-name"><h1>Super Admin Console</h1></div>
       <button id="logoutBtn" class="btn-secondary">Logout</button>
     </header>
@@ -72,20 +88,10 @@
         <button id="refreshBtn" class="btn-primary">Refresh</button>
       </div>
 
-      <div style="overflow-x: auto;">
+      <div class="table-responsive-wrapper">
         <table id="schoolsTable">
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Status</th>
-              <th>Plan</th>
-              <th>Total Students</th>
-              <th>Active Students</th>
-              <th>Pending Extra</th>
-              <th>Expires</th>
-              <th>Actions</th>
-            </tr>
+            <tr><th>Name</th><th>Email</th><th>Status</th><th>Plan</th><th>Total Students</th><th>Active Students</th><th>Pending Extra</th><th>Expires</th><th>Actions</th></tr>
           </thead>
           <tbody id="schoolsTableBody"><tr><td colspan="9">Loading...</td></tr></tbody>
         </table>
@@ -94,7 +100,7 @@
   </main>
 </div>
 
-<!-- Only Approve Extra Modal remains -->
+<!-- Approve Extra Modal -->
 <div id="approveExtraModal" class="modal">
   <div class="modal-content">
     <h3>Approve Extra Students</h3>
@@ -107,5 +113,9 @@
 </div>
 
 <script type="module" src="../js/super-admin.js"></script>
+<script type="module">
+  import { initMobileMenu } from '../js/menu.js';
+  initMobileMenu();
+</script>
 </body>
 </html>

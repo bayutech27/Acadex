@@ -27,95 +27,113 @@
   </style>
 </head>
 <body>
-  <div class="dashboard-container">
-    <aside class="sidebar">
-      <div class="sidebar-header">Acadex</div>
-      <nav class="sidebar-nav">
-        <a href="teacher-dashboard.html" class="active">Dashboard</a>
-        <a href="class.html">Class</a>
-        <a href="scores.html" id="scoresLink">Scores</a>
-      </nav>
-    </aside>
+<div class="dashboard-container">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html" class="active">Dashboard</a>
+      <a href="class.html">Class</a>
+      <a href="scores.html" id="scoresLink">Scores</a>
+    </nav>
+  </aside>
 
-    <main class="main-content">
-      <header class="header">
-        <div class="school-header">
-          <div class="school-logo">
-            <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-            <div id="cameraIcon" class="camera-icon">📷</div>
-            <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
-          </div>
-          <div class="school-name">
-            <h1 id="schoolName">Loading...</h1>
-            <div id="schoolAddress" class="school-address"></div>
-          </div>
-          <div id="academicInfo" class="academic-info"></div>
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html" class="active">Dashboard</a>
+      <a href="class.html">Class</a>
+      <a href="scores.html">Scores</a>
+    </nav>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <main class="main-content">
+    <header class="header">
+      <button class="hamburger-menu" aria-label="Menu">☰</button>
+      <div class="school-header">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+          <div id="cameraIcon" class="camera-icon">📷</div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
-      </header>
-
-      <div class="content">
-        <div class="welcome-card">
-          <h1 id="welcomeHeading">Welcome, Teacher</h1>
-          <p>Manage your students, class, and scores.</p>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
         </div>
+        <div id="academicInfo" class="academic-info"></div>
+      </div>
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </header>
 
-        <div class="stats-grid">
-          <div class="clickable-card" id="classCard">
-            <div class="card-icon">🏫</div>
-            <div class="card-title">Class</div>
-            <div class="card-desc">Manage your homeroom class (if assigned)</div>
-          </div>
-          <div class="clickable-card" id="scoresCard">
-            <div class="card-icon">📊</div>
-            <div class="card-title">Scores</div>
-            <div class="card-desc">Enter and manage exam scores</div>
-          </div>
+    <div class="content">
+      <div class="welcome-card">
+        <h1 id="welcomeHeading">Welcome, Teacher</h1>
+        <p>Manage your students, class, and scores.</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="clickable-card" id="classCard">
+          <div class="card-icon">🏫</div>
+          <div class="card-title">Class</div>
+          <div class="card-desc">Manage your homeroom class (if assigned)</div>
+        </div>
+        <div class="clickable-card" id="scoresCard">
+          <div class="card-icon">📊</div>
+          <div class="card-title">Scores</div>
+          <div class="card-desc">Enter and manage exam scores</div>
         </div>
       </div>
-    </main>
-  </div>
+    </div>
+  </main>
+</div>
 
-  <script type="module">
-    import { 
-      protectTeacherPage, 
-      loadSchoolInfo, 
-      setupSidebar, 
-      setupLogout, 
-      setupLogoUpload, 
-      checkClassTeacherStatus, 
-      displayTeacherName 
-    } from '../js/teacher-dashboard.js';
+<script type="module">
+  import { 
+    protectTeacherPage, 
+    loadSchoolInfo, 
+    setupSidebar, 
+    setupLogout, 
+    setupLogoUpload, 
+    checkClassTeacherStatus, 
+    displayTeacherName 
+  } from '../js/teacher-dashboard.js';
+  import { initMobileMenu } from '../js/menu.js';
 
-    protectTeacherPage().then(async ({ teacherName }) => {
-      displayTeacherName(teacherName);
-      loadSchoolInfo();
-      setupSidebar();
-      setupLogout();
-      setupLogoUpload();
+  protectTeacherPage().then(async ({ teacherName }) => {
+    displayTeacherName(teacherName);
+    loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
+    setupLogoUpload();
+    initMobileMenu();
 
-      const classCard = document.getElementById('classCard');
-      const isClassTeacher = await checkClassTeacherStatus();
+    const classCard = document.getElementById('classCard');
+    const isClassTeacher = await checkClassTeacherStatus();
 
-      if (!isClassTeacher) {
-        classCard.classList.add('disabled-card');
-        classCard.addEventListener('click', (e) => {
+    if (!isClassTeacher) {
+      classCard.classList.add('disabled-card');
+      classCard.addEventListener('click', (e) => {
+        e.preventDefault();
+        alert('You are not assigned as a class teacher. You cannot access this page.');
+      });
+      const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
+      if (classLink) {
+        classLink.addEventListener('click', (e) => {
           e.preventDefault();
-          alert('You are not assigned as a class teacher. You cannot access this page.');
+          alert('You are not assigned as a class teacher.');
         });
-        const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
-        if (classLink) {
-          classLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            alert('You are not assigned as a class teacher.');
-          });
-        }
-      } else {
-        classCard.addEventListener('click', () => { window.location.href = 'class.html'; });
       }
+    } else {
+      classCard.addEventListener('click', () => { window.location.href = 'class.html'; });
+    }
 
-      document.getElementById('scoresCard').addEventListener('click', () => { window.location.href = 'scores.html'; });
-    });
-  </script>
+    document.getElementById('scoresCard').addEventListener('click', () => { window.location.href = 'scores.html'; });
+  });
+</script>
 </body>
 </html>

@@ -438,8 +438,9 @@ async function loadAndDisplayStudents() {
     return;
   }
 
+  // Responsive: wrap table in scrollable container with global class
   container.innerHTML = `
-    <div class="table-container">
+    <div class="table-responsive-wrapper">
       <table class="data-table">
         <thead>
           <tr>
@@ -496,7 +497,6 @@ async function loadAndDisplayStudents() {
       const classInfo = classesMap.get(studentDoc.data().classId);
       const className = classInfo ? classInfo.name : '';
       if (newStatus === 'graduated') {
-        // Graduation allowed only for final year classes (Primary 6, JSS 3, SSS 3)
         if (className !== 'Primary 6' && className !== 'JSS 3' && className !== 'SSS 3') {
           showNotification('Graduated status can only be set for final year classes (Primary 6, JSS 3, or SSS 3).', "error");
           select.value = select.getAttribute('data-current');
@@ -583,7 +583,6 @@ async function loadStudentData(studentId) {
     if (studentDoc.exists()) {
       const data = studentDoc.data();
       if (admissionNoInput) admissionNoInput.value = data.admissionNumber || '';
-      // Extract name parts from stored 'name' field (format: "Surname FirstName OtherName")
       const nameParts = (data.name || '').split(' ');
       if (surnameInput) surnameInput.value = nameParts[0] || '';
       if (firstNameInput) firstNameInput.value = nameParts[1] || '';
@@ -591,18 +590,15 @@ async function loadStudentData(studentId) {
       
       if (emailInput) emailInput.value = data.email || '';
       
-      // Set level
       const studentLevel = data.level || 'secondary';
       if (levelSelect) levelSelect.value = studentLevel;
       
-      // Trigger level change to load classes and subjects
       if (levelSelect && studentLevel) {
         await loadClassesByLevel(studentLevel);
         await loadSubjectsByLevel(studentLevel);
         if (classSelect) classSelect.disabled = false;
         if (subjectsSelect) subjectsSelect.disabled = false;
         
-        // Set selected class and subjects
         if (classSelect && data.classId) classSelect.value = data.classId;
         const subjectIds = data.subjects || [];
         if (subjectsSelect) {
@@ -658,7 +654,6 @@ async function handleStudentSubmit(e) {
   const club = clubInput ? clubInput.value.trim() : null;
   let passport = passportInput ? passportInput.dataset.base64 : null;
 
-  // Validation
   if (!surname || !firstName || !email || !classId || !gender || !dob || !level) {
     showNotification("Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).", "error");
     return;
@@ -669,19 +664,16 @@ async function handleStudentSubmit(e) {
     return;
   }
 
-  // Auto‑generate admission number if empty
   if (!admissionNumber) {
     admissionNumber = await generateAdmissionNumber();
   }
 
-  // Check uniqueness
   const isUnique = await isAdmissionNumberUnique(admissionNumber, editingStudentId);
   if (!isUnique) {
     showNotification(`Admission number "${admissionNumber}" already exists. Please use a different one.`, "error");
     return;
   }
 
-  // Determine locked value for new students (only on creation)
   let lockedValue = false;
   if (!editingStudentId) {
     const isActive = await isSubscriptionActive(currentSchoolId);
@@ -743,7 +735,7 @@ function escapeHtml(str) {
   });
 }
 
-// ========== SUBSCRIPTION PAYMENT BANNER (unchanged) ==========
+// ========== SUBSCRIPTION PAYMENT BANNER ==========
 function injectSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');
