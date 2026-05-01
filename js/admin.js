@@ -102,24 +102,24 @@ export async function protectAdminPage() {
     }
   }
 
+  // ========== SUBSCRIPTION GUARD – SHOW BANNER BUT NEVER REDIRECT ==========
   let access;
   try {
     access = await enforceAccessGuard(currentUserData, schoolId);
   } catch (err) {
     handleError(err, "Failed to verify access rights.");
-    window.location.href = '/subscription-required.html';
-    return null;
+    // ✅ REMOVED REDIRECT – just show banner and continue
+    window.__subscriptionExpired = true;
+    showSubscriptionExpiredBanner();
+    access = { allowed: false, onboardingOnly: true };
   }
   
   if (!access.allowed) {
-    if (access.onboardingOnly) {
-      window.__subscriptionExpired = true;
-      showSubscriptionExpiredBanner();
-    } else {
-      window.location.href = '/subscription-required.html';
-      return null;
-    }
+    // ✅ Always treat as onboardingOnly – show banner but never redirect
+    window.__subscriptionExpired = true;
+    showSubscriptionExpiredBanner();
   }
+  // ========== END OF SUBSCRIPTION GUARD MODIFICATION ==========
 
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
