@@ -1,6 +1,4 @@
-// ==================== reportCardRenderer.js ====================
-// Shared report card rendering engine – Updated for better print/PDF replica and tighter spacing
-
+// reportCardRenderer.js - Shared report card rendering engine
 import { showNotification } from './error-handler.js';
 
 export function renderReportCardUI({
@@ -120,12 +118,12 @@ export function renderReportCardUI({
       }
       if (isPrimary) {
         tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                  <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                  <td>${grade}</td><td>${remark}</td></tr>`;
+                 <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                 <td>${grade}</td><td>${remark}</td></tr>`;
       } else {
         tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                  <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                  <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+                 <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                 <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
       }
     }
   } else {
@@ -139,7 +137,7 @@ export function renderReportCardUI({
   const percentageAvg = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
   const overallRemark = getGradeRemark(overallGrade);
 
-  // Skills tables – side by side with tighter gap
+  // Skills tables – side by side
   let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:200px;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
@@ -229,13 +227,12 @@ export function renderReportCardUI({
   }
   const subjectTableHtml = `<table class="subject-table" style="border-collapse: collapse; width: 100%; border: 2px solid #000; background: white;">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  // Tighter gaps for side-by-side sections
-  const skillsSideBySide = `<div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
+  const skillsSideBySide = `<div style="display:flex; gap:20px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
   const rightColumnHtml = `<div class="skills-stack-col">${skillsSideBySide}</div>`;
 
   const leftColumnContent = subjectTableHtml + `<div style="margin-top:20px;">${getGradeScaleHtml()}</div>`;
 
-  const mainGridHtml = `<div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+  const mainGridHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
     <div style="flex: 2; min-width: 250px;">${leftColumnContent}</div>
     <div style="flex: 1; min-width: 250px;">${rightColumnHtml}</div>
   </div>`;
@@ -272,12 +269,14 @@ export function renderReportCardUI({
     </div>
   </div>`;
 
-  const topRowHtml = `<div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
+  // Removed signatureHtml (principal's signature, stamp, date) completely
+
+  const topRowHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
     <div style="flex: 0 0 auto; width: 60%;">${attendanceHtml}</div>
     <div style="flex: 0 0 auto; width: 35%;">${summaryHtml}</div>
   </div>`;
 
-  // Global styles with print-color-adjust and page-break controls
+  // Global styles with print-color-adjust for background preservation
   const globalStyles = `
     <style>
       * { color: #000000 !important; }
@@ -289,36 +288,25 @@ export function renderReportCardUI({
       .section-title { font-weight: bold; margin-bottom: 8px; }
       select, textarea, input { color: #000 !important; background-color: #fff !important; }
       @media print {
-        * {
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
         .rating-tick, select, textarea, button, .comment-controls, .tick {
           display: none !important;
         }
         .print-value, .print-comment-text {
           display: block !important;
         }
-        body, .print-container, .report-card {
-          background: white !important;
+        body, .print-container {
+          background: white;
         }
         .report-card, .report-card * {
           page-break-inside: avoid;
           break-inside: avoid;
-        }
-        /* Tighter spacing in print */
-        .report-card > div > div:first-of-type {
-          gap: 12px !important;
-        }
-        .subject-table th:not(:first-child) {
-          padding: 4px 2px !important;
         }
       }
     </style>
   `;
 
   const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml;
-  const finalHtml = `<div class="report-card" style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white; page-break-inside: avoid; break-inside: avoid;">${innerHtml}</div>`;
+  const finalHtml = `<div style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
 
   container.innerHTML = finalHtml;
 

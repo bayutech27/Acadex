@@ -1,5 +1,5 @@
 // records.js - Archive viewer + report card + broadsheet
-// Fully integrated with Central Academic Calendar Engine – updated with balanced gap (24px screen, 20px print)
+// Fully integrated with Central Academic Calendar Engine
 
 import { db } from './firebase-config.js';
 import {
@@ -284,7 +284,7 @@ async function saveReportCard() {
   } catch (err) { handleError(err, "Save failed."); } finally { hideLoader(); }
 }
 
-// ------------------- Print / PDF (one page, no overlap, background colors, balanced gap) -------------------
+// ------------------- Print / PDF (one page, no overlap) -------------------
 function printReportCard() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -302,11 +302,11 @@ function printReportCard() {
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
   
-  // Enhanced print CSS – exact replica, single page, preserved colors, balanced gap (20px)
   const extraPrintCSS = `
-    * {
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
+    .report-card, .report-card * {
+      page-break-inside: avoid;
+      page-break-after: avoid;
+      page-break-before: avoid;
     }
     @page {
       size: A4;
@@ -321,85 +321,52 @@ function printReportCard() {
       width: 100%;
       max-width: 210mm;
       margin: 0 auto;
-      background: white;
     }
     .report-card {
-      padding: 4px !important;
+      padding: 2px !important;
       margin: 0 !important;
-      font-size: 8.5px !important;
+      font-size: 8px !important;
       line-height: 1.2;
-      page-break-inside: avoid;
-      break-inside: avoid;
-      overflow: visible !important;
-    }
-    /* Balanced gap specifically for the flex container that holds left (subject table) and right (skills) columns */
-    .report-card > div > div:first-of-type {
-      gap: 20px !important;
     }
     .subject-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 6.5px !important;
-      line-height: 1.2;
+      font-size: 5.5px !important;
     }
     .subject-table th, .subject-table td {
-      padding: 3px 2px !important;
-      word-break: break-word;
+      padding: 2px 2px !important;
     }
     .subject-table th:not(:first-child) {
-      height: 70px !important;
-      width: 28px !important;
-      padding: 4px 2px !important;
+      height: 45px !important;
+      width: 24px !important;
       writing-mode: vertical-rl;
       transform: rotate(180deg);
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.2;
-      vertical-align: middle;
-    }
-    .subject-table th:first-child,
-    .subject-table td:first-child {
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.3;
-      padding: 4px 3px !important;
+      font-size: 5px;
     }
     .student-details-grid {
-      font-size: 7px !important;
-      gap: 2px 4px !important;
-      margin-bottom: 4px !important;
+      font-size: 6px !important;
     }
     .skills-table, .summary-table, .grade-scale-table {
-      font-size: 6px !important;
+      font-size: 5px !important;
     }
     .skills-table th, .skills-table td,
     .summary-table th, .summary-table td {
-      padding: 2px 3px !important;
+      padding: 1px 2px !important;
     }
     .comments-section {
-      font-size: 8px !important;
-      margin-top: 4px !important;
+      font-size: 7px !important;
+      margin-top: 2px !important;
+    }
+    .signature-stamp {
+      margin-top: 2px !important;
+      padding-top: 2px !important;
     }
     .rating-tick, select, textarea, button, .comment-controls, .tick {
       display: none !important;
     }
     .print-value, .print-comment-text {
       display: block !important;
-      font-size: 0.9rem !important;
     }
-    .comment-group label {
-      font-size: 0.9rem !important;
-      font-weight: bold;
-    }
-    .attendance-input {
-      display: none !important;
-    }
-    .attendance-input-cell .print-value {
-      display: inline-block !important;
-    }
-    tr, td, th, .subject-table, .skills-table, .summary-table, .attendance-table, .grade-scale-table {
-      page-break-inside: avoid;
-      break-inside: avoid;
+    .report-card, .report-card * {
+      overflow: visible !important;
     }
   `;
   
@@ -540,22 +507,14 @@ function printBroadsheet() {
   const cloned = broadsheetDiv.cloneNode(true);
   const printWindow = window.open('', '_blank');
   if (!printWindow) { showNotification("Please allow popups.", "error"); return; }
-  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
   printWindow.document.write(`
     <!DOCTYPE html><html><head><title>Broadsheet</title>
-    <link rel="stylesheet" href="${externalCssUrl}">
     <style>
-      ${inlineStyles}
       body { margin: 20px; font-family: 'Segoe UI', sans-serif; }
       .broadsheet-table { width: 100%; border-collapse: collapse; font-size: 11px; }
       .broadsheet-table th, .broadsheet-table td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
       .student-name-cell { text-align: left; }
-      @media print {
-        @page { size: landscape; margin: 1cm; }
-        body { margin: 0; }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      }
+      @media print { @page { size: landscape; margin: 1cm; } body { margin: 0; } }
     </style>
     </head><body>${cloned.outerHTML}</body></html>
   `);
@@ -676,6 +635,7 @@ export async function initRecordsPage() {
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) { showNotification("School ID missing.", "error"); return; }
   
+  // Ensure calendar is initialized (already done by protectAdminPage, but safe to call again)
   await initAcademicCalendar();
   
   await loadClassesAndSubjects();
@@ -687,6 +647,7 @@ export async function initRecordsPage() {
     classesMap.forEach((info, id) => { classSelect.appendChild(new Option(info.name, id)); });
   }
   
+  // Use current session from central calendar for options
   const currentSession = getCurrentSession();
   const sessions = generateSessionOptionsFromCurrent(currentSession);
   const sessionSelect = document.getElementById('sessionSelect');
