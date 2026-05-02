@@ -13,6 +13,8 @@
   --primary-light: #818cf8;
   --secondary: #0f172a;
   --accent: #f59e0b;
+  --bg-light: #faf0e6;        /* Light brown/beige background */
+  --card-bg: #ffffff;          /* White cards for contrast */
   --gray-50: #f9fafb;
   --gray-100: #f3f4f6;
   --gray-200: #e5e7eb;
@@ -37,7 +39,7 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background: var(--gray-50);
+  background: var(--bg-light);   /* Light brown background */
   color: var(--gray-800);
   line-height: 1.5;
   overflow-x: hidden;
@@ -182,7 +184,7 @@ h1, h2, h3, h4, h5, h6 {
 .main-content {
   flex: 1;
   margin-left: 280px;
-  background: var(--gray-50);
+  background: var(--bg-light);    /* Light brown background */
   min-height: 100vh;
   overflow-x: hidden;
   width: 100%;
@@ -194,7 +196,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Header – two‑row layout */
 .header {
-  background: white;
+  background: var(--card-bg);      /* White header */
   padding: 0.75rem 1.5rem;
   box-shadow: var(--shadow);
   position: sticky;
@@ -263,7 +265,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Academic badge row (below header) */
 .academic-badge-row {
-  background: white;
+  background: var(--card-bg);      /* White background for badge area */
   padding: 0.5rem 1.5rem;
   border-top: 1px solid var(--gray-200);
   border-bottom: 1px solid var(--gray-200);
@@ -339,7 +341,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--primary);
 }
 
-/* Mobile Sidebar */
+/* Mobile Sidebar – EXTRA HIGH Z-INDEX */
 .mobile-sidebar {
   position: fixed;
   top: 0;
@@ -347,7 +349,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 280px;
   height: 100vh;
   background: var(--secondary);
-  z-index: 200;
+  z-index: 10000;               /* Extremely high to stay above all elements */
   transition: left 0.3s ease;
   display: flex;
   flex-direction: column;
@@ -396,6 +398,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--danger-dark);
 }
 
+/* Overlay – slightly lower than sidebar */
 .overlay {
   position: fixed;
   top: 0;
@@ -403,7 +406,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 100%;
   height: 100%;
   background: rgba(0,0,0,0.5);
-  z-index: 150;
+  z-index: 9999;                /* High but under sidebar */
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s ease;
@@ -424,7 +427,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Footer */
 .app-footer {
-  background: white;
+  background: var(--card-bg);      /* White footer */
   border-top: 1px solid var(--gray-200);
   padding: 1rem 1.5rem;
   text-align: center;
@@ -435,7 +438,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Cards & Welcome */
 .welcome-card {
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--border-radius);
   padding: 1.5rem;
   box-shadow: var(--shadow);
@@ -466,7 +469,7 @@ h1, h2, h3, h4, h5, h6 {
   margin: 1.5rem 0;
 }
 .stat-card {
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--border-radius);
   padding: 1.5rem;
   box-shadow: var(--shadow);
@@ -535,7 +538,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Form Elements */
 .form-card {
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--border-radius);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
@@ -588,7 +591,7 @@ h1, h2, h3, h4, h5, h6 {
 .data-table,
 .scores-table,
 .broadsheet-table {
-  background: white;
+  background: var(--card-bg);
   font-size: 0.875rem;
 }
 .data-table th,
@@ -611,7 +614,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Report Card specific */
 .report-card {
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--border-radius);
   box-shadow: var(--shadow);
   overflow-x: auto;
@@ -696,7 +699,7 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
 }
 .modal-content {
-  background: white;
+  background: var(--card-bg);
   border-radius: var(--border-radius);
   padding: 1.5rem;
   max-width: 650px;
@@ -744,7 +747,7 @@ body:not(.dashboard-container) .container {
   padding: 1.5rem;
 }
 .card {
-  background: white;
+  background: var(--card-bg);
   border-radius: 1.5rem;
   padding: 2.5rem;
   box-shadow: var(--shadow-md);
@@ -943,4 +946,22 @@ img, iframe, video, canvas, svg {
     padding: 0.25rem 0.75rem;
     font-size: 0.75rem;
   }
+}
+.spinner-border {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  vertical-align: text-bottom;
+  border: 0.2em solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-border 0.75s linear infinite;
+}
+.spinner-border-sm {
+  width: 1rem;
+  height: 1rem;
+  border-width: 0.2em;
+}
+@keyframes spinner-border {
+  to { transform: rotate(360deg); }
 }

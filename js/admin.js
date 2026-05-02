@@ -1,6 +1,6 @@
 // admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
 // FULLY INTEGRATED with Central Academic Calendar Engine
-// Removed old academic info display (2025/2026 • Third Term)
+// UPDATED: Logout buttons (#logoutBtn and .mobile-logout-btn) now work correctly
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -19,6 +19,7 @@ import {
   getSubscriptionDisplayStatus
 } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showPageLoader, hidePageLoader } from './loading.js';
 
 // ========== ACADEMIC CALENDAR IMPORTS ==========
 import { 
@@ -103,7 +104,8 @@ export async function protectAdminPage() {
     return null;
   }
 
-  // Initialize Central Academic Calendar
+  showPageLoader();
+
   try {
     await initCentralCalendar();
     await syncAcademicCalendar();
@@ -111,6 +113,8 @@ export async function protectAdminPage() {
     calendarStopPeriodicSync = startPeriodicSync(30);
   } catch (err) {
     handleError(err, "Failed to initialize academic calendar.");
+  } finally {
+    hidePageLoader();
   }
 
   const lastCheck = localStorage.getItem(`autoLockLastCheck_${schoolId}`);
@@ -124,7 +128,6 @@ export async function protectAdminPage() {
     }
   }
 
-  // ========== SUBSCRIPTION GUARD ==========
   let access;
   try {
     access = await enforceAccessGuard(currentUserData, schoolId);
@@ -141,14 +144,60 @@ export async function protectAdminPage() {
   }
 
   injectSubscriptionUI();
-  await updateSubscriptionBadge(schoolId);
+  updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
+  
+  setupLogout(); // Attach logout handlers to all logout buttons
   
   return { user: currentUser, userData: currentUserData };
 }
 
-// ... (showSubscriptionExpiredBanner, showPaymentBanner, hidePaymentBanner, injectSubscriptionUI remain unchanged)
+// ------------------- LOGOUT: FIXED -------------------
+// This function properly attaches event listeners to #logoutBtn and .mobile-logout-btn
+let logoutHandlersAttached = false;
 
+export function setupLogout() {
+  if (logoutHandlersAttached) return;
+  logoutHandlersAttached = true;
+
+  const performLogout = async (event) => {
+    event.preventDefault();
+    showLoader();
+    try {
+      // Stop calendar sync if running
+      if (calendarStopPeriodicSync) {
+        calendarStopPeriodicSync();
+        calendarStopPeriodicSync = null;
+      }
+      await logoutUser(); // from auth.js – clears storage, signs out, redirects to '/'
+    } catch (err) {
+      handleError(err, "Logout failed. Please try again.");
+      hideLoader();
+    }
+  };
+
+  // Header logout button
+  const headerLogoutBtn = document.getElementById('logoutBtn');
+  if (headerLogoutBtn) {
+    headerLogoutBtn.removeEventListener('click', performLogout);
+    headerLogoutBtn.addEventListener('click', performLogout);
+  }
+
+  // Mobile sidebar logout button
+  const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+  if (mobileLogoutBtn) {
+    mobileLogoutBtn.removeEventListener('click', performLogout);
+    mobileLogoutBtn.addEventListener('click', performLogout);
+  }
+
+  // Legacy sidebar items (if any .logout-nav-item exists)
+  document.querySelectorAll('.logout-nav-item').forEach(btn => {
+    btn.removeEventListener('click', performLogout);
+    btn.addEventListener('click', performLogout);
+  });
+}
+
+// Non-dismissible subscription warning banner
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -176,6 +225,7 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
+// Payment banner with Paystack (Pay Now) + WhatsApp
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
@@ -217,13 +267,15 @@ function hidePaymentBanner() {
 
 function injectSubscriptionUI() {
   if (!document.getElementById('subscriptionBadge')) {
-    const headerRight = document.querySelector('.header .school-header')?.parentElement;
+    const headerRight = document.querySelector('.header .header-right');
     if (headerRight) {
       const badge = document.createElement('div');
       badge.id = 'subscriptionBadge';
       badge.style.marginLeft = 'auto';
-      badge.style.marginRight = '20px';
       badge.style.fontWeight = 'bold';
+      badge.style.padding = '4px 12px';
+      badge.style.borderRadius = '20px';
+      badge.style.background = '#f1f5f9';
       headerRight.appendChild(badge);
     }
   }
@@ -269,6 +321,7 @@ export function setupSidebar() {
   });
 }
 
+// ✅ FIXED: Subscription badge uses raw display status (only Firestore status + locked)
 async function updateSubscriptionBadge(schoolId) {
   try {
     const displayStatus = await getSubscriptionDisplayStatus(schoolId);
@@ -277,9 +330,13 @@ async function updateSubscriptionBadge(schoolId) {
       if (displayStatus === 'active') {
         badge.innerText = '✅ Active';
         badge.style.color = '#10b981';
+        badge.classList.add('active');
+        badge.classList.remove('expired');
       } else {
         badge.innerText = '⚠️ Expired';
         badge.style.color = '#ef4444';
+        badge.classList.add('expired');
+        badge.classList.remove('active');
       }
     }
   } catch (err) {
@@ -391,16 +448,28 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
   const totalExtraFee = lockedCount * costPerStudent;
 
   pendingContainer.innerHTML = `
-    <div style="background: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
-      <strong>⏳ Pending Extra Students</strong><br>
-      ${lockedCount} student(s) awaiting super‑admin approval.<br>
-      <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong><br>
-      <small>These students have been added but are locked until the extra fee is paid and approved.</small>
+    <div style="background: #e0f2fe; border-left: 4px solid #0284c7; border-radius: 12px; padding: 16px 20px; margin: 16px 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
+      <div>
+        <strong style="font-size: 1rem;">⏳ Pending Extra Students</strong><br>
+        ${lockedCount} student(s) awaiting super‑admin approval.<br>
+        <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong>
+      </div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <button id="payNowPendingBtn" class="paystack-btn" style="background: #00b3f0;">💳 Pay Now</button>
+        <a href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20pay%20for%20extra%20students" target="_blank" class="whatsapp-btn" style="background: #25D366;">📱 WhatsApp Support</a>
+      </div>
     </div>
   `;
+
+  const payNowBtn = document.getElementById('payNowPendingBtn');
+  if (payNowBtn) {
+    payNowBtn.addEventListener('click', () => {
+      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+    });
+  }
 }
 
-// ------------------- Academic Calendar (Central) – academic info text removed -------------------
+// ------------------- Academic Calendar (Central) -------------------
 export async function initAcademicCalendar(schoolId) {
   await initCentralCalendar();
   await syncAcademicCalendar();
@@ -421,7 +490,20 @@ export async function getAcademicContext(schoolId) {
   };
 }
 
-// ❌ REMOVED: loadAcademicInfo() – no longer displays "2025/2026 • Third Term"
+export async function loadAcademicInfo() {
+  const schoolId = await getCurrentSchoolId();
+  if (!schoolId) return;
+  try {
+    await initCentralCalendar();
+    const session = getCurrentSession();
+    const term = getCurrentTerm();
+    const termNames = { 'First Term': 'First Term', 'Second Term': 'Second Term', 'Third Term': 'Third Term' };
+    const academicDiv = document.getElementById('academicInfo');
+    if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
+  } catch (err) {
+    console.warn('Could not load academic info', err);
+  }
+}
 
 export { adminOverrideCalendar, adminResetToAuto };
 
@@ -477,20 +559,17 @@ export async function loadSchoolInfo() {
     const school = await getSchoolById(userData.schoolId);
     const schoolNameEl = document.getElementById('schoolName');
     const schoolAddressEl = document.getElementById('schoolAddress');
-    const adminEmailEl = document.getElementById('adminEmail');
-    
     if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
     if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
-    if (adminEmailEl) adminEmailEl.textContent = userData.email;
 
     const logoImg = document.getElementById('schoolLogoImg');
     if (logoImg && school && school.logo) logoImg.src = school.logo;
     else if (logoImg) logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
 
-    // ❌ Removed call to loadAcademicInfo()
+    await loadAcademicInfo();
     const schoolId = userData.schoolId;
     if (schoolId) {
-      await updateSubscriptionBadge(schoolId);
+      updateSubscriptionBadge(schoolId);
       initSubscriptionUI(schoolId);
     }
   } catch (err) {
@@ -532,20 +611,6 @@ export function setupLogoUpload() {
       if (fileInput) fileInput.value = '';
     });
   }
-}
-
-export function setupLogout() {
-  const logoutBtn = document.getElementById('logoutBtn');
-  if (!logoutBtn) return;
-  logoutBtn.addEventListener('click', async () => {
-    try {
-      if (calendarStopPeriodicSync) calendarStopPeriodicSync();
-      await logoutUser();
-      showNotification("Logged out successfully.", "success");
-    } catch (err) {
-      handleError(err, "Logout failed. Please try again.");
-    }
-  });
 }
 
 export async function loadDashboardCounts() {

@@ -231,6 +231,7 @@
       font-size: 0.7rem;
     }
 
+    /* Mobile adjustments */
     @media (max-width: 768px) {
       .modal-content { width: 95%; padding: 16px; }
       .data-table th, .data-table td { padding: 6px 4px; font-size: 0.8rem; }
@@ -241,6 +242,13 @@
       .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 120px; }
       .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 100px; }
       .data-table td:last-child button { padding: 2px 6px; font-size: 0.7rem; }
+    }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
     }
   </style>
 </head>
@@ -280,7 +288,6 @@
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
-    <!-- Header: first row with school name, hamburger, logout -->
     <header class="header">
       <div class="school-header-left">
         <div class="school-logo">
@@ -300,7 +307,6 @@
       </div>
     </header>
 
-    <!-- Second row: academic badge -->
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
         <span id="currentTermDisplay">Loading...</span> | 

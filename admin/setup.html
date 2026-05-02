@@ -85,6 +85,13 @@
       border-radius: 12px;
       font-size: 0.7rem;
     }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -123,7 +130,6 @@
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
-    <!-- Header: first row with school name, hamburger, logout -->
     <header class="header">
       <div class="school-header-left">
         <div class="school-logo">
@@ -143,7 +149,6 @@
       </div>
     </header>
 
-    <!-- Second row: academic badge -->
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
         <span id="currentTermDisplay">Loading...</span> | 
