@@ -1,6 +1,6 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// UPDATED: Level‑based grading, primary/secondary layout differences,
-// subject filtering by level + scores, one‑page print, mobile responsive wrappers.
+// FULLY INTEGRATED with Central Academic Calendar Engine
+
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
@@ -9,6 +9,8 @@ import { getTeacherData } from './teacher-dashboard.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { canEnterScores } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+// ✅ Import central calendar functions
+import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -74,16 +76,7 @@ function generateSessionOptions() {
   return opts;
 }
 
-async function getSchoolAcademicInfo() {
-  try {
-    const snap = await getDoc(doc(db, 'schools', currentSchoolId));
-    if (snap.exists()) return { currentSession: snap.data().currentSession, currentTerm: snap.data().currentTerm };
-    return null;
-  } catch (err) {
-    handleError(err, "Failed to load academic info.");
-    return null;
-  }
-}
+// ✅ REMOVED getSchoolAcademicInfo – replaced by central calendar
 
 // NEW: Load grading based on class level (primary/secondary)
 async function loadGradingSettingByLevel(level, session, term) {
@@ -266,7 +259,6 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   const classInfo = classesMap.get(classId);
   if (!classInfo) return [];
   const classLevel = classInfo.level;
-  // Filter subjects by level
   let levelSubjects = allSubjectsList.filter(subj => subj.level === classLevel);
   if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
   const classStudents = studentsList.filter(s => s.classId === classId);
@@ -404,7 +396,6 @@ function printReportCard() {
     .map(style => style.innerHTML)
     .join('\n');
 
-  // Enhanced CSS to force exactly one A4 page and prevent overlap
   const extraPrintCSS = `
     /* Remove any page breaks inside the report card */
     .report-card, .report-card * {
@@ -733,7 +724,6 @@ async function generateBroadsheet() {
   const className = classInfo?.name || 'Class';
   const classLevel = classInfo?.level;
 
-  // Get relevant subjects: level + have scores
   const relevantSubjects = await getRelevantSubjectsForClass(classIdSel, term, session);
   if (relevantSubjects.length === 0) {
     container.innerHTML = '<div class="alert">No subjects found for the selected class level or no scores available.</div>';
@@ -843,7 +833,7 @@ async function generateBroadsheet() {
       html += `<td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
       html += `<td>${r.remark}</td>`;
-      html += `</tr>`;
+      html += `<tr>`;
     }
     html += `</tbody></table></div>`;
     container.innerHTML = html;
@@ -960,6 +950,9 @@ export async function initClassReportPage() {
     return;
   }
 
+  // ✅ Initialise central calendar
+  await initAcademicCalendar();
+
   isSubscriptionAllowed = await canEnterScores(currentSchoolId);
 
   await fetchClassName();
@@ -986,26 +979,27 @@ export async function initClassReportPage() {
     broadsheetClassSelect.value = classId;
   }
   
-  const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
   const sessions = generateSessionOptions();
-  if (broadsheetSessionSelect) broadsheetSessionSelect.innerHTML = sessions.map(s => `<option value="${s}">${s}</option>`).join('');
+  const currentSession = getCurrentSession();
+  const currentTermNum = getCurrentTerm();
+  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const defaultTermNum = termMap[currentTermNum] || '1';
+
+  const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
+  if (broadsheetSessionSelect) {
+    broadsheetSessionSelect.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+  }
   const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
-  if (broadsheetTermSelect) broadsheetTermSelect.value = '1';
+  if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTermNum;
 
   const sessionSelect = document.getElementById('sessionSelect');
-  if (sessionSelect) sessionSelect.innerHTML = sessions.map(s => `<option value="${s}">${s}</option>`).join('');
+  if (sessionSelect) {
+    sessionSelect.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+  }
   const termSelect = document.getElementById('termSelect');
-  if (termSelect) termSelect.value = '1';
+  if (termSelect) termSelect.value = defaultTermNum;
 
-  const academic = await getSchoolAcademicInfo();
-  const defaultSession = academic?.currentSession || sessions[0];
-  const defaultTerm = academic?.currentTerm || '1';
-  if (sessionSelect) sessionSelect.value = defaultSession;
-  if (broadsheetSessionSelect) broadsheetSessionSelect.value = defaultSession;
-  if (termSelect) termSelect.value = defaultTerm;
-  if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTerm;
-
-  await loadGradingSetting(defaultSession, defaultTerm);
+  await loadGradingSetting(currentSession, defaultTermNum);
   await loadClassStudents();
 
   const termSelectEl = document.getElementById('termSelect');

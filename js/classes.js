@@ -1,7 +1,7 @@
 // classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './app.js';
+import { getCurrentSchoolId } from './admin.js';  // ✅ FIXED: import from admin.js (not app.js)
 import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 

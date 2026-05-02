@@ -1,7 +1,7 @@
 // subjects.js - Manage subjects with Primary/Secondary levels, manual entry, and formatting
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './app.js';
+import { getCurrentSchoolId } from './admin.js';  // ✅ FIXED: import from admin.js (not app.js)
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
@@ -41,7 +41,7 @@ async function loadSubjects() {
       return;
     }
     
-    let html = '<h3>Existing Subjects</h3><table class="data-table"><thead><tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th><tr></thead><tbody>';
+    let html = '<h3>Existing Subjects</h3><table class="data-table"><thead><tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th></tr></thead><tbody>';
     for (const sub of subjects) {
       const levelDisplay = sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—');
       html += `<tr>

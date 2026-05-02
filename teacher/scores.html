@@ -88,6 +88,27 @@
       color: #64748b;
       margin-top: 4px;
     }
+
+    /* Academic Calendar Badge */
+    .academic-badge {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 16px;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+    }
   </style>
 </head>
 <body>
@@ -130,6 +151,10 @@
           <div id="schoolAddress" class="school-address"></div>
         </div>
         <div id="academicInfo" class="academic-info"></div>
+        <div id="academicCalendarDisplay" class="academic-badge">
+          <span id="currentTermDisplay">Loading...</span> | 
+          <span id="currentSessionDisplay"></span>
+        </div>
       </div>
       <button id="logoutBtn" class="logout-btn">Logout</button>
     </header>
@@ -158,6 +183,7 @@
   import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
   import { initScoresPage } from '../js/scores.js';
   import { initMobileMenu } from '../js/menu.js';
+  import { subscribeToCalendar } from '../js/academic-calendar.js';
 
   protectTeacherPage().then(() => {
     loadSchoolInfo();
@@ -172,6 +198,15 @@
     if (container) {
       container.innerHTML = '<div class="error-message">Unable to load scores. Please refresh or contact admin.</div>';
     }
+  });
+
+  subscribeToCalendar((state) => {
+    const termEl = document.getElementById('currentTermDisplay');
+    const sessionEl = document.getElementById('currentSessionDisplay');
+    if (termEl) termEl.textContent = state.currentTerm;
+    if (sessionEl) sessionEl.textContent = state.currentSession;
+    if (state.manualOverride) termEl?.classList.add('override-badge');
+    else termEl?.classList.remove('override-badge');
   });
 </script>
 </body>

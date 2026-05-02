@@ -36,6 +36,18 @@
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
     .modal-content { background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 500px; }
     .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+    .academic-badge {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 16px;
+    }
     @media (max-width: 768px) { .sidebar { display: none; } .stats-grid { grid-template-columns: 1fr; } th, td { font-size: 0.8rem; } }
   </style>
 </head>
@@ -67,6 +79,10 @@
     <header class="header">
       <button class="hamburger-menu" aria-label="Menu">☰</button>
       <div class="school-name"><h1>Super Admin Console</h1></div>
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
       <button id="logoutBtn" class="btn-secondary">Logout</button>
     </header>
     <div class="content">

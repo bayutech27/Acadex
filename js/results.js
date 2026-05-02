@@ -1,17 +1,20 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
-// BROADSHEET LOGIC IDENTICAL TO class.js AND records.js
+// FULLY INTEGRATED with Central Academic Calendar Engine
+
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId, getAcademicContext, initAcademicCalendar } from './admin.js';
+import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { canEnterScores } from './plan.js';
+import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
+import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 // ------------------- Global State -------------------
 let currentSchoolId = null;
-let classesMap = new Map();          // id -> { name, level }
+let classesMap = new Map();
 let studentsList = [];
-let subjectsMap = new Map();         // id -> { name, level }
-let allSubjectsList = [];            // { id, name, level }
+let subjectsMap = new Map();
+let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
 let isSubscriptionAllowed = false;
 let unsubscribeSub = null;
@@ -94,7 +97,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
+  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>}</table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -121,8 +124,8 @@ function createTickRating(skillKey, currentValue) {
 }
 
 // ------------------- Firestore Helpers -------------------
-function getScoringDocId(session, term) {
-  return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+function getScoringDocId(session, term, level) {
+  return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
 function generateSessionOptionsFromCurrent(currentSession) {
   if (!currentSession || typeof currentSession !== 'string') return [];
@@ -207,26 +210,32 @@ async function fetchStudentScores(studentId, term, session) {
   return snap.docs.map(doc => ({ subjectId: doc.data().subjectId, ca: doc.data().ca, exam: doc.data().exam }));
 }
 
-async function loadGradingSetting(session, term) {
-  const gradingSelect = document.getElementById('gradingSelect');
-  if (!gradingSelect) { currentGrading = { ca: 40, exam: 60 }; return; }
+// ------------------- Grading Settings (level-aware) -------------------
+async function loadGradingSetting(session, term, level = 'secondary') {
   try {
-    const docId = getScoringDocId(session, term);
+    const docId = getScoringDocId(session, term, level);
     const docSnap = await getDoc(doc(db, 'scoring', docId));
     let grading = '40/60';
     if (docSnap.exists()) grading = docSnap.data().grading;
-    gradingSelect.value = grading;
     const [ca, exam] = grading.split('/').map(Number);
     currentGrading = { ca, exam };
+    // Also update UI selects if present
+    if (level === 'secondary') {
+      const gradingSelect = document.getElementById('gradingSelect');
+      if (gradingSelect) gradingSelect.value = grading;
+    } else if (level === 'primary') {
+      const primaryGradingSelect = document.getElementById('primaryGradingSelect');
+      if (primaryGradingSelect) primaryGradingSelect.value = grading;
+    }
   } catch (err) { console.error(err); currentGrading = { ca: 40, exam: 60 }; }
 }
 
-async function saveGradingSetting() {
+async function saveGradingSetting(level = 'secondary') {
   if (!isSubscriptionAllowed) {
     alert('Subscription inactive. Cannot save grading settings.');
     return;
   }
-  const gradingSelect = document.getElementById('gradingSelect');
+  const gradingSelect = document.getElementById(level === 'secondary' ? 'gradingSelect' : 'primaryGradingSelect');
   if (!gradingSelect) return;
   const grading = gradingSelect.value;
   let session = document.getElementById('editorSessionSelect')?.value;
@@ -239,12 +248,14 @@ async function saveGradingSetting() {
     alert('Session/Term not set. Please select a session and term first.');
     return;
   }
-  const docId = getScoringDocId(session, term);
+  const docId = getScoringDocId(session, term, level);
   try {
-    await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term });
-    const [ca, exam] = grading.split('/').map(Number);
-    currentGrading = { ca, exam };
-    alert('Grading saved.');
+    await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
+    if (level === 'secondary') {
+      const [ca, exam] = grading.split('/').map(Number);
+      currentGrading = { ca, exam };
+    }
+    alert(`Grading saved for ${level} level.`);
     if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   } catch (err) {
     if (err.code === 'permission-denied') {
@@ -334,9 +345,14 @@ async function renderReportCard(studentId, studentName) {
   }
   editorState.selectedStudent = { id: studentId, name: studentName };
   editorState.term = document.getElementById('editorTermSelect')?.value || '1';
-  editorState.session = document.getElementById('editorSessionSelect')?.value || '';
+  editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   const classId = document.getElementById('editorClassSelect')?.value;
   const className = classesMap.get(classId)?.name || 'Class';
+  const classInfo = classesMap.get(classId);
+  const classLevel = classInfo?.level || 'secondary';
+  const isPrimary = (classLevel === 'primary');
+
+  await loadGradingSetting(editorState.session, editorState.term, classLevel);
 
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
   const school = {
@@ -346,7 +362,9 @@ async function renderReportCard(studentId, studentName) {
   };
   const student = studentsList.find(s => s.id === studentId) || {};
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
-  const scoresWithNames = scoresRaw.map(score => ({
+  // Filter scores by subjects relevant to class level (optional)
+  const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
+  const scoresWithNames = scoresRaw.filter(s => relevantSubjectIds.includes(s.subjectId)).map(score => ({
     subjectId: score.subjectId,
     subjectName: subjectsMap.get(score.subjectId)?.name || score.subjectId,
     ca: score.ca,
@@ -354,7 +372,7 @@ async function renderReportCard(studentId, studentName) {
   }));
 
   let subjectStats = new Map();
-  if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session);
+  if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
   const studentData = {
@@ -386,6 +404,7 @@ async function renderReportCard(studentId, studentName) {
     subjectStats,
     container: document.getElementById('reportCardContent'),
     attendance,
+    isPrimary,
     onRatingChange: (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
     onTeacherCommentChange: (newComment) => { editorState.teacherComment = newComment; },
     onPrincipalCommentChange: (newComment) => { editorState.principalComment = newComment; }
@@ -461,7 +480,7 @@ async function saveEditorReport() {
   }
 }
 
-// ========== IMPROVED PRINT HANDLER (forces one page + taller vertical headers) ==========
+// ========== IMPROVED PRINT HANDLER ==========
 function handlePrint() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -599,7 +618,7 @@ function handlePrint() {
   }, 300);
 }
 
-// ------------------- BROADSHEET ENGINE (identical to class.js and records.js) -------------------
+// ------------------- BROADSHEET ENGINE -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionAllowed) {
     const container = document.getElementById('broadsheetContainer');
@@ -621,7 +640,6 @@ async function generateBroadsheet() {
     return;
   }
 
-  // Get relevant subjects: level + have scores in any term of this session
   const relevantSubjects = await getRelevantSubjectsForClass(classId, session);
   if (relevantSubjects.length === 0) {
     const container = document.getElementById('broadsheetContainer');
@@ -632,7 +650,6 @@ async function generateBroadsheet() {
 
   showLoader();
   try {
-    // Fetch scores for all three terms
     const term1Scores = await fetchClassScores(classId, '1', session);
     const term2Scores = await fetchClassScores(classId, '2', session);
     const term3Scores = await fetchClassScores(classId, '3', session);
@@ -650,8 +667,7 @@ async function generateBroadsheet() {
     storeScores(term2Scores, 2);
     storeScores(term3Scores, 3);
     
-    // Compute term averages for each student
-    const termAverages = new Map(); // studentId -> { 1: avg%, 2: avg%, 3: avg%, combined: avg% }
+    const termAverages = new Map();
     for (const student of classStudents) {
       const averages = {};
       let sumCombined = 0;
@@ -680,12 +696,10 @@ async function generateBroadsheet() {
       termAverages.set(student.id, { ...averages, combined: combinedAvg });
     }
     
-    // Build student results array
     const studentResults = [];
     for (const student of classStudents) {
       const subjectDetails = [];
       let totalScoreOverall = 0;
-      // Use selected term for current term scores display
       const studentScoreMap = scoresByStudentTerm.get(student.id)?.get(parseInt(term)) || new Map();
       for (const subj of relevantSubjects) {
         const score = studentScoreMap.get(subj.id) || { ca: 0, exam: 0, total: 0 };
@@ -713,7 +727,6 @@ async function generateBroadsheet() {
       });
     }
     
-    // Sort and rank by current term average (selected term)
     studentResults.sort((a, b) => b.average - a.average);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
@@ -744,11 +757,11 @@ async function generateBroadsheet() {
       html += `<td>${r.term3Avg}</td>`;
       html += `<td>${r.combinedAvg}</td>`;
       html += `<td>${r.grade}</td>`;
-      html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
+      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td>`;
       html += `<td>${r.remark}</td>`;
       html += `</tr>`;
     }
-    html += `</tbody></tr></div>`;
+    html += `</tbody></table></div>`;
     const container = document.getElementById('broadsheetContainer');
     if (container) container.innerHTML = html;
     const actions = document.getElementById('broadsheetActions');
@@ -805,7 +818,6 @@ async function saveBroadsheetToFirestore() {
   }
 }
 
-// ========== ENHANCED BROADSHEET PRINT (Landscape A4, one page, compact) ==========
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
   if (!container || !container.innerHTML.trim()) { alert('No broadsheet to print.'); return; }
@@ -920,7 +932,7 @@ async function onEditorClassChange() {
 
 async function onEditorFilterChange() {
   editorState.term = document.getElementById('editorTermSelect')?.value || '1';
-  editorState.session = document.getElementById('editorSessionSelect')?.value || '';
+  editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
@@ -1011,25 +1023,12 @@ export async function initResultsPage() {
   }
 
   isSubscriptionAllowed = await canEnterScores(currentSchoolId);
-  await initAcademicCalendar(currentSchoolId);
+  await initAcademicCalendar();
 
-  let academic;
-  try {
-    academic = await getAcademicContext(currentSchoolId);
-  } catch (err) {
-    console.warn('Failed to read academic context, computing fallback', err);
-    const { getCurrentAcademicSessionAndTerm } = await import('./admin.js');
-    const computed = getCurrentAcademicSessionAndTerm();
-    academic = { currentSession: computed.session, currentTerm: computed.term };
-    const schoolRef = doc(db, 'schools', currentSchoolId);
-    await setDoc(schoolRef, {
-      currentSession: academic.currentSession,
-      currentTerm: academic.currentTerm,
-      lastUpdated: new Date()
-    }, { merge: true });
-  }
-
-  const { currentSession, currentTerm } = academic;
+  const currentSession = getCurrentSession();
+  const currentTerm = getCurrentTerm();
+  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const currentTermNum = termMap[currentTerm] || '1';
 
   try {
     await loadClassesAndSubjects();
@@ -1039,58 +1038,56 @@ export async function initResultsPage() {
     return;
   }
 
-  const classSelect = document.getElementById('broadsheetClassSelect');
-  if (classSelect) {
-    classSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
-  }
+  // Populate class selects
+  const classSelects = ['broadsheetClassSelect', 'editorClassSelect'];
+  classSelects.forEach(id => {
+    const select = document.getElementById(id);
+    if (select) {
+      select.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
+    }
+  });
 
-  const sessionOptions = generateSessionOptionsFromCurrent(currentSession);
-  const sessionSelect = document.getElementById('broadsheetSessionSelect');
-  if (sessionSelect) {
-    sessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
-  }
-  const termSelect = document.getElementById('broadsheetTermSelect');
-  if (termSelect) termSelect.value = currentTerm;
+  // Session options
+  const sessions = generateSessionOptionsFromCurrent(currentSession);
+  const sessionSelects = ['broadsheetSessionSelect', 'editorSessionSelect'];
+  sessionSelects.forEach(id => {
+    const select = document.getElementById(id);
+    if (select) {
+      select.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+    }
+  });
 
-  const editorClassSelect = document.getElementById('editorClassSelect');
-  if (editorClassSelect) {
-    editorClassSelect.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
-  }
-  const editorSessionSelect = document.getElementById('editorSessionSelect');
-  if (editorSessionSelect) {
-    editorSessionSelect.innerHTML = sessionOptions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
-  }
-  const editorTermSelect = document.getElementById('editorTermSelect');
-  if (editorTermSelect) editorTermSelect.value = currentTerm;
+  // Term selects
+  const termSelects = ['broadsheetTermSelect', 'editorTermSelect'];
+  termSelects.forEach(id => {
+    const select = document.getElementById(id);
+    if (select) select.value = currentTermNum;
+  });
 
-  await loadGradingSetting(currentSession, currentTerm);
+  // Load default grading for current context
+  await loadGradingSetting(currentSession, currentTermNum, 'secondary');
+  await loadGradingSetting(currentSession, currentTermNum, 'primary');
 
-  const generateBtn = document.getElementById('generateBroadsheetBtn');
-  if (generateBtn) generateBtn.addEventListener('click', generateBroadsheet);
-  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
-  if (saveBroadsheetBtn) saveBroadsheetBtn.addEventListener('click', saveBroadsheetToFirestore);
-  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
-  if (printBroadsheetBtn) printBroadsheetBtn.addEventListener('click', printBroadsheet);
-  const saveGradingBtn = document.getElementById('saveGradingBtn');
-  if (saveGradingBtn) saveGradingBtn.addEventListener('click', saveGradingSetting);
-  const refreshBtn = document.getElementById('refreshEditorBtn');
-  if (refreshBtn) refreshBtn.addEventListener('click', () => onEditorClassChange());
-  const saveReportBtn = document.getElementById('saveReportBtn');
-  if (saveReportBtn) saveReportBtn.addEventListener('click', saveEditorReport);
-  const printReportBtn = document.getElementById('printReportBtn');
-  if (printReportBtn) printReportBtn.addEventListener('click', handlePrint);
+  // Event listeners
+  document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
+  document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
+  document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
+  document.getElementById('saveGradingBtn')?.addEventListener('click', () => saveGradingSetting('secondary'));
+  document.getElementById('savePrimaryGradingBtn')?.addEventListener('click', () => saveGradingSetting('primary'));
+  document.getElementById('refreshEditorBtn')?.addEventListener('click', () => onEditorClassChange());
+  document.getElementById('saveReportBtn')?.addEventListener('click', saveEditorReport);
+  document.getElementById('printReportBtn')?.addEventListener('click', handlePrint);
+  document.getElementById('editorClassSelect')?.addEventListener('change', onEditorClassChange);
+  document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
+  document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
 
-  if (editorClassSelect) editorClassSelect.addEventListener('change', onEditorClassChange);
-  if (editorSessionSelect) editorSessionSelect.addEventListener('change', onEditorFilterChange);
-  if (editorTermSelect) editorTermSelect.addEventListener('change', onEditorFilterChange);
-
+  // Disable features if subscription inactive
   if (!isSubscriptionAllowed) {
-    if (saveGradingBtn) saveGradingBtn.disabled = true;
-    if (generateBtn) generateBtn.disabled = true;
-    if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
-    if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
-    if (printReportBtn) printReportBtn.disabled = true;
-    if (saveReportBtn) saveReportBtn.disabled = true;
+    const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
+    btns.forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = true;
+    });
     const warningBanner = document.createElement('div');
     warningBanner.className = 'subscription-warning-banner';
     warningBanner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; margin-bottom: 16px; border-radius: 8px;';

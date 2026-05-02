@@ -1,11 +1,15 @@
-// teacher-dashboard.js - Complete with school address loading
+// teacher-dashboard.js - Complete with school address loading and Central Academic Calendar
 // MODIFIED: No redirect when teacher document is missing – creates minimal record instead.
+// FULLY INTEGRATED with Central Academic Calendar Engine
+
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getSchoolById, getCurrentAcademicSessionAndTerm } from './app.js';
+import { getSchoolById } from './app.js';
 import { logoutUser } from './auth.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+// ✅ Import central calendar functions
+import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
 let currentTeacherId = null;
 let currentSchoolId = null;
@@ -48,6 +52,9 @@ export async function protectTeacherPage() {
           window.location.href = '/';
           return;
         }
+        
+        // ✅ Initialise Central Academic Calendar for teacher pages
+        await initAcademicCalendar();
         
         // ✅ Try to fetch teacher document, but do NOT redirect if missing
         const teacherDocRef = doc(db, 'teachers', user.uid);
@@ -113,7 +120,7 @@ export function displayTeacherName(name) {
   }
 }
 
-// ------------------- School Info with Address -------------------
+// ------------------- School Info with Address (using central calendar for academic info) -------------------
 export async function loadSchoolInfo() {
   if (!currentSchoolId) return;
   try {
@@ -137,11 +144,12 @@ export async function loadSchoolInfo() {
 }
 
 async function loadAcademicInfo() {
-  const { session, term } = getCurrentAcademicSessionAndTerm();
-  const termNames = { 1: 'First Term', 2: 'Second Term', 3: 'Third Term' };
+  // ✅ Use central calendar engine for current term and session
+  const session = getCurrentSession();
+  const term = getCurrentTerm();
   const academicDiv = document.getElementById('academicInfo');
   if (academicDiv) {
-    academicDiv.textContent = `${session} • ${termNames[term]}`;
+    academicDiv.textContent = `${session} • ${term}`;
   }
 }
 
@@ -246,6 +254,8 @@ export function getTeacherSubjects() {
 }
 
 // ------------------- Scores Page Functions (for scores.html) -------------------
+// (Remain unchanged – they already use term/session from user selection,
+//  not hardcoded values, so no calendar changes needed.)
 let scoresState = {
   students: [],
   scoringConfig: null,
@@ -478,7 +488,7 @@ function renderStudentsTable() {
     `;
   });
   
-  html += `</tbody>赶`;
+  html += `</tbody></table>`;
   container.innerHTML = html;
   
   document.querySelectorAll('.ca-input, .exam-input').forEach(input => {

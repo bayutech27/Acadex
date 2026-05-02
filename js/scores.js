@@ -1,6 +1,7 @@
 // scores.js - Teacher score entry with subscription check, locked student restrictions,
 // and dynamic subject dropdown based on teacher's assigned subjects (from Firestore)
-// UPDATED: Grading is loaded based on the selected class's level (primary/secondary).
+// FULLY INTEGRATED with Central Academic Calendar Engine
+
 import { db, auth } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
@@ -8,6 +9,8 @@ import {
 import { getTeacherData } from './teacher-dashboard.js';
 import { canEnterScores } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+// ✅ Import central calendar functions
+import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -36,23 +39,13 @@ function generateSessionOptions() {
   return opts;
 }
 
-async function getSchoolAcademicInfo() {
-  try {
-    const snap = await getDoc(doc(db, 'schools', currentSchoolId));
-    if (snap.exists()) return { currentSession: snap.data().currentSession, currentTerm: snap.data().currentTerm };
-    return null;
-  } catch (err) {
-    handleError(err, "Failed to load academic info.");
-    return null;
-  }
-}
+// ✅ REMOVED getSchoolAcademicInfo – replaced by central calendar
 
 function getScoringDocId(session, term) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
 }
 
 // NEW: Load grading based on class level (primary/secondary)
-// Falls back to school‑wide or default 40/60 if level‑specific config missing.
 async function loadGradingSettingByClassLevel(classId, session, term) {
   if (!classId) {
     currentGrading = { ca: 40, exam: 60 };
@@ -60,16 +53,14 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
   }
 
   try {
-    // 1. Get class level
     const classDoc = await getDoc(doc(db, 'classes', classId));
     if (!classDoc.exists()) {
       console.warn(`Class ${classId} not found, using default grading 40/60`);
       currentGrading = { ca: 40, exam: 60 };
       return;
     }
-    const classLevel = classDoc.data().level; // 'primary' or 'secondary'
+    const classLevel = classDoc.data().level;
 
-    // 2. Query scoring collection for schoolId + level
     const scoringQuery = query(
       collection(db, 'scoring'),
       where('schoolId', '==', currentSchoolId),
@@ -81,13 +72,12 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
     if (!scoringSnap.empty) {
       const data = scoringSnap.docs[0].data();
       if (data.grading) {
-        grading = data.grading; // e.g. "40/60"
+        grading = data.grading;
       } else if (data.caWeight !== undefined && data.examWeight !== undefined) {
         grading = `${data.caWeight}/${data.examWeight}`;
       }
     }
 
-    // 3. Fallback: try school‑wide scoring (no level)
     if (!grading) {
       const fallbackQuery = query(
         collection(db, 'scoring'),
@@ -103,7 +93,6 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
       }
     }
 
-    // 4. Parse and set
     if (grading) {
       const [ca, exam] = grading.split('/').map(Number);
       currentGrading = { ca, exam };
@@ -121,13 +110,10 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
   }
 }
 
-// Legacy function kept for compatibility, but we will use loadGradingSettingByClassLevel
 async function loadGradingSetting(session, term) {
-  // Called when session/term changes; we may also need to reload based on current class
   if (selectedClassId) {
     await loadGradingSettingByClassLevel(selectedClassId, session, term);
   } else {
-    // fallback to old method (document with composite ID)
     try {
       const docId = getScoringDocId(session, term);
       const docSnap = await getDoc(doc(db, 'scoring', docId));
@@ -340,7 +326,7 @@ async function renderScoreTable() {
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
-  html += `</tbody>${'</tr>'}`;
+  html += `</tbody>${'赶'}`;
   container.innerHTML = html;
 
   if (isScoreEntryAllowed) {
@@ -466,6 +452,9 @@ async function initScoresPage() {
     return;
   }
 
+  // ✅ Initialise central calendar
+  await initAcademicCalendar();
+
   isScoreEntryAllowed = await canEnterScores(currentSchoolId);
 
   await Promise.all([loadAllSubjects(), loadAllClasses()]);
@@ -474,20 +463,22 @@ async function initScoresPage() {
   populateSubjectDropdown();
   populateClassDropdown();
 
-  const academic = await getSchoolAcademicInfo();
-  const defaultSession = academic?.currentSession || generateSessionOptions()[0];
-  const defaultTerm = academic?.currentTerm || '1';
+  // ✅ Use central calendar for default session/term
+  const currentSession = getCurrentSession();
+  const currentTermNum = getCurrentTerm();
+  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const defaultTermNum = termMap[currentTermNum] || '1';
 
-  const sessionSelect = document.getElementById('sessionSelect');
   const sessions = generateSessionOptions();
+  const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
-    sessionSelect.innerHTML = sessions.map(s => `<option value="${s}" ${s === defaultSession ? 'selected' : ''}>${s}</option>`).join('');
+    sessionSelect.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
   }
   const termSelect = document.getElementById('termSelect');
-  if (termSelect) termSelect.value = defaultTerm;
+  if (termSelect) termSelect.value = defaultTermNum;
 
   // Initially set grading (may be overridden when class is selected)
-  await loadGradingSetting(defaultSession, defaultTerm);
+  await loadGradingSetting(currentSession, defaultTermNum);
 
   const classSelect = document.getElementById('classSelect');
   const subjectSelect = document.getElementById('subjectSelect');
@@ -495,13 +486,12 @@ async function initScoresPage() {
     classSelect.addEventListener('change', async () => {
       selectedClassId = classSelect.value;
       if (selectedClassId) {
-        // Reload grading based on the class level
-        await loadGradingSettingByClassLevel(selectedClassId, selectedSession, selectedTerm);
-        // If subject is already selected, re‑render the table with new grading
+        const currentSessionVal = document.getElementById('sessionSelect')?.value || currentSession;
+        const currentTermVal = document.getElementById('termSelect')?.value || defaultTermNum;
+        await loadGradingSettingByClassLevel(selectedClassId, currentSessionVal, currentTermVal);
         if (selectedSubjectId) await renderScoreTable();
-        else renderScoreTable(); // shows "select subject" message
+        else renderScoreTable();
       } else {
-        // No class selected – reset grading to default
         currentGrading = { ca: 40, exam: 60 };
         renderScoreTable();
       }
@@ -517,9 +507,10 @@ async function initScoresPage() {
     sessionSelect.addEventListener('change', async () => {
       selectedSession = sessionSelect.value;
       if (selectedClassId) {
-        await loadGradingSettingByClassLevel(selectedClassId, selectedSession, selectedTerm);
+        const currentTermVal = document.getElementById('termSelect')?.value || defaultTermNum;
+        await loadGradingSettingByClassLevel(selectedClassId, selectedSession, currentTermVal);
       } else {
-        await loadGradingSetting(selectedSession, selectedTerm);
+        await loadGradingSetting(selectedSession, defaultTermNum);
       }
       renderScoreTable();
     });
@@ -528,9 +519,10 @@ async function initScoresPage() {
     termSelect.addEventListener('change', async (e) => {
       selectedTerm = e.target.value;
       if (selectedClassId) {
-        await loadGradingSettingByClassLevel(selectedClassId, selectedSession, selectedTerm);
+        const currentSessionVal = document.getElementById('sessionSelect')?.value || currentSession;
+        await loadGradingSettingByClassLevel(selectedClassId, currentSessionVal, selectedTerm);
       } else {
-        await loadGradingSetting(selectedSession, selectedTerm);
+        await loadGradingSetting(currentSession, selectedTerm);
       }
       renderScoreTable();
     });
@@ -559,13 +551,12 @@ async function initScoresPage() {
     }
   }
 
-  selectedSession = defaultSession;
-  selectedTerm = defaultTerm;
-  // If a class is already selected (e.g., from previous load), apply its grading
+  selectedSession = currentSession;
+  selectedTerm = defaultTermNum;
   if (selectedClassId) {
     await loadGradingSettingByClassLevel(selectedClassId, selectedSession, selectedTerm);
   } else {
-    await loadGradingSetting(defaultSession, defaultTerm);
+    await loadGradingSetting(selectedSession, selectedTerm);
   }
   renderScoreTable();
 }

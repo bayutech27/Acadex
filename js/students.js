@@ -1,8 +1,11 @@
-// students.js - Manage students with name parts, level filtering, dynamic class/subject loading, and primary class filters
+// students.js - Manage students with name parts, level filtering, dynamic class/subject loading
+// Fully integrated with Central Academic Calendar (via admin.js exports)
+
 import { db } from './firebase-config.js';
 import { 
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+// ✅ FIXED: Import from admin.js (not app.js) – getCurrentSchoolId now uses central calendar
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
 import { handleNewStudentAddition } from './plan.js';
 import { isSubscriptionActive } from './plan.js';
@@ -23,7 +26,7 @@ let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
 
 export async function initStudentsPage() {
-  await protectAdminPage();
+  await protectAdminPage(); // ensures central calendar is initialised and user is admin
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) {
     showNotification("School ID missing.", "error");
@@ -100,7 +103,7 @@ export async function initStudentsPage() {
     });
   }
 
-  // Filter buttons - now includes primary classes
+  // Filter buttons - includes primary classes
   const filterBtns = document.querySelectorAll('.filter-btn');
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -310,7 +313,7 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   }
 }
 
-// Image compression (unchanged)
+// Image compression
 async function compressAndResizeImage(file, maxSizeKB = 800, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -401,7 +404,7 @@ async function loadAndDisplayStudents() {
       where('status', '==', 'active')
     );
   } else {
-    // Find class ID by name (case-sensitive; classesMap stores id->{name, level})
+    // Find class ID by name
     let classId = null;
     for (let [id, data] of classesMap.entries()) {
       if (data.name === currentFilter) {
@@ -438,7 +441,6 @@ async function loadAndDisplayStudents() {
     return;
   }
 
-  // Responsive: wrap table in scrollable container with global class
   container.innerHTML = `
     <div class="table-responsive-wrapper">
       <table class="data-table">

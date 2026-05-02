@@ -1,4 +1,6 @@
-// records.js - Archive viewer with identical rendering to results.js + level‑based subjects + one‑page print
+// records.js - Archive viewer + report card + broadsheet
+// Fully integrated with Central Academic Calendar Engine
+
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, onSnapshot
@@ -6,12 +8,13 @@ import {
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 
 // ------------------- Global State -------------------
 let currentSchoolId = null;
-let classesMap = new Map();          // id -> { name, level }
-let subjectsMap = new Map();          // id -> { name, level }
-let allSubjectsList = [];              // Array of { id, name, level }
+let classesMap = new Map();
+let subjectsMap = new Map();
+let allSubjectsList = [];
 let studentsList = [];
 let unsubscribeSub = null;
 
@@ -45,11 +48,18 @@ function resetRatingsToDefaults() { currentReportState.psychomotor = getDefaultR
 function getScoringDocId(session, term, level) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
-function generateSessionOptions() {
-  const year = new Date().getFullYear();
-  let opts = [];
-  for (let i = 0; i < 5; i++) opts.push(`${year - i}/${year - i + 1}`);
-  return opts;
+function generateSessionOptionsFromCurrent(currentSession) {
+  if (!currentSession || typeof currentSession !== 'string') return [];
+  const parts = currentSession.split('/');
+  if (parts.length !== 2) return [];
+  const startYear = parseInt(parts[0], 10);
+  if (isNaN(startYear)) return [];
+  const sessions = [];
+  for (let i = 0; i < 5; i++) {
+    const year = startYear - i;
+    sessions.push(`${year}/${year + 1}`);
+  }
+  return sessions;
 }
 function getSubjectsByLevel(level) {
   if (!level) return allSubjectsList;
@@ -380,7 +390,7 @@ function printReportCard() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ------------------- Broadsheet Functions (Level‑based, using getRelevantSubjectsForClass) -------------------
+// ------------------- Broadsheet Functions -------------------
 async function getStudentAverageForTerm(studentId, term, session) {
   const scores = await fetchStudentScores(studentId, term, session);
   if (!scores.length) return null;
@@ -624,21 +634,38 @@ async function initSubscriptionListener() {
 export async function initRecordsPage() {
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) { showNotification("School ID missing.", "error"); return; }
+  
+  // Ensure calendar is initialized (already done by protectAdminPage, but safe to call again)
+  await initAcademicCalendar();
+  
   await loadClassesAndSubjects();
   await loadAllStudents();
+  
   const classSelect = document.getElementById('classSelect');
   if (classSelect) {
     classSelect.innerHTML = '<option value="">Select Class</option>';
     classesMap.forEach((info, id) => { classSelect.appendChild(new Option(info.name, id)); });
   }
-  const sessions = generateSessionOptions();
+  
+  // Use current session from central calendar for options
+  const currentSession = getCurrentSession();
+  const sessions = generateSessionOptionsFromCurrent(currentSession);
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
     sessionSelect.innerHTML = '<option value="">Select Session</option>';
     sessions.forEach(s => { sessionSelect.appendChild(new Option(s, s)); });
+    sessionSelect.value = currentSession;
   }
+  
   const termSelect = document.getElementById('termSelect');
-  if (termSelect) termSelect.innerHTML = '<option value="">Select Term</option><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option>';
+  const currentTerm = getCurrentTerm();
+  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const currentTermNum = termMap[currentTerm] || '1';
+  if (termSelect) {
+    termSelect.innerHTML = '<option value="">Select Term</option><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option>';
+    termSelect.value = currentTermNum;
+  }
+  
   document.getElementById('getDocBtn')?.addEventListener('click', onGetDoc);
   setupSubscriptionUI();
   initSubscriptionListener();

@@ -1,11 +1,12 @@
 // teachers.js - Manage teachers with subscription payment banner, level-based filtering, and validation
+// ✅ FIXED: import getCurrentSchoolId from './admin.js' (not './app.js')
 import { db, auth } from './firebase-config.js';
 import { 
   collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
-import { getCurrentSchoolId } from './app.js';
+import { getCurrentSchoolId } from './admin.js';   // ✅ FIXED
 import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 

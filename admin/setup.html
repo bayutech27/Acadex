@@ -75,6 +75,27 @@
       padding-top: 16px;
       border-top: 1px dashed #cbd5e1;
     }
+
+    /* Academic Calendar Badge */
+    .academic-badge {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 16px;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+    }
   </style>
 </head>
 <body>
@@ -123,6 +144,10 @@
           <div id="schoolAddress" class="school-address"></div>
         </div>
         <div id="academicInfo" class="academic-info"></div>
+        <div id="academicCalendarDisplay" class="academic-badge">
+          <span id="currentTermDisplay">Loading...</span> | 
+          <span id="currentSessionDisplay"></span>
+        </div>
       </div>
       <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
       <button id="logoutBtn" class="logout-btn">Logout</button>
@@ -292,6 +317,7 @@
   import { initSubjects } from '../js/subjects.js';
   import { initClasses } from '../js/classes.js';
   import { initMobileMenu } from '../js/menu.js';
+  import { subscribeToCalendar } from '../js/academic-calendar.js';
 
   protectAdminPage().then(() => {
     loadSchoolInfo();
@@ -301,6 +327,16 @@
     initMobileMenu();
     initSubjects();
     initClasses();
+  });
+
+  // Real‑time academic calendar badge updates
+  subscribeToCalendar((state) => {
+    const termEl = document.getElementById('currentTermDisplay');
+    const sessionEl = document.getElementById('currentSessionDisplay');
+    if (termEl) termEl.textContent = state.currentTerm;
+    if (sessionEl) sessionEl.textContent = state.currentSession;
+    if (state.manualOverride) termEl?.classList.add('override-badge');
+    else termEl?.classList.remove('override-badge');
   });
 </script>
 </body>

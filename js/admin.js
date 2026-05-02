@@ -1,5 +1,6 @@
-// admin.js - Admin dashboard with subscription UI (updated with Paystack + WhatsApp)
-// No changes needed for subject/class level features. Keeping existing fully functional code.
+// admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
+// FULLY INTEGRATED with Central Academic Calendar Engine
+
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
@@ -12,11 +13,23 @@ import {
   isSubscriptionActive,
   handleNewStudentAddition,
   autoLockExpiredSubscriptions,
-  syncAcademicSession,
   getSubscriptionStatus,
   approveExtraStudents
 } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+
+// ========== ACADEMIC CALENDAR IMPORTS ==========
+import { 
+  initAcademicCalendar as initCentralCalendar,
+  getCurrentTerm,
+  getCurrentSession,
+  getTermDates,
+  subscribeToCalendar,
+  adminOverrideCalendar,
+  adminResetToAuto,
+  getAcademicCalendar
+} from './academic-calendar.js';
+import { syncAcademicCalendar, startPeriodicSync } from './calendar-sync.js';
 
 // ------------------- Auth State -------------------
 let currentUser = null;
@@ -63,6 +76,9 @@ export async function getCurrentSchoolId() {
   return currentUserData.schoolId || null;
 }
 
+// Calendar sync periodic timer (cleanup)
+let calendarStopPeriodicSync = null;
+
 // ------------------- Admin Page Protection -------------------
 export async function protectAdminPage() {
   await waitForAuth();
@@ -85,8 +101,13 @@ export async function protectAdminPage() {
     return null;
   }
 
+  // Initialize Central Academic Calendar
   try {
-    await initAcademicCalendar(schoolId);
+    await initCentralCalendar();
+    await syncAcademicCalendar();
+    // Start periodic sync every 30 minutes
+    if (calendarStopPeriodicSync) calendarStopPeriodicSync();
+    calendarStopPeriodicSync = startPeriodicSync(30);
   } catch (err) {
     handleError(err, "Failed to initialize academic calendar.");
   }
@@ -108,18 +129,15 @@ export async function protectAdminPage() {
     access = await enforceAccessGuard(currentUserData, schoolId);
   } catch (err) {
     handleError(err, "Failed to verify access rights.");
-    // ✅ REMOVED REDIRECT – just show banner and continue
     window.__subscriptionExpired = true;
     showSubscriptionExpiredBanner();
     access = { allowed: false, onboardingOnly: true };
   }
   
   if (!access.allowed) {
-    // ✅ Always treat as onboardingOnly – show banner but never redirect
     window.__subscriptionExpired = true;
     showSubscriptionExpiredBanner();
   }
-  // ========== END OF SUBSCRIPTION GUARD MODIFICATION ==========
 
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
@@ -156,7 +174,7 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
-// UPDATED: Payment banner with Paystack (Pay Now) + WhatsApp
+// Payment banner with Paystack (Pay Now) + WhatsApp
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
@@ -274,7 +292,7 @@ export function initSubscriptionUI(schoolId) {
     if (!snap.exists()) return;
     const sub = snap.data();
     await updateFeeDisplay(schoolId, sub);
-    await updatePendingExtraDisplay(schoolId, sub);  // Pass sub to avoid extra fetch
+    await updatePendingExtraDisplay(schoolId, sub);
 
     const isActive = sub.status === 'active' && sub.locked === false;
     if (isActive) {
@@ -324,7 +342,6 @@ async function updateFeeDisplay(schoolId, sub) {
   }
 }
 
-// ========== UPDATED: Pending students notification with payment calculation ==========
 async function updatePendingExtraDisplay(schoolId, sub = null) {
   const pendingContainer = document.getElementById('pendingExtraContainer');
   if (!pendingContainer) return;
@@ -343,14 +360,12 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
     lockedCount = 0;
   }
 
-  // If no locked students, clear the container and exit
   if (lockedCount === 0) {
     pendingContainer.innerHTML = '';
     return;
   }
 
-  // Get cost per student (from subscription sub, or fetch it if not provided)
-  let costPerStudent = 1000; // default
+  let costPerStudent = 1000;
   if (sub && sub.costPerStudent) {
     costPerStudent = sub.costPerStudent;
   } else {
@@ -378,59 +393,46 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
   `;
 }
 
-// ------------------- Academic Calendar -------------------
-export function getCurrentAcademicSessionAndTerm() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  let session = '';
-  let term = '';
-  if (month >= 9) session = `${year}/${year + 1}`;
-  else session = `${year - 1}/${year}`;
-  if (month >= 9 && month <= 12) term = '1';
-  else if (month >= 1 && month <= 4) term = '2';
-  else if (month >= 5 && month <= 8) term = '3';
-  return { session, term };
+// ------------------- Academic Calendar (Central) -------------------
+// These functions now wrap the central engine for compatibility with existing code
+export async function initAcademicCalendar(schoolId) {
+  // schoolId is ignored – central calendar uses Firestore academicCalendar collection
+  await initCentralCalendar();
+  await syncAcademicCalendar();
 }
 
-export async function getAcademicContext(schoolId) {
-  if (!schoolId) throw new Error('No school ID');
-  const schoolRef = doc(db, 'schools', schoolId);
-  const snap = await getDoc(schoolRef);
-  if (!snap.exists()) throw new Error('School document not found');
+export function getCurrentAcademicSessionAndTerm() {
   return {
-    currentSession: snap.data().currentSession,
-    currentTerm: snap.data().currentTerm
+    session: getCurrentSession(),
+    term: getCurrentTerm()
   };
 }
 
-export async function initAcademicCalendar(schoolId) {
+export async function getAcademicContext(schoolId) {
+  await initCentralCalendar();
+  return {
+    currentSession: getCurrentSession(),
+    currentTerm: getCurrentTerm()
+  };
+}
+
+export async function loadAcademicInfo() {
+  const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
-  const schoolRef = doc(db, 'schools', schoolId);
-  const { session: computedSession, term: computedTerm } = getCurrentAcademicSessionAndTerm();
-  const now = new Date();
   try {
-    const schoolSnap = await getDoc(schoolRef);
-    if (!schoolSnap.exists()) {
-      await setDoc(schoolRef, {
-        currentSession: computedSession,
-        currentTerm: computedTerm,
-        lastUpdated: now
-      }, { merge: true });
-      return;
-    }
-    const data = schoolSnap.data();
-    if (data.currentSession !== computedSession || data.currentTerm !== computedTerm) {
-      await updateDoc(schoolRef, {
-        currentSession: computedSession,
-        currentTerm: computedTerm,
-        lastUpdated: now
-      });
-    }
+    await initCentralCalendar();
+    const session = getCurrentSession();
+    const term = getCurrentTerm();
+    const termNames = { 'First Term': 'First Term', 'Second Term': 'Second Term', 'Third Term': 'Third Term' };
+    const academicDiv = document.getElementById('academicInfo');
+    if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
   } catch (err) {
-    handleError(err, "Failed to initialize academic calendar.");
+    console.warn('Could not load academic info', err);
   }
 }
+
+// Export admin override functions for manual calendar control (if needed)
+export { adminOverrideCalendar, adminResetToAuto };
 
 // ------------------- Logo Upload -------------------
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
@@ -474,19 +476,6 @@ async function uploadSchoolLogo(schoolId, file) {
   } catch (error) {
     handleError(error, "Failed to upload logo. Please try again with a smaller image.");
     return null;
-  }
-}
-
-export async function loadAcademicInfo() {
-  const schoolId = await getCurrentSchoolId();
-  if (!schoolId) return;
-  try {
-    const { currentSession, currentTerm } = await getAcademicContext(schoolId);
-    const termNames = { 1: 'First Term', 2: 'Second Term', 3: 'Third Term' };
-    const academicDiv = document.getElementById('academicInfo');
-    if (academicDiv) academicDiv.textContent = `${currentSession || 'N/A'} • ${termNames[currentTerm] || ''}`;
-  } catch (err) {
-    console.warn('Could not load academic info', err);
   }
 }
 
@@ -559,6 +548,8 @@ export function setupLogout() {
   if (!logoutBtn) return;
   logoutBtn.addEventListener('click', async () => {
     try {
+      // Clean up calendar sync timer on logout
+      if (calendarStopPeriodicSync) calendarStopPeriodicSync();
       await logoutUser();
       showNotification("Logged out successfully.", "success");
     } catch (err) {

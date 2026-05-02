@@ -1,4 +1,4 @@
-// auth.js – Full rewrite: creates only schools, users, and subscription on signup
+// auth.js – Full rewrite: integrates Central Academic Calendar for term‑based subscription creation
 import { auth, db } from './firebase-config.js';
 import {
   createUserWithEmailAndPassword,
@@ -20,6 +20,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getUserData, getSchoolById } from './app.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+// ✅ Import central academic calendar for term/session and term dates
+import { calculateTermAndSessionFromDate, getTermDates } from './academic-calendar.js';
 
 function showMessage(message, isError = true) {
   showNotification(message, isError ? "error" : "success");
@@ -51,41 +53,35 @@ async function isEmailAlreadyRegistered(email) {
   }
 }
 
-function getTermDates(term) {
-  const year = new Date().getFullYear();
-  let startDate, endDate;
-  if (term === '1') {
-    startDate = new Date(year, 8, 1);
-    endDate = new Date(year, 11, 31);
-  } else if (term === '2') {
-    startDate = new Date(year, 0, 1);
-    endDate = new Date(year, 3, 30);
-  } else {
-    startDate = new Date(year, 4, 1);
-    endDate = new Date(year, 7, 31);
+// ---------- Helper: get term start/end dates using central calendar ----------
+function getTermStartEndDates(term, session) {
+  // For a given term name ('First Term','Second Term','Third Term') and session (e.g., '2025/2026'),
+  // return { startDate: Date, endDate: Date }.
+  // We'll use calculateTermAndSessionFromDate but we need to determine the correct year from session.
+  const sessionYear = parseInt(session.split('/')[0]); // e.g., 2025
+  let year = sessionYear;
+  let monthStart, dayStart, monthEnd, dayEnd;
+  
+  switch (term) {
+    case 'First Term':
+      monthStart = 8; dayStart = 1;   // September
+      monthEnd = 11; dayEnd = 31;     // December
+      break;
+    case 'Second Term':
+      monthStart = 0; dayStart = 1;    // January
+      monthEnd = 3; dayEnd = 30;       // April 30
+      break;
+    case 'Third Term':
+      monthStart = 4; dayStart = 1;    // May
+      monthEnd = 7; dayEnd = 30;       // August 30
+      break;
+    default:
+      throw new Error('Invalid term');
   }
+  // Note: For terms that span year boundary (First Term), end year is same as start year.
+  const startDate = new Date(Date.UTC(year, monthStart, dayStart));
+  const endDate = new Date(Date.UTC(year, monthEnd, dayEnd));
   return { startDate, endDate };
-}
-
-function getCurrentAcademicSessionAndTerm() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-
-  let session = '';
-  let term = '';
-
-  if (month >= 9) {
-    session = `${year}/${year + 1}`;
-  } else {
-    session = `${year - 1}/${year}`;
-  }
-
-  if (month >= 9 && month <= 12) term = '1';
-  else if (month >= 1 && month <= 4) term = '2';
-  else if (month >= 5 && month <= 8) term = '3';
-
-  return { session, term };
 }
 
 // ---------- Signup (only schools, users, subscription) ----------
@@ -113,11 +109,15 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     // Create Firebase Auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-    const schoolId = user.uid;
+    const schoolId = user.uid; // School document ID = owner's UID
 
-    const { session: currentSession, term: currentTerm } = getCurrentAcademicSessionAndTerm();
-    const { startDate, endDate } = getTermDates(currentTerm);
+    // Get current academic session and term from central calendar
     const now = new Date();
+    const { session: currentSession, term: currentTerm } = calculateTermAndSessionFromDate(now);
+    // Get term dates for the subscription
+    const { startDate, endDate } = getTermStartEndDates(currentTerm, currentSession);
+
+    const nowTimestamp = new Date();
 
     // Use a batch to write the three essential documents atomically
     const batch = writeBatch(db);
@@ -127,12 +127,12 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     batch.set(schoolRef, {
       name: schoolName,
       slug: slug,
-      address: address,
-      status: 'pending',
-      createdAt: now,
+      address: address || '',
+      status: 'pending',           // Will be activated after super‑admin approval
+      createdAt: nowTimestamp,
       currentSession: currentSession,
       currentTerm: currentTerm,
-      lastUpdated: now,
+      lastUpdated: nowTimestamp,
       ownerId: user.uid
     });
 
@@ -142,14 +142,17 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       role: 'admin',
       schoolId: schoolId,
       email: email,
-      createdAt: now
+      createdAt: nowTimestamp
     });
 
-    // 3. Subscription document (subcollection)
+    // 3. Subscription document (subcollection) – initial state: pending, locked
     const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
     batch.set(subRef, {
-      status: 'pending',
-      locked: true,
+      status: 'pending',           // 'pending' until super‑admin approves
+      locked: true,                // locked until subscription is paid for the term
+      term: currentTerm,           // ✅ store the term and session for term‑based expiration
+      session: currentSession,
+      startDate: startDate,
       endDate: endDate,
       plan: 'basic',
       costPerStudent: 1000,
@@ -157,9 +160,9 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       totalStudents: 0,
       extraStudentsPendingApproval: 0,
       totalAmount: 0,
-      startDate: startDate,
-      lastUpdated: now,
-      paymentRef: null
+      lastUpdated: nowTimestamp,
+      paymentRef: null,
+      autoExpired: false
     });
 
     // Commit the batch
@@ -182,12 +185,20 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       errorMessage += error.message;
     }
     showMessage(errorMessage, true);
+    // If user was created but batch failed, delete the auth user? (optional cleanup)
+    if (error.code !== 'auth/email-already-in-use') {
+      try {
+        await userCredential.user.delete();
+      } catch (cleanupErr) {
+        console.warn('Could not delete auth user after failed batch:', cleanupErr);
+      }
+    }
   } finally {
     hideLoader();
   }
 }
 
-// ---------- LOGIN – STRICT ROLE REDIRECT ----------
+// ---------- LOGIN – STRICT ROLE REDIRECT (using relative paths) ----------
 export async function loginUser(email, password) {
   showLoader();
   try {
@@ -222,8 +233,10 @@ export async function loginUser(email, password) {
     let errorMessage = 'Login failed. ';
     if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
       errorMessage += 'Invalid email or password.';
-    }else {
-      errorMessage = 'Login failed due to network failure.' ;
+    } else if (error.message === 'Network error') {
+      errorMessage = 'Login failed due to network failure.';
+    } else {
+      errorMessage += error.message;
     }
     showMessage(errorMessage, true);
   } finally {
@@ -263,7 +276,7 @@ export async function resetPassword(email) {
   }
 }
 
-// ---------- PAGE INITIALIZERS ----------
+// ---------- PAGE INITIALIZERS (unchanged, but ensure redirect paths are correct) ----------
 export function initLoginPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -380,6 +393,7 @@ export function initResetPasswordPage() {
   }
 }
 
+// ---------- Dashboard helpers (unchanged) ----------
 export async function initAdminDashboard() {
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
