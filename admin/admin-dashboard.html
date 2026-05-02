@@ -96,67 +96,23 @@
       color: white;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    .payment-banner-content {
-      flex: 2;
-    }
-    .payment-banner h3 {
-      margin: 0 0 8px 0;
-      font-size: 1.25rem;
-    }
-    .payment-banner p {
-      margin: 0;
-      opacity: 0.9;
-    }
-    .payment-buttons {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .paystack-btn {
-      background: #00b3f0;
-      color: white;
-      border: none;
-      padding: 10px 24px;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s;
-      font-size: 1rem;
-    }
-    .paystack-btn:hover {
-      transform: scale(1.02);
-      background: #0095cc;
-    }
-    .whatsapp-btn {
-      background: #25D366;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      transition: transform 0.2s;
-      text-decoration: none;
-    }
-    .whatsapp-btn:hover {
-      transform: scale(1.02);
-      background: #128C7E;
-    }
-    .whatsapp-icon {
-      font-size: 1.2rem;
-      font-weight: bold;
-    }
+    .payment-banner-content { flex: 2; }
+    .payment-banner h3 { margin: 0 0 8px 0; font-size: 1.25rem; }
+    .payment-banner p { margin: 0; opacity: 0.9; }
+    .payment-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
+    .paystack-btn { background: #00b3f0; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s; font-size: 1rem; }
+    .paystack-btn:hover { transform: scale(1.02); background: #0095cc; }
+    .whatsapp-btn { background: #25D366; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: transform 0.2s; text-decoration: none; }
+    .whatsapp-btn:hover { transform: scale(1.02); background: #128C7E; }
+    .whatsapp-icon { font-size: 1.2rem; font-weight: bold; }
     @media (max-width: 768px) {
-      .payment-banner {
-        flex-direction: column;
-        text-align: center;
-        gap: 16px;
-      }
-      .payment-buttons {
-        justify-content: center;
+      .payment-banner { flex-direction: column; text-align: center; gap: 16px; }
+      .payment-buttons { justify-content: center; }
+    }
+    /* Hide hamburger on desktop (screen width > 768px) */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
       }
     }
   </style>
@@ -192,13 +148,15 @@
       <a href="results.html">Results</a>
       <a href="records.html">Records</a>
     </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
     <header class="header">
-      <button class="hamburger-menu" aria-label="Menu">☰</button>
-      <div class="school-header">
+      <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon">📷</div>
@@ -208,15 +166,20 @@
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
-     
-        <div id="academicCalendarDisplay" class="academic-badge">
-          <span id="currentTermDisplay">Loading...</span> | 
-          <span id="currentSessionDisplay"></span>
-        </div>
       </div>
-      <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-      <button id="logoutBtn" class="logout-btn">Logout</button>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
     </header>
+
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
 
     <div class="content">
       <div id="paymentBannerContainer"></div>
@@ -246,30 +209,35 @@
         </div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
   </main>
 </div>
 
-<!-- Single script module – no duplicate imports -->
 <script type="module">
-  import { 
-    protectAdminPage, loadSchoolInfo, loadDashboardCounts, 
-    setupSidebar, setupLogout, setupLogoUpload 
-  } from '../js/admin.js';
+  import { protectAdminPage, loadSchoolInfo, loadDashboardCounts, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
-  // Protect page first
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
+
   protectAdminPage().then(async () => {
-    // All calendar init and sync already done inside protectAdminPage
     loadSchoolInfo();
     loadDashboardCounts();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
     initMobileMenu();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
   });
 
-  // Subscribe to real-time calendar updates for the badge display
   subscribeToCalendar((state) => {
     const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');

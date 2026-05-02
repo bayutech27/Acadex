@@ -6,49 +6,84 @@
   <title>Acadex - Teacher Dashboard</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
+    /* Enhanced card styles */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin: 2rem 0;
+    }
     .clickable-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      transition: all 0.2s ease;
       cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
+      text-align: center;
+      border: 1px solid #e2e8f0;
     }
     .clickable-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+      transform: translateY(-4px);
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      border-color: #cbd5e1;
+    }
+    .card-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: #1e293b;
+    }
+    .card-desc {
+      font-size: 0.875rem;
+      color: #64748b;
+      line-height: 1.4;
     }
     .disabled-card {
       opacity: 0.6;
-      cursor: not-allowed !important;
+      cursor: not-allowed;
       pointer-events: none;
+      filter: grayscale(0.1);
     }
-    .school-address {
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-top: 4px;
+    .disabled-card:hover {
+      transform: none;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
     }
 
-    /* Academic Calendar Badge */
-    .academic-badge {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: 16px;
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
     }
-    .academic-badge .override-badge {
-      background: #f59e0b;
-      color: #000;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-size: 0.7rem;
+
+    @media (max-width: 640px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+      .clickable-card {
+        padding: 1.25rem;
+      }
+      .card-icon {
+        font-size: 2.5rem;
+      }
+      .card-title {
+        font-size: 1.25rem;
+      }
+      .card-desc {
+        font-size: 0.8rem;
+      }
     }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
+  <!-- Desktop Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -60,6 +95,7 @@
     </nav>
   </aside>
 
+  <!-- Mobile Sidebar -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -70,13 +106,16 @@
       <a href="class.html">Class</a>
       <a href="scores.html">Scores</a>
     </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
+    <!-- Header -->
     <header class="header">
-      <button class="hamburger-menu" aria-label="Menu">☰</button>
-      <div class="school-header">
+      <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon">📷</div>
@@ -86,14 +125,21 @@
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
-        
-        <div id="academicCalendarDisplay" class="academic-badge">
-          <span id="currentTermDisplay">Loading...</span> | 
-          <span id="currentSessionDisplay"></span>
-        </div>
       </div>
-      <button id="logoutBtn" class="logout-btn">Logout</button>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge"></div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
     </header>
+
+    <!-- Academic Badge Row -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
 
     <div class="content">
       <div class="welcome-card">
@@ -114,6 +160,10 @@
         </div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
   </main>
 </div>
 
@@ -129,6 +179,8 @@
   } from '../js/teacher-dashboard.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
 
   protectTeacherPage().then(async ({ teacherName }) => {
     displayTeacherName(teacherName);
@@ -159,9 +211,14 @@
     }
 
     document.getElementById('scoresCard').addEventListener('click', () => { window.location.href = 'scores.html'; });
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
   });
 
-  // Real‑time academic calendar badge updates
   subscribeToCalendar((state) => {
     const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');

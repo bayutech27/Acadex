@@ -1,4 +1,4 @@
-// scores.js - Teacher score entry with real‑time subscription lock
+// scores.js - Teacher score entry with real‑time subscription lock + responsive horizontal scroll
 import { db, auth } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
@@ -324,7 +324,7 @@ async function renderScoreTable() {
     return;
   }
 
-  let html = `<table class="scores-table">
+  let tableHtml = `<table class="scores-table">
     <thead>
       <tr><th>Student Name</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total</th><th>Status</th></tr>
     </thead>
@@ -337,7 +337,7 @@ async function renderScoreTable() {
     const isLocked = student.locked === true;
     const disabledAttr = (!isScoreEntryAllowed || isLocked) ? 'disabled' : '';
     const statusText = isLocked ? '🔒 Not Approved' : '✅ Approved';
-    html += `<tr data-student-id="${student.id}" data-locked="${isLocked}" data-student-name="${escapeHtml(student.name)}">
+    tableHtml += `<tr data-student-id="${student.id}" data-locked="${isLocked}" data-student-name="${escapeHtml(student.name)}">
       <td>${escapeHtml(student.name)}</td>
       <td><input type="number" class="score-input ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${disabledAttr}></td>
       <td><input type="number" class="score-input exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${disabledAttr}></td>
@@ -345,8 +345,11 @@ async function renderScoreTable() {
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
-  html += `</tbody>${'赶'}`;
-  container.innerHTML = html;
+  tableHtml += `</tbody>${'赶'}`;
+  
+  // Wrap table in responsive container to enable horizontal scrolling
+  const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
+  container.innerHTML = wrapperHtml;
 
   if (isScoreEntryAllowed) {
     document.querySelectorAll('.ca-input:not([disabled]), .exam-input:not([disabled])').forEach(input => {

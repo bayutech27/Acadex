@@ -67,6 +67,47 @@ h1, h2, h3, h4, h5, h6 {
   text-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
+/* ✨ FIX 1: Force Acadex brand – immune to report card overrides ✨ */
+.sidebar-header .acadex-brand,
+.mobile-sidebar-header .acadex-brand {
+  background: none !important;
+  color: white !important;
+}
+.sidebar-header .acadex-brand .acadex-a,
+.mobile-sidebar-header .acadex-brand .acadex-a {
+  background: linear-gradient(135deg, var(--primary), var(--accent)) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  color: transparent !important;
+  display: inline-block !important;
+}
+
+/* ✨ FIX 2: School name gradient – never lost ✨ */
+.school-name h1 {
+  font-size: 2rem;
+  background: linear-gradient(135deg, var(--primary), var(--accent)) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  color: transparent !important;
+  display: inline-block !important;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* ✨ FIX 3: Mobile sidebar close button (X) – always white ✨ */
+.close-sidebar {
+  color: white !important;
+  background: none !important;
+  border: none !important;
+  font-size: 1.5rem !important;
+  cursor: pointer !important;
+  transition: var(--transition) !important;
+}
+.close-sidebar:hover {
+  color: white !important;
+  opacity: 0.8 !important;
+}
+
 /* Dashboard Layout */
 .dashboard-container {
   display: flex;
@@ -109,23 +150,32 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
-  color: var(--gray-300);
   text-decoration: none;
   transition: var(--transition);
   font-weight: 500;
   border-left: 3px solid transparent;
 }
 
-.sidebar-nav a:hover {
-  background: var(--gray-800);
-  color: white;
-  border-left-color: var(--primary);
+/* ✨ FIX 4: Sidebar link colors – immune to report card overrides ✨ */
+.sidebar-nav a,
+.sidebar-nav a:link,
+.sidebar-nav a:visited,
+.mobile-sidebar .sidebar-nav a,
+.mobile-sidebar .sidebar-nav a:link,
+.mobile-sidebar .sidebar-nav a:visited {
+  color: var(--gray-300) !important;
 }
-
-.sidebar-nav a.active {
-  background: var(--gray-800);
-  color: white;
-  border-left-color: var(--primary);
+.sidebar-nav a:hover,
+.mobile-sidebar .sidebar-nav a:hover {
+  color: white !important;
+  background-color: var(--gray-800) !important;
+  border-left-color: var(--primary) !important;
+}
+.sidebar-nav a.active,
+.mobile-sidebar .sidebar-nav a.active {
+  color: white !important;
+  background-color: var(--gray-800) !important;
+  border-left-color: var(--primary) !important;
 }
 
 /* Main Content */
@@ -137,47 +187,52 @@ h1, h2, h3, h4, h5, h6 {
   overflow-x: hidden;
   width: 100%;
   max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
-/* Header */
+/* Header – two‑row layout */
 .header {
   background: white;
   padding: 0.75rem 1.5rem;
   box-shadow: var(--shadow);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   position: sticky;
   top: 0;
   z-index: 50;
-  flex-wrap: wrap;
-  gap: 1rem;
 }
 
-.school-header {
+.school-header-left {
   display: flex;
   align-items: center;
   gap: 1rem;
-  flex-wrap: wrap;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+/* School logo (desktop only) */
 .school-logo {
   position: relative;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   flex-shrink: 0;
+  border: 3px solid var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
-
 .logo-circle {
   width: 100%;
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
   background: var(--gray-200);
-  border: 2px solid white;
-  box-shadow: var(--shadow-sm);
 }
-
 .camera-icon {
   position: absolute;
   bottom: 0;
@@ -199,17 +254,60 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--primary-dark);
 }
 
-.school-name h1 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-
-.academic-info {
-  font-size: 0.75rem;
+/* School address (desktop only) */
+.school-address {
+  font-size: 0.8rem;
   color: var(--gray-500);
   margin-top: 0.125rem;
 }
 
+/* Academic badge row (below header) */
+.academic-badge-row {
+  background: white;
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid var(--gray-200);
+  border-bottom: 1px solid var(--gray-200);
+}
+.academic-badge {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.academic-badge .override-badge {
+  background: #f59e0b;
+  color: #000;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+}
+
+/* Subscription badge */
+.subscription-badge {
+  font-weight: bold;
+  font-size: 0.9rem;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.subscription-badge.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+.subscription-badge.expired {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Logout button (desktop) – hidden on mobile via CSS */
 .logout-btn {
   background: var(--danger);
   color: white;
@@ -225,9 +323,8 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(-1px);
 }
 
-/* Hamburger Menu (mobile) */
+/* Hamburger menu (mobile) */
 .hamburger-menu {
-  display: none;
   background: none;
   border: none;
   font-size: 1.75rem;
@@ -236,11 +333,13 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0.25rem;
   line-height: 1;
   transition: var(--transition);
+  display: block;
 }
 .hamburger-menu:hover {
   color: var(--primary);
 }
 
+/* Mobile Sidebar */
 .mobile-sidebar {
   position: fixed;
   top: 0;
@@ -269,29 +368,32 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: bold;
   color: white;
 }
-.close-sidebar {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-  color: var(--gray-400);
-  transition: var(--transition);
-}
-.close-sidebar:hover {
-  color: white;
-}
 .mobile-sidebar .sidebar-nav {
   padding: 1rem 0;
+  flex: 1;
 }
 .mobile-sidebar .sidebar-nav a {
-  color: var(--gray-300);
   padding: 0.75rem 1.5rem;
   border-left: none;
 }
-.mobile-sidebar .sidebar-nav a:hover,
-.mobile-sidebar .sidebar-nav a.active {
-  background: var(--gray-800);
+.mobile-logout-wrapper {
+  margin-top: auto;
+  padding: 1rem;
+  border-top: 1px solid var(--gray-700);
+}
+.mobile-logout-btn {
+  width: 100%;
+  background: var(--danger);
   color: white;
+  border: none;
+  padding: 0.6rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.mobile-logout-btn:hover {
+  background: var(--danger-dark);
 }
 
 .overlay {
@@ -317,6 +419,18 @@ h1, h2, h3, h4, h5, h6 {
   overflow-x: hidden;
   width: 100%;
   max-width: 100%;
+  flex: 1;
+}
+
+/* Footer */
+.app-footer {
+  background: white;
+  border-top: 1px solid var(--gray-200);
+  padding: 1rem 1.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--gray-500);
+  margin-top: auto;
 }
 
 /* Cards & Welcome */
@@ -463,9 +577,8 @@ h1, h2, h3, h4, h5, h6 {
   margin: 1rem 0;
   border-radius: var(--border-radius);
   border: 1px solid var(--gray-200);
-  -webkit-overflow-scrolling: touch; /* smooth scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
 }
-
 .table-responsive-wrapper table {
   width: 100%;
   min-width: 600px;
@@ -474,13 +587,10 @@ h1, h2, h3, h4, h5, h6 {
 
 .data-table,
 .scores-table,
-.broadsheet-table,
-.subjects-table,
-.classes-table {
+.broadsheet-table {
   background: white;
   font-size: 0.875rem;
 }
-
 .data-table th,
 .data-table td,
 .scores-table th,
@@ -491,17 +601,12 @@ h1, h2, h3, h4, h5, h6 {
   text-align: left;
   border-bottom: 1px solid var(--gray-200);
 }
-
 .data-table th,
 .scores-table th,
 .broadsheet-table th {
   background: var(--gray-100);
   font-weight: 600;
   color: var(--gray-700);
-}
-
-.table-responsive-wrapper:not(:first-child) {
-  margin-top: 1rem;
 }
 
 /* Report Card specific */
@@ -733,22 +838,13 @@ body:not(.dashboard-container) .container {
   background: var(--primary-dark);
 }
 
-/* Images / Media - prevent overflow */
+/* Images / Media */
 img, iframe, video, canvas, svg {
   max-width: 100%;
   height: auto;
 }
 
-/* Responsive */
-@media (max-width: 992px) {
-  .sidebar {
-    width: 240px;
-  }
-  .main-content {
-    margin-left: 240px;
-  }
-}
-
+/* ========== RESPONSIVE – MOBILE OVERRIDES ========== */
 @media (max-width: 768px) {
   .sidebar {
     display: none;
@@ -756,14 +852,58 @@ img, iframe, video, canvas, svg {
   .main-content {
     margin-left: 0;
   }
-  .hamburger-menu {
-    display: block;
-  }
   .content {
     padding: 1rem;
   }
+  /* Stack header rows vertically */
   .header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     padding: 0.75rem 1rem;
+  }
+  .school-header-left {
+    justify-content: center;
+    margin-bottom: 0.5rem;
+  }
+  /* Hide desktop logout button */
+  .logout-btn {
+    display: none !important;
+  }
+  /* Make hamburger bigger */
+  .hamburger-menu {
+    font-size: 2rem !important;
+    padding: 0.5rem !important;
+  }
+  /* Center school name, bigger */
+  .school-name {
+    text-align: center;
+    width: 100%;
+  }
+  .school-name h1 {
+    font-size: 1.8rem !important;
+    text-align: center;
+  }
+  /* Hide logo and address on mobile */
+  .school-logo,
+  .school-address {
+    display: none !important;
+  }
+  /* Right group: hamburger left, badge right */
+  .header-right {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
+  .subscription-badge {
+    margin-left: auto;
+    margin-right: 0;
+  }
+  /* Academic badge row centered */
+  .academic-badge-row {
+    text-align: center;
+    justify-content: center;
   }
   .stats-grid {
     grid-template-columns: 1fr;
@@ -783,19 +923,11 @@ img, iframe, video, canvas, svg {
 }
 
 @media (max-width: 480px) {
-  .school-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .school-logo {
-    width: 40px;
-    height: 40px;
-  }
   .school-name h1 {
-    font-size: 1rem;
+    font-size: 1.5rem !important;
   }
-  .academic-info {
-    font-size: 0.7rem;
+  .hamburger-menu {
+    font-size: 1.8rem !important;
   }
   .welcome-card h1 {
     font-size: 1.25rem;

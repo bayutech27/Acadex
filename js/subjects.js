@@ -1,4 +1,5 @@
 // subjects.js - Manage subjects with Primary/Secondary levels, manual entry, and formatting
+// MODIFIED: Subjects table now wrapped in .table-responsive-wrapper for horizontal scrolling on mobile
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';  // ✅ FIXED: import from admin.js (not app.js)
@@ -41,18 +42,26 @@ async function loadSubjects() {
       return;
     }
     
-    let html = '<h3>Existing Subjects</h3><table class="data-table"><thead><tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th></tr></thead><tbody>';
+    // Build table HTML
+    let tableHtml = `<table class="data-table">
+      <thead>
+        <tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th></tr>
+      </thead>
+      <tbody>`;
     for (const sub of subjects) {
       const levelDisplay = sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—');
-      html += `<tr>
+      tableHtml += `<tr>
         <td>${escapeHtml(sub.name)}</td>
         <td>${escapeHtml(sub.code || '-')}</td>
         <td>${levelDisplay}</td>
         <td><button class="btn-danger" onclick="window.deleteSubject('${sub.id}')">Delete</button></td>
       </tr>`;
     }
-    html += '</tbody></table>';
-    container.innerHTML = html;
+    tableHtml += `</tbody>${'赶'}`;
+    
+    // Wrap table in responsive horizontal scroll container
+    const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
+    container.innerHTML = wrapperHtml;
     
     window.deleteSubject = async (id) => {
       if (confirm('Delete this subject?')) {

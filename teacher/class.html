@@ -6,7 +6,7 @@
   <title>Acadex - Class Report Card</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ========== BASE REPORT CARD STYLES (unchanged) ========== */
+    /* Original report card styles (kept unchanged) */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column;
@@ -117,42 +117,26 @@
     .print-value { display: none; }
     .action-buttons { margin-top: 12px; display: flex; gap: 10px; padding: 0 8px 8px; }
 
-    /* ========== ATTENDANCE TABLE ========== */
     .attendance-section { margin: 8px 8px 4px 8px; }
     .attendance-table {
-      width: 40%;
-      border-collapse: collapse;
-      font-size: 10px;
-      margin: 6px 0;
-      margin-left: 0;
+      width: 40%; border-collapse: collapse; font-size: 10px; margin: 6px 0; margin-left: 0;
     }
     .attendance-table td {
-      border: 1px solid #cbd5e1;
-      padding: 6px 8px;
-      vertical-align: middle;
+      border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: middle;
     }
     .attendance-label {
-      font-weight: 600;
-      background-color: #f8fafc;
-      width: 50%;
+      font-weight: 600; background-color: #f8fafc; width: 50%;
     }
     .attendance-input-cell { text-align: center; }
     .attendance-input {
-      width: 80px;
-      padding: 4px;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
-      font-size: 10px;
-      text-align: center;
+      width: 80px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;
+      font-size: 10px; text-align: center;
     }
     .attendance-value { display: none; }
 
-    /* ========== LAYOUT GRID ========== */
     .report-main-grid {
-      display: grid;
-      grid-template-columns: 70% 30%;
-      gap: 12px;
-      margin: 8px 8px;
+      display: grid; grid-template-columns: 70% 30%;
+      gap: 12px; margin: 8px 8px;
     }
     .subject-table-col { width: 100%; }
     .subject-table th, .subject-table td {
@@ -184,7 +168,6 @@
       margin-right: auto;
     }
 
-    /* ========== BROADSHEET & PAGE LAYOUT ========== */
     .broadsheet-section {
       background: white; border-radius: 12px; padding: 20px; margin-bottom: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -230,7 +213,6 @@
       color: #1e293b; border-left: 5px solid #3b82f6; padding-left: 15px;
     }
 
-    /* Academic Calendar Badge */
     .academic-badge {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -251,7 +233,13 @@
       font-size: 0.7rem;
     }
 
-    /* ========== PRINT STYLES – OPTIMISED FOR ONE PAGE ========== */
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
+    }
+
     @media print {
       .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
       .action-buttons, .attendance-input {
@@ -304,9 +292,6 @@
       .skills-table {
         font-size: 7px;
         margin: 0;
-      }
-      .skills-table th, .skills-table td {
-        padding: 2px 2px;
       }
       .summary-grading-wrapper {
         margin: 4px 4px;
@@ -396,13 +381,16 @@
       <a href="class.html" class="active">Class Reports</a>
       <a href="scores.html">Scores</a>
     </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
+    <!-- Header -->
     <header class="header">
-      <button class="hamburger-menu" aria-label="Menu">☰</button>
-      <div class="school-header">
+      <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon">📷</div>
@@ -412,14 +400,21 @@
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
-       
-        <div id="academicCalendarDisplay" class="academic-badge">
-          <span id="currentTermDisplay">Loading...</span> | 
-          <span id="currentSessionDisplay"></span>
-        </div>
       </div>
-      <button id="logoutBtn" class="logout-btn">Logout</button>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge"></div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
     </header>
+
+    <!-- Academic Badge Row -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
 
     <div class="content">
       <!-- BROADSHEET SECTION -->
@@ -460,7 +455,7 @@
             <button id="refreshStudentsBtn" class="btn-secondary" style="padding: 4px 12px;">⟳ Refresh</button>
           </div>
           <h3 style="font-size: 1rem;">🎓 Students</h3>
-          <div id="studentListContainer"><p>Loading...</p></div>
+          <div id="studentListContainer"><p></p></div>
         </div>
         <div class="report-card-area">
           <div id="reportCardContent" class="report-card"><p style="text-align:center; padding:2rem;">Select a student</p></div>
@@ -470,6 +465,10 @@
         </div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
   </main>
 </div>
 
@@ -478,7 +477,9 @@
   import { initClassReportPage } from '../js/class.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
-  
+
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
+
   protectTeacherPage().then(async () => {
     const isClassTeacher = await checkClassTeacherStatus();
     if (!isClassTeacher) { alert('Not a class teacher.'); window.location.href = 'teacher-dashboard.html'; return; }
@@ -488,9 +489,14 @@
     setupLogoUpload();
     initMobileMenu();
     initClassReportPage();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
   });
 
-  // Real‑time academic calendar badge updates
   subscribeToCalendar((state) => {
     const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');

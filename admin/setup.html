@@ -6,6 +6,7 @@
   <title>Acadex - Subjects & Classes</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
+    /* ========== PAGE-SPECIFIC STYLES (kept exactly as original) ========== */
     .two-columns {
       display: flex;
       gap: 32px;
@@ -33,18 +34,6 @@
       font-size: 0.8rem;
       color: #64748b;
       margin-top: 4px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-    }
-    .school-header {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
     }
     .subscription-badge {
       margin-left: auto;
@@ -127,13 +116,16 @@
       <a href="results.html">Results</a>
       <a href="records.html">Records</a>
     </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
+    <!-- Header: first row with school name, hamburger, logout -->
     <header class="header">
-      <button class="hamburger-menu" aria-label="Menu">☰</button>
-      <div class="school-header">
+      <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon">📷</div>
@@ -143,15 +135,21 @@
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
-       
-        <div id="academicCalendarDisplay" class="academic-badge">
-          <span id="currentTermDisplay">Loading...</span> | 
-          <span id="currentSessionDisplay"></span>
-        </div>
       </div>
-      <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-      <button id="logoutBtn" class="logout-btn">Logout</button>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
     </header>
+
+    <!-- Second row: academic badge -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
 
     <div class="content">
       <div class="welcome-card">
@@ -309,6 +307,10 @@
         </div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
   </main>
 </div>
 
@@ -319,6 +321,8 @@
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
+
   protectAdminPage().then(() => {
     loadSchoolInfo();
     setupSidebar();
@@ -327,9 +331,14 @@
     initMobileMenu();
     initSubjects();
     initClasses();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
   });
 
-  // Real‑time academic calendar badge updates
   subscribeToCalendar((state) => {
     const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');

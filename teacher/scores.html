@@ -6,6 +6,7 @@
   <title>Acadex - Enter Scores</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
+    /* Original scores page styles */
     .scores-container {
       background: white;
       border-radius: 12px;
@@ -88,8 +89,6 @@
       color: #64748b;
       margin-top: 4px;
     }
-
-    /* Academic Calendar Badge */
     .academic-badge {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -109,10 +108,18 @@
       border-radius: 12px;
       font-size: 0.7rem;
     }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
+  <!-- Desktop Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -124,6 +131,7 @@
     </nav>
   </aside>
 
+  <!-- Mobile Sidebar -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -134,13 +142,16 @@
       <a href="class.html">Class Reports</a>
       <a href="scores.html" class="active">Scores</a>
     </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
+    <!-- Header -->
     <header class="header">
-      <button class="hamburger-menu" aria-label="Menu">☰</button>
-      <div class="school-header">
+      <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon">📷</div>
@@ -150,14 +161,21 @@
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
-       
-        <div id="academicCalendarDisplay" class="academic-badge">
-          <span id="currentTermDisplay">Loading...</span> | 
-          <span id="currentSessionDisplay"></span>
-        </div>
       </div>
-      <button id="logoutBtn" class="logout-btn">Logout</button>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge"></div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
     </header>
+
+    <!-- Academic Badge Row -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
 
     <div class="content">
       <div class="welcome-card">
@@ -176,6 +194,10 @@
         <div class="action-buttons"><button id="saveScoresBtn" class="btn-primary">💾 Save Scores</button></div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
   </main>
 </div>
 
@@ -185,6 +207,8 @@
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
+
   protectTeacherPage().then(() => {
     loadSchoolInfo();
     setupSidebar();
@@ -192,6 +216,12 @@
     setupLogoUpload();
     initMobileMenu();
     initScoresPage();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
   }).catch(err => {
     console.error("Failed to protect page:", err);
     const container = document.getElementById('scoresContainer');

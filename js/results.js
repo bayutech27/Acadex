@@ -1,11 +1,12 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
-// FULLY INTEGRATED with Central Academic Calendar Engine
+// FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
+// Subscription is considered ACTIVE only if status === 'active' AND locked !== true
 
 import { db } from './firebase-config.js';
-import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { canEnterScores } from './plan.js';
+import { onSubscriptionChange } from './plan.js';   // raw subscription listener
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -16,7 +17,7 @@ let studentsList = [];
 let subjectsMap = new Map();
 let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
-let isSubscriptionAllowed = false;
+let isSubscriptionActive = false;      // raw subscription status (status='active' && locked !== true)
 let unsubscribeSub = null;
 
 let editorState = {
@@ -97,7 +98,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>}</table>`;
+  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>}@`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -219,7 +220,6 @@ async function loadGradingSetting(session, term, level = 'secondary') {
     if (docSnap.exists()) grading = docSnap.data().grading;
     const [ca, exam] = grading.split('/').map(Number);
     currentGrading = { ca, exam };
-    // Also update UI selects if present
     if (level === 'secondary') {
       const gradingSelect = document.getElementById('gradingSelect');
       if (gradingSelect) gradingSelect.value = grading;
@@ -231,7 +231,7 @@ async function loadGradingSetting(session, term, level = 'secondary') {
 }
 
 async function saveGradingSetting(level = 'secondary') {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     alert('Subscription inactive. Cannot save grading settings.');
     return;
   }
@@ -290,7 +290,7 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
       stat.classAverage = avg.toFixed(1);
       let rank = 1;
       for (let i = 0; i < stat.totals.length; i++) {
-        if (i > 0 && stat.totals[i].total < stat.totals[i - 1].total) rank = i + 1;
+        if (i > 0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
         stat.rankMap.set(stat.totals[i].studentId, rank);
       }
     }
@@ -337,7 +337,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
 
 // ------------------- Report Card Rendering -------------------
 async function renderReportCard(studentId, studentName) {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
     container.innerHTML = `<div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;"><h3>⚠️ Subscription Required</h3><p>Report cards are unavailable because the school subscription is inactive.</p><p>Please contact your administrator to renew.</p></div>`;
     document.getElementById('reportActions').style.display = 'none';
@@ -362,7 +362,6 @@ async function renderReportCard(studentId, studentName) {
   };
   const student = studentsList.find(s => s.id === studentId) || {};
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
-  // Filter scores by subjects relevant to class level (optional)
   const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
   const scoresWithNames = scoresRaw.filter(s => relevantSubjectIds.includes(s.subjectId)).map(score => ({
     subjectId: score.subjectId,
@@ -385,10 +384,7 @@ async function renderReportCard(studentId, studentName) {
     passport: student.passport || null
   };
 
-  const comments = {
-    teacherComment: editorState.teacherComment,
-    principalComment: editorState.principalComment
-  };
+  const comments = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
   const attendance = editorState.attendance || { schoolOpened: 0, present: 0, absent: 0 };
 
   renderReportCardUI({
@@ -437,7 +433,7 @@ async function loadExistingEditorReport(studentId) {
 }
 
 async function saveEditorReport() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     alert('Cannot save report – subscription inactive.');
     return;
   }
@@ -620,7 +616,7 @@ function handlePrint() {
 
 // ------------------- BROADSHEET ENGINE -------------------
 async function generateBroadsheet() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
     container.innerHTML = `<div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;"><h3>⚠️ Subscription Required</h3><p>Broadsheets are unavailable because the school subscription is inactive.</p></div>`;
     document.getElementById('broadsheetActions').style.display = 'none';
@@ -775,7 +771,7 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     alert('Cannot save broadsheet – subscription inactive.');
     return;
   }
@@ -936,8 +932,9 @@ async function onEditorFilterChange() {
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
-// ========== SUBSCRIPTION PAYMENT BANNER ==========
-function injectSubscriptionUI() {
+// ---------- Unified subscription UI update (shows/hides payment banner & toggles buttons) ----------
+function updateSubscriptionUI() {
+  // 1. Payment banner container – create if needed
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');
     if (contentDiv) {
@@ -947,69 +944,66 @@ function injectSubscriptionUI() {
       contentDiv.insertBefore(paymentDiv, contentDiv.firstChild);
     }
   }
-}
-
-function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
-  if (!container) return;
-  const existing = document.getElementById('paymentBanner');
-  if (existing) existing.remove();
-
-  const banner = document.createElement('div');
-  banner.id = 'paymentBanner';
-  banner.className = 'payment-banner';
-  banner.innerHTML = `
-    <div class="payment-banner-content">
-      <h3>💰 Activate Your Subscription</h3>
-      <p>Pay securely online with your ATM card via Paystack, or contact us on WhatsApp for assistance.</p>
-    </div>
-    <div class="payment-buttons">
-      <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now (Card/Online)</button>
-      <a id="whatsappLink" href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">
-        <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-          <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91zm0 2c4.4 0 7.91 3.51 7.91 7.91 0 4.4-3.51 7.91-7.91 7.91-1.43 0-2.78-.38-3.97-1.07l-.6-.34-3.11.82.83-3.04-.34-.6c-.7-1.2-1.07-2.55-1.07-3.97 0-4.4 3.51-7.91 7.91-7.91zM8.53 7.5c-.18 0-.48.07-.73.33-.26.26-.95.93-.95 2.28 0 1.35.98 2.66 1.12 2.84.14.18 1.88 2.98 4.56 4.07.64.26 1.14.42 1.53.54.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.26-.18-.55-.31-.29-.13-1.7-.84-1.96-.94-.26-.1-.45-.15-.64.15-.19.3-.73.94-.9 1.13-.17.19-.34.21-.63.07-.29-.13-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.61-1.99-.17-.29-.02-.45.13-.59.13-.13.29-.34.44-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.03-.51-.08-.15-.64-1.54-.88-2.11-.23-.56-.46-.48-.64-.49h-.55z"/>
-        </svg>
-        09044784225 (WhatsApp)
-      </a>
-    </div>
-  `;
-  container.appendChild(banner);
-
-  const payBtn = document.getElementById('paystackPaymentBtn');
-  if (payBtn) {
-    payBtn.addEventListener('click', () => {
-      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
-    });
-  }
-}
-
-function hidePaymentBanner() {
-  const banner = document.getElementById('paymentBanner');
-  if (banner) banner.remove();
-}
-
-async function setupSubscriptionUI() {
-  injectSubscriptionUI();
-  hidePaymentBanner();
-}
-
-async function initSubscriptionListener() {
-  if (!currentSchoolId) return;
-  if (unsubscribeSub) unsubscribeSub();
-  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-  unsubscribeSub = onSnapshot(subRef, (snap) => {
-    if (!snap.exists()) {
-      showPaymentBanner();
-      return;
-    }
-    const sub = snap.data();
-    const isActive = sub.status === 'active' && sub.locked === false;
-    if (isActive) {
-      hidePaymentBanner();
+  if (container) {
+    if (!isSubscriptionActive) {
+      if (!document.getElementById('paymentBanner')) {
+        const banner = document.createElement('div');
+        banner.id = 'paymentBanner';
+        banner.className = 'payment-banner';
+        banner.innerHTML = `
+          <div class="payment-banner-content">
+            <h3>💰 Activate Your Subscription</h3>
+            <p>Pay securely online with your ATM card via Paystack, or contact us on WhatsApp for assistance.</p>
+          </div>
+          <div class="payment-buttons">
+            <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now (Card/Online)</button>
+            <a id="whatsappLink" href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">
+              <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91zm0 2c4.4 0 7.91 3.51 7.91 7.91 0 4.4-3.51 7.91-7.91 7.91-1.43 0-2.78-.38-3.97-1.07l-.6-.34-3.11.82.83-3.04-.34-.6c-.7-1.2-1.07-2.55-1.07-3.97 0-4.4 3.51-7.91 7.91-7.91zM8.53 7.5c-.18 0-.48.07-.73.33-.26.26-.95.93-.95 2.28 0 1.35.98 2.66 1.12 2.84.14.18 1.88 2.98 4.56 4.07.64.26 1.14.42 1.53.54.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.26-.18-.55-.31-.29-.13-1.7-.84-1.96-.94-.26-.1-.45-.15-.64.15-.19.3-.73.94-.9 1.13-.17.19-.34.21-.63.07-.29-.13-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.61-1.99-.17-.29-.02-.45.13-.59.13-.13.29-.34.44-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.03-.51-.08-.15-.64-1.54-.88-2.11-.23-.56-.46-.48-.64-.49h-.55z"/>
+              </svg>
+              09044784225 (WhatsApp)
+            </a>
+          </div>
+        `;
+        container.appendChild(banner);
+        document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => window.open('https://paystack.shop/pay/fmj267paou', '_blank'));
+      }
     } else {
-      showPaymentBanner();
+      const existing = document.getElementById('paymentBanner');
+      if (existing) existing.remove();
     }
-  }, (err) => console.error('Subscription listener error:', err));
+  }
+
+  // 2. Enable/disable all subscription‑dependent buttons
+  const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
+  btns.forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      if (isSubscriptionActive) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      } else {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+      }
+    }
+  });
+
+  // 3. Show/hide warning banner inside content area (like class.js)
+  const existingWarning = document.querySelector('.subscription-warning-banner');
+  if (!isSubscriptionActive) {
+    if (!existingWarning) {
+      const warningBanner = document.createElement('div');
+      warningBanner.className = 'subscription-warning-banner';
+      warningBanner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; margin-bottom: 16px; border-radius: 8px;';
+      warningBanner.innerHTML = '⚠️ Subscription inactive. Report cards and broadsheets are disabled. Please renew to access these features.';
+      const contentDiv = document.querySelector('.content');
+      if (contentDiv) contentDiv.insertBefore(warningBanner, contentDiv.firstChild);
+    }
+  } else if (existingWarning) {
+    existingWarning.remove();
+  }
 }
 
 // ------------------- Initialisation (EXPORTED) -------------------
@@ -1022,7 +1016,17 @@ export async function initResultsPage() {
     return;
   }
 
-  isSubscriptionAllowed = await canEnterScores(currentSchoolId);
+  // Set up real‑time subscription listener (raw status)
+  if (unsubscribeSub) unsubscribeSub();
+  unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
+    isSubscriptionActive = isActive;
+    updateSubscriptionUI();
+    // If a report is already loaded, re‑render it to reflect new subscription state
+    if (editorState.selectedStudent) {
+      renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+    }
+  });
+
   await initAcademicCalendar();
 
   const currentSession = getCurrentSession();
@@ -1081,22 +1085,6 @@ export async function initResultsPage() {
   document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
   document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
 
-  // Disable features if subscription inactive
-  if (!isSubscriptionAllowed) {
-    const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
-    btns.forEach(id => {
-      const btn = document.getElementById(id);
-      if (btn) btn.disabled = true;
-    });
-    const warningBanner = document.createElement('div');
-    warningBanner.className = 'subscription-warning-banner';
-    warningBanner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; margin-bottom: 16px; border-radius: 8px;';
-    warningBanner.innerHTML = '⚠️ Subscription inactive. Report cards and broadsheets are disabled. Please renew to access these features.';
-    const contentDiv = document.querySelector('.content');
-    if (contentDiv) contentDiv.insertBefore(warningBanner, contentDiv.firstChild);
-  }
-
-  setupSubscriptionUI();
-  initSubscriptionListener();
+  updateSubscriptionUI();
   await onEditorClassChange();
 }
