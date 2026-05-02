@@ -1,4 +1,6 @@
-// reportCardRenderer.js - Shared report card rendering engine
+// ==================== reportCardRenderer.js ====================
+// Shared report card rendering engine – Updated for better print/PDF replica and tighter spacing
+
 import { showNotification } from './error-handler.js';
 
 export function renderReportCardUI({
@@ -18,7 +20,7 @@ export function renderReportCardUI({
     return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
   }
 
-  // ----- Grading scales (primary vs secondary only data) -----
+  // ----- Grading scales -----
   function calculateGradePrimary(total) {
     if (total >= 90) return 'A+';
     if (total >= 80) return 'A';
@@ -65,7 +67,6 @@ export function renderReportCardUI({
     return age;
   }
 
-  // ----- Grade Distribution Table (under subject table for both levels) -----
   function getGradeScaleHtml() {
     if (isPrimary) {
       const primaryScale = [
@@ -119,12 +120,12 @@ export function renderReportCardUI({
       }
       if (isPrimary) {
         tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                <td>${grade}</td><td>${remark}</td></tr>`;
+                  <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                  <td>${grade}</td><td>${remark}</td></tr>`;
       } else {
         tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+                  <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+                  <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
       }
     }
   } else {
@@ -138,7 +139,7 @@ export function renderReportCardUI({
   const percentageAvg = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
   const overallRemark = getGradeRemark(overallGrade);
 
-  // Skills tables – side by side
+  // Skills tables – side by side with tighter gap
   let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:200px;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
@@ -198,7 +199,7 @@ export function renderReportCardUI({
       </table>
     </div>`;
 
-  // Header with larger logo, school name, address, and student photo
+  // Header with logo, school name, address, and student photo
   const headerHtml = `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
     <div style="flex: 0 0 auto;">${school.logo ? `<img src="${school.logo}" style="max-width: 100px; max-height: 100px; object-fit: contain;" alt="Logo">` : ''}</div>
     <div style="flex: 1; text-align: center;">
@@ -209,8 +210,6 @@ export function renderReportCardUI({
   </div>`;
 
   const age = student.dob ? calculateAge(student.dob) : '—';
-  // Student data container: height reduced by 30% from previous increased size (padding: 15px, line-height: 1.8)
-  // Text stays bigger (1.1em) and bold; student name extra prominent.
   const studentDetailsHtml = `<div style="background-color:#D2B48C; padding:10px; line-height:1.2; border-radius:8px; margin-bottom:15px; color:#000; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; overflow: auto; font-size: 1.3em; font-weight: bold;">
     <div><strong style="font-size: 1.2em;">Name:</strong> <span style="font-size: 1.3em; font-weight: 700;">${escapeHtml(student.name).toUpperCase()}</span></div>
     <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
@@ -222,7 +221,6 @@ export function renderReportCardUI({
     <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
   </div>`;
 
-  // Subject table header – different number of columns
   let subjectTableHeader = '';
   if (isPrimary) {
     subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th></tr></thead>`;
@@ -231,19 +229,18 @@ export function renderReportCardUI({
   }
   const subjectTableHtml = `<table class="subject-table" style="border-collapse: collapse; width: 100%; border: 2px solid #000; background: white;">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  // Right column: psychomotor + affective side by side
-  const skillsSideBySide = `<div style="display:flex; gap:20px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
+  // Tighter gaps for side-by-side sections
+  const skillsSideBySide = `<div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
   const rightColumnHtml = `<div class="skills-stack-col">${skillsSideBySide}</div>`;
 
-  // Left column: subject table + grade distribution
   const leftColumnContent = subjectTableHtml + `<div style="margin-top:20px;">${getGradeScaleHtml()}</div>`;
 
-  const mainGridHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+  const mainGridHtml = `<div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
     <div style="flex: 2; min-width: 250px;">${leftColumnContent}</div>
     <div style="flex: 1; min-width: 250px;">${rightColumnHtml}</div>
   </div>`;
 
-  // Comments – different label based on isPrimary
+  // Comments – larger font for better readability
   const commentOptions = (() => {
     const generalComments = [
       'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
@@ -257,37 +254,30 @@ export function renderReportCardUI({
   const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
   const commentsHtml = `<div style="background-color:#f9f9f9; border:2px solid #ddd; border-radius:10px; padding:15px; margin-top:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); color:#000;">
     <h3>Comments</h3>
-    <div class="comment-group">
-      <label>Teacher's Comment:</label>
+    <div class="comment-group" style="margin-bottom: 15px;">
+      <label style="font-size: 1.2rem; font-weight: bold; display: block; margin-bottom: 5px;">Teacher's Comment:</label>
       <div class="comment-controls">
-        <select id="teacherCommentSelect">${commentOptions.map(opt => `<option value="${opt}" ${comments.teacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="teacherCommentText" rows="2" style="width:100%">${escapeHtml(comments.teacherComment || '')}</textarea>
+        <select id="teacherCommentSelect" style="font-size: 1.2rem; padding: 5px; width: 100%; margin-bottom: 8px;">${commentOptions.map(opt => `<option value="${opt}" ${comments.teacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
+        <textarea id="teacherCommentText" rows="2" style="width:100%; font-size: 1.2rem; padding: 8px;">${escapeHtml(comments.teacherComment || '')}</textarea>
       </div>
-      <div class="print-comment-text" id="printTeacherComment">${escapeHtml(comments.teacherComment || '')}</div>
+      <div class="print-comment-text" id="printTeacherComment" style="font-size: 1.2rem; margin-top: 5px;">${escapeHtml(comments.teacherComment || '')}</div>
     </div>
     <div class="comment-group">
-      <label>${principalLabel}</label>
+      <label style="font-size: 1.2rem; font-weight: bold; display: block; margin-bottom: 5px;">${principalLabel}</label>
       <div class="comment-controls">
-        <select id="principalCommentSelect">${commentOptions.map(opt => `<option value="${opt}" ${comments.principalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="principalCommentText" rows="2" style="width:100%">${escapeHtml(comments.principalComment || '')}</textarea>
+        <select id="principalCommentSelect" style="font-size: 1.2rem; padding: 5px; width: 100%; margin-bottom: 8px;">${commentOptions.map(opt => `<option value="${opt}" ${comments.principalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
+        <textarea id="principalCommentText" rows="2" style="width:100%; font-size: 1.2rem; padding: 8px;">${escapeHtml(comments.principalComment || '')}</textarea>
       </div>
-      <div class="print-comment-text" id="printPrincipalComment">${escapeHtml(comments.principalComment || '')}</div>
+      <div class="print-comment-text" id="printPrincipalComment" style="font-size: 1.2rem; margin-top: 5px;">${escapeHtml(comments.principalComment || '')}</div>
     </div>
   </div>`;
 
-  const signatureHtml = `<div style="display: flex; justify-content: space-between; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc;">
-    <div><strong>Principal's Signature:</strong><div style="border-bottom: 1px solid #000; width: 180px; margin-top: 5px;"></div></div>
-    <div><strong>School Stamp:</strong><div style="margin-top: 5px;">(Official Stamp)</div></div>
-    <div><strong>Date:</strong><div style="border-bottom: 1px solid #000; width: 120px; margin-top: 5px;"></div></div>
-  </div>`;
-
-  // Top row: attendance (60%) + summary (35%), centered
-  const topRowHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
+  const topRowHtml = `<div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
     <div style="flex: 0 0 auto; width: 60%;">${attendanceHtml}</div>
     <div style="flex: 0 0 auto; width: 35%;">${summaryHtml}</div>
   </div>`;
 
-  // Global styles
+  // Global styles with print-color-adjust and page-break controls
   const globalStyles = `
     <style>
       * { color: #000000 !important; }
@@ -298,15 +288,41 @@ export function renderReportCardUI({
       th, td { padding: 8px; text-align: left; }
       .section-title { font-weight: bold; margin-bottom: 8px; }
       select, textarea, input { color: #000 !important; background-color: #fff !important; }
+      @media print {
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .rating-tick, select, textarea, button, .comment-controls, .tick {
+          display: none !important;
+        }
+        .print-value, .print-comment-text {
+          display: block !important;
+        }
+        body, .print-container, .report-card {
+          background: white !important;
+        }
+        .report-card, .report-card * {
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+        /* Tighter spacing in print */
+        .report-card > div > div:first-of-type {
+          gap: 12px !important;
+        }
+        .subject-table th:not(:first-child) {
+          padding: 4px 2px !important;
+        }
+      }
     </style>
   `;
 
-  const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml + signatureHtml;
-  const finalHtml = `<div style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
+  const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml;
+  const finalHtml = `<div class="report-card" style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white; page-break-inside: avoid; break-inside: avoid;">${innerHtml}</div>`;
 
   container.innerHTML = finalHtml;
 
-  // -------- Event handlers (unchanged) --------
+  // Synchronize attendance spans
   const syncAttendanceSpans = () => {
     const openedInput = document.querySelector('.attendance-input.school-opened');
     const presentInput = document.querySelector('.attendance-input.present');
@@ -328,6 +344,7 @@ export function renderReportCardUI({
     input.addEventListener('input', syncAttendanceSpans);
   });
 
+  // Rating tick widgets
   function createTickRating(skillKey, currentValue) {
     const containerDiv = document.createElement('div');
     containerDiv.className = 'rating-tick';
@@ -361,6 +378,7 @@ export function renderReportCardUI({
     }
   });
 
+  // Comment sync
   const teacherSelect = document.getElementById('teacherCommentSelect');
   const teacherText = document.getElementById('teacherCommentText');
   const principalSelect = document.getElementById('principalCommentSelect');

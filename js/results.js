@@ -1,12 +1,13 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
 // FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
 // Subscription is considered ACTIVE only if status === 'active' AND locked !== true
+// Updated with balanced gap between subject table and skills tables (24px screen, 20px print)
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { onSubscriptionChange } from './plan.js';   // raw subscription listener
+import { onSubscriptionChange } from './plan.js';
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -17,7 +18,7 @@ let studentsList = [];
 let subjectsMap = new Map();
 let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
-let isSubscriptionActive = false;      // raw subscription status (status='active' && locked !== true)
+let isSubscriptionActive = false;
 let unsubscribeSub = null;
 
 let editorState = {
@@ -98,7 +99,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>}@`;
+  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -476,7 +477,7 @@ async function saveEditorReport() {
   }
 }
 
-// ========== IMPROVED PRINT HANDLER ==========
+// ========== IMPROVED PRINT HANDLER WITH BALANCED GAP ==========
 function handlePrint() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -506,15 +507,15 @@ function handlePrint() {
     .map(style => style.innerHTML)
     .join('\n');
 
+  // Enhanced print CSS – exact replica, single page, preserved colors, balanced gap (20px)
   const extraPrintCSS = `
-    .report-card, .report-card * {
-      page-break-inside: avoid;
-      page-break-after: avoid;
-      page-break-before: avoid;
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
     @page {
       size: A4;
-      margin: 8mm;
+      margin: 5mm;
     }
     body, .print-container {
       margin: 0;
@@ -525,11 +526,20 @@ function handlePrint() {
       width: 100%;
       max-width: 210mm;
       margin: 0 auto;
+      background: white;
     }
     .report-card {
       padding: 4px !important;
       margin: 0 !important;
-      font-size: 9px !important;
+      font-size: 8.5px !important;
+      line-height: 1.2;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      overflow: visible !important;
+    }
+    /* Balanced gap specifically for the flex container that holds left (subject table) and right (skills) columns */
+    .report-card > div > div:first-of-type {
+      gap: 20px !important;
     }
     .subject-table {
       width: 100%;
@@ -575,15 +585,27 @@ function handlePrint() {
       font-size: 8px !important;
       margin-top: 4px !important;
     }
-    .signature-stamp {
-      margin-top: 4px !important;
-      padding-top: 2px !important;
-    }
     .rating-tick, select, textarea, button, .comment-controls, .tick {
       display: none !important;
     }
     .print-value, .print-comment-text {
       display: block !important;
+      font-size: 0.9rem !important;
+    }
+    .comment-group label {
+      font-size: 0.9rem !important;
+      font-weight: bold;
+    }
+    .attendance-input {
+      display: none !important;
+    }
+    .attendance-input-cell .print-value {
+      display: inline-block !important;
+    }
+    /* Prevent page breaks inside any table row or major section */
+    tr, td, th, .subject-table, .skills-table, .summary-table, .attendance-table, .grade-scale-table {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
   `;
 
@@ -866,6 +888,10 @@ function printBroadsheet() {
     .broadsheet-table {
       page-break-after: avoid;
     }
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
   `;
   
   printWindow.document.write(`
@@ -934,7 +960,6 @@ async function onEditorFilterChange() {
 
 // ---------- Unified subscription UI update (shows/hides payment banner & toggles buttons) ----------
 function updateSubscriptionUI() {
-  // 1. Payment banner container – create if needed
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');
     if (contentDiv) {
@@ -975,7 +1000,6 @@ function updateSubscriptionUI() {
     }
   }
 
-  // 2. Enable/disable all subscription‑dependent buttons
   const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
   btns.forEach(id => {
     const btn = document.getElementById(id);
@@ -990,7 +1014,6 @@ function updateSubscriptionUI() {
     }
   });
 
-  // 3. Show/hide warning banner inside content area (like class.js)
   const existingWarning = document.querySelector('.subscription-warning-banner');
   if (!isSubscriptionActive) {
     if (!existingWarning) {
@@ -1016,12 +1039,10 @@ export async function initResultsPage() {
     return;
   }
 
-  // Set up real‑time subscription listener (raw status)
   if (unsubscribeSub) unsubscribeSub();
   unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
     isSubscriptionActive = isActive;
     updateSubscriptionUI();
-    // If a report is already loaded, re‑render it to reflect new subscription state
     if (editorState.selectedStudent) {
       renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
     }
@@ -1042,7 +1063,6 @@ export async function initResultsPage() {
     return;
   }
 
-  // Populate class selects
   const classSelects = ['broadsheetClassSelect', 'editorClassSelect'];
   classSelects.forEach(id => {
     const select = document.getElementById(id);
@@ -1051,7 +1071,6 @@ export async function initResultsPage() {
     }
   });
 
-  // Session options
   const sessions = generateSessionOptionsFromCurrent(currentSession);
   const sessionSelects = ['broadsheetSessionSelect', 'editorSessionSelect'];
   sessionSelects.forEach(id => {
@@ -1061,18 +1080,15 @@ export async function initResultsPage() {
     }
   });
 
-  // Term selects
   const termSelects = ['broadsheetTermSelect', 'editorTermSelect'];
   termSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) select.value = currentTermNum;
   });
 
-  // Load default grading for current context
   await loadGradingSetting(currentSession, currentTermNum, 'secondary');
   await loadGradingSetting(currentSession, currentTermNum, 'primary');
 
-  // Event listeners
   document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
