@@ -1,5 +1,6 @@
 // admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
 // FULLY INTEGRATED with Central Academic Calendar Engine
+// Removed old academic info display (2025/2026 • Third Term)
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -14,7 +15,8 @@ import {
   handleNewStudentAddition,
   autoLockExpiredSubscriptions,
   getSubscriptionStatus,
-  approveExtraStudents
+  approveExtraStudents,
+  getSubscriptionDisplayStatus
 } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -76,7 +78,7 @@ export async function getCurrentSchoolId() {
   return currentUserData.schoolId || null;
 }
 
-// Calendar sync periodic timer (cleanup)
+// Calendar sync periodic timer
 let calendarStopPeriodicSync = null;
 
 // ------------------- Admin Page Protection -------------------
@@ -105,7 +107,6 @@ export async function protectAdminPage() {
   try {
     await initCentralCalendar();
     await syncAcademicCalendar();
-    // Start periodic sync every 30 minutes
     if (calendarStopPeriodicSync) calendarStopPeriodicSync();
     calendarStopPeriodicSync = startPeriodicSync(30);
   } catch (err) {
@@ -123,7 +124,7 @@ export async function protectAdminPage() {
     }
   }
 
-  // ========== SUBSCRIPTION GUARD – SHOW BANNER BUT NEVER REDIRECT ==========
+  // ========== SUBSCRIPTION GUARD ==========
   let access;
   try {
     access = await enforceAccessGuard(currentUserData, schoolId);
@@ -140,13 +141,14 @@ export async function protectAdminPage() {
   }
 
   injectSubscriptionUI();
-  updateSubscriptionBadge(schoolId);
+  await updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
   
   return { user: currentUser, userData: currentUserData };
 }
 
-// Non-dismissible subscription warning banner
+// ... (showSubscriptionExpiredBanner, showPaymentBanner, hidePaymentBanner, injectSubscriptionUI remain unchanged)
+
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -174,7 +176,6 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
-// Payment banner with Paystack (Pay Now) + WhatsApp
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
@@ -270,11 +271,16 @@ export function setupSidebar() {
 
 async function updateSubscriptionBadge(schoolId) {
   try {
-    const active = await isSubscriptionActive(schoolId);
+    const displayStatus = await getSubscriptionDisplayStatus(schoolId);
     const badge = document.getElementById('subscriptionBadge');
     if (badge) {
-      badge.innerText = active ? '✅ Active' : '⚠️ Expired';
-      badge.style.color = active ? '#10b981' : '#ef4444';
+      if (displayStatus === 'active') {
+        badge.innerText = '✅ Active';
+        badge.style.color = '#10b981';
+      } else {
+        badge.innerText = '⚠️ Expired';
+        badge.style.color = '#ef4444';
+      }
     }
   } catch (err) {
     handleError(err, "Failed to update subscription badge.");
@@ -302,6 +308,7 @@ export function initSubscriptionUI(schoolId) {
       if (!document.getElementById('subscriptionExpiredBanner')) showSubscriptionExpiredBanner();
       showPaymentBanner();
     }
+    await updateSubscriptionBadge(schoolId);
   }, (err) => handleError(err, "Subscription listener error."));
 }
 
@@ -393,10 +400,8 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
   `;
 }
 
-// ------------------- Academic Calendar (Central) -------------------
-// These functions now wrap the central engine for compatibility with existing code
+// ------------------- Academic Calendar (Central) – academic info text removed -------------------
 export async function initAcademicCalendar(schoolId) {
-  // schoolId is ignored – central calendar uses Firestore academicCalendar collection
   await initCentralCalendar();
   await syncAcademicCalendar();
 }
@@ -416,22 +421,8 @@ export async function getAcademicContext(schoolId) {
   };
 }
 
-export async function loadAcademicInfo() {
-  const schoolId = await getCurrentSchoolId();
-  if (!schoolId) return;
-  try {
-    await initCentralCalendar();
-    const session = getCurrentSession();
-    const term = getCurrentTerm();
-    const termNames = { 'First Term': 'First Term', 'Second Term': 'Second Term', 'Third Term': 'Third Term' };
-    const academicDiv = document.getElementById('academicInfo');
-    if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
-  } catch (err) {
-    console.warn('Could not load academic info', err);
-  }
-}
+// ❌ REMOVED: loadAcademicInfo() – no longer displays "2025/2026 • Third Term"
 
-// Export admin override functions for manual calendar control (if needed)
 export { adminOverrideCalendar, adminResetToAuto };
 
 // ------------------- Logo Upload -------------------
@@ -496,10 +487,10 @@ export async function loadSchoolInfo() {
     if (logoImg && school && school.logo) logoImg.src = school.logo;
     else if (logoImg) logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
 
-    await loadAcademicInfo();
+    // ❌ Removed call to loadAcademicInfo()
     const schoolId = userData.schoolId;
     if (schoolId) {
-      updateSubscriptionBadge(schoolId);
+      await updateSubscriptionBadge(schoolId);
       initSubscriptionUI(schoolId);
     }
   } catch (err) {
@@ -548,7 +539,6 @@ export function setupLogout() {
   if (!logoutBtn) return;
   logoutBtn.addEventListener('click', async () => {
     try {
-      // Clean up calendar sync timer on logout
       if (calendarStopPeriodicSync) calendarStopPeriodicSync();
       await logoutUser();
       showNotification("Logged out successfully.", "success");

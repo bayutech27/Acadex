@@ -1,4 +1,4 @@
-// auth.js – Full rewrite: integrates Central Academic Calendar for term‑based subscription creation
+// auth.js – Full rewrite: integrates Central Academic Calendar, phone number, and username suggestions
 import { auth, db } from './firebase-config.js';
 import {
   createUserWithEmailAndPassword,
@@ -20,27 +20,59 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getUserData, getSchoolById } from './app.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
-// ✅ Import central academic calendar for term/session and term dates
-import { calculateTermAndSessionFromDate, getTermDates } from './academic-calendar.js';
+import { calculateTermAndSessionFromDate } from './academic-calendar.js';
 
 function showMessage(message, isError = true) {
   showNotification(message, isError ? "error" : "success");
 }
 
-function formatSlug(slug) {
-  return slug.toLowerCase().replace(/\s+/g, '-');
+// ---------- Helper: slugify a string (lowercase, replace spaces/hyphens) ----------
+function slugify(text) {
+  if (!text) return '';
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // replace spaces with -
+    .replace(/[^\w\-]+/g, '')       // remove all non-word chars
+    .replace(/\-\-+/g, '-')         // replace multiple - with single -
+    .replace(/^-+/, '')             // trim - from start
+    .replace(/-+$/, '');            // trim - from end
 }
 
-async function isSlugTaken(slug) {
+// ---------- Check if a username (slug) already exists ----------
+async function isUsernameTaken(username) {
   try {
     const schoolsRef = collection(db, 'schools');
-    const q = query(schoolsRef, where('slug', '==', slug));
+    const q = query(schoolsRef, where('slug', '==', username));
     const querySnapshot = await getDocs(q);
     return !querySnapshot.empty;
   } catch (err) {
-    handleError(err, "Failed to check school URL availability.");
-    return true; // assume taken to be safe
+    handleError(err, "Failed to check username availability.");
+    return true; // assume taken on error
   }
+}
+
+// ---------- Generate username suggestions based on school name ----------
+async function generateUsernameSuggestions(schoolName) {
+  const base = slugify(schoolName);
+  if (!base) return [];
+
+  const suggestions = [];
+  // First suggestion: the base slug
+  suggestions.push(base);
+  // Second: base + 1
+  suggestions.push(base + '1');
+  // Third: base + 2
+  suggestions.push(base + '2');
+
+  // Check each suggestion's availability (asynchronously)
+  const availability = await Promise.all(suggestions.map(async (name) => ({
+    name,
+    taken: await isUsernameTaken(name)
+  })));
+
+  return availability;
 }
 
 async function isEmailAlreadyRegistered(email) {
@@ -55,48 +87,40 @@ async function isEmailAlreadyRegistered(email) {
 
 // ---------- Helper: get term start/end dates using central calendar ----------
 function getTermStartEndDates(term, session) {
-  // For a given term name ('First Term','Second Term','Third Term') and session (e.g., '2025/2026'),
-  // return { startDate: Date, endDate: Date }.
-  // We'll use calculateTermAndSessionFromDate but we need to determine the correct year from session.
-  const sessionYear = parseInt(session.split('/')[0]); // e.g., 2025
+  const sessionYear = parseInt(session.split('/')[0]);
   let year = sessionYear;
   let monthStart, dayStart, monthEnd, dayEnd;
-  
   switch (term) {
     case 'First Term':
-      monthStart = 8; dayStart = 1;   // September
-      monthEnd = 11; dayEnd = 31;     // December
+      monthStart = 8; dayStart = 1; monthEnd = 11; dayEnd = 31;
       break;
     case 'Second Term':
-      monthStart = 0; dayStart = 1;    // January
-      monthEnd = 3; dayEnd = 30;       // April 30
+      monthStart = 0; dayStart = 1; monthEnd = 3; dayEnd = 30;
       break;
     case 'Third Term':
-      monthStart = 4; dayStart = 1;    // May
-      monthEnd = 7; dayEnd = 30;       // August 30
+      monthStart = 4; dayStart = 1; monthEnd = 7; dayEnd = 30;
       break;
     default:
       throw new Error('Invalid term');
   }
-  // Note: For terms that span year boundary (First Term), end year is same as start year.
   const startDate = new Date(Date.UTC(year, monthStart, dayStart));
   const endDate = new Date(Date.UTC(year, monthEnd, dayEnd));
   return { startDate, endDate };
 }
 
-// ---------- Signup (only schools, users, subscription) ----------
-export async function signupSchool(schoolName, rawSlug, address, email, password) {
-  const slug = formatSlug(rawSlug);
-  if (!slug) {
-    showMessage('Please enter a valid school URL.', true);
+// ---------- Signup (creates school, user, subscription) ----------
+export async function signupSchool(schoolName, username, address, phone, email, password) {
+  if (!username) {
+    showMessage('Please enter a username.', true);
     return;
   }
 
   showLoader();
   try {
-    const slugExists = await isSlugTaken(slug);
-    if (slugExists) {
-      showMessage('This school URL is already taken. Please choose another.', true);
+    // Check if username is already taken
+    const usernameTaken = await isUsernameTaken(username);
+    if (usernameTaken) {
+      showMessage('This username is already taken. Please choose another.', true);
       return;
     }
 
@@ -114,21 +138,20 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     // Get current academic session and term from central calendar
     const now = new Date();
     const { session: currentSession, term: currentTerm } = calculateTermAndSessionFromDate(now);
-    // Get term dates for the subscription
     const { startDate, endDate } = getTermStartEndDates(currentTerm, currentSession);
-
     const nowTimestamp = new Date();
 
-    // Use a batch to write the three essential documents atomically
+    // Use a batch to write all documents atomically
     const batch = writeBatch(db);
 
     // 1. School document
     const schoolRef = doc(db, 'schools', schoolId);
     batch.set(schoolRef, {
       name: schoolName,
-      slug: slug,
+      slug: username,               // store username as 'slug' field for compatibility
+      phone: phone || '',
       address: address || '',
-      status: 'pending',           // Will be activated after super‑admin approval
+      status: 'pending',           // Will be activated after super‑admin approves payment
       createdAt: nowTimestamp,
       currentSession: currentSession,
       currentTerm: currentTerm,
@@ -148,9 +171,9 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
     // 3. Subscription document (subcollection) – initial state: pending, locked
     const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
     batch.set(subRef, {
-      status: 'pending',           // 'pending' until super‑admin approves
-      locked: true,                // locked until subscription is paid for the term
-      term: currentTerm,           // ✅ store the term and session for term‑based expiration
+      status: 'pending',           // 'pending' until super‑admin approves payment
+      locked: true,
+      term: currentTerm,
       session: currentSession,
       startDate: startDate,
       endDate: endDate,
@@ -165,13 +188,12 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       autoExpired: false
     });
 
-    // Commit the batch
     await batch.commit();
     console.log('Signup successful – school, user, and subscription created.');
     showMessage('Account created successfully! Redirecting...', false);
 
-    localStorage.setItem('schoolSlug', slug);
-    window.location.href = `/?school=${slug}`;
+    localStorage.setItem('schoolSlug', username);
+    window.location.href = `/?school=${username}`;
   } catch (error) {
     console.error('Signup error:', error);
     let errorMessage = 'Signup failed. ';
@@ -185,7 +207,7 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
       errorMessage += error.message;
     }
     showMessage(errorMessage, true);
-    // If user was created but batch failed, delete the auth user? (optional cleanup)
+    // If user was created but batch failed, delete the auth user
     if (error.code !== 'auth/email-already-in-use') {
       try {
         await userCredential.user.delete();
@@ -198,27 +220,22 @@ export async function signupSchool(schoolName, rawSlug, address, email, password
   }
 }
 
-// ---------- LOGIN – STRICT ROLE REDIRECT (using relative paths) ----------
+// ---------- LOGIN (unchanged) ----------
 export async function loginUser(email, password) {
   showLoader();
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     if (!userDoc.exists()) {
       throw new Error('User account exists but no role document found.');
     }
-
     const userData = userDoc.data();
     const role = userData.role;
     const schoolId = userData.schoolId;
-
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', role);
-
     showMessage(`Welcome back! Redirecting to ${role} dashboard.`, false);
-
     if (role === 'super-admin') {
       window.location.href = '/super-admin.html';
     } else if (role === 'admin') {
@@ -276,7 +293,7 @@ export async function resetPassword(email) {
   }
 }
 
-// ---------- PAGE INITIALIZERS (unchanged, but ensure redirect paths are correct) ----------
+// ---------- PAGE INITIALIZERS ----------
 export function initLoginPage() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -284,13 +301,9 @@ export function initLoginPage() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const role = userDoc.data().role;
-          if (role === 'super-admin') {
-            window.location.href = '/super-admin.html';
-          } else if (role === 'admin') {
-            window.location.href = '/admin/admin-dashboard.html';
-          } else if (role === 'teacher') {
-            window.location.href = '/teacher/teacher-dashboard.html';
-          }
+          if (role === 'super-admin') window.location.href = '/super-admin.html';
+          else if (role === 'admin') window.location.href = '/admin/admin-dashboard.html';
+          else if (role === 'teacher') window.location.href = '/teacher/teacher-dashboard.html';
         }
       } catch (err) {
         handleError(err, "Failed to verify user role.");
@@ -310,8 +323,6 @@ export function initLoginPage() {
       }
       await loginUser(email, password);
     });
-  } else {
-    console.warn("Login form not found on this page.");
   }
 }
 
@@ -322,13 +333,9 @@ export function initSignupPage() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const role = userDoc.data().role;
-          if (role === 'super-admin') {
-            window.location.href = '/super-admin.html';
-          } else if (role === 'admin') {
-            window.location.href = '/admin/admin-dashboard.html';
-          } else if (role === 'teacher') {
-            window.location.href = '/teacher/teacher-dashboard.html';
-          }
+          if (role === 'super-admin') window.location.href = '/super-admin.html';
+          else if (role === 'admin') window.location.href = '/admin/admin-dashboard.html';
+          else if (role === 'teacher') window.location.href = '/teacher/teacher-dashboard.html';
         }
       } catch (err) {
         handleError(err, "Failed to verify user role.");
@@ -337,22 +344,56 @@ export function initSignupPage() {
   });
 
   const signupForm = document.getElementById('signupForm');
+  const schoolNameInput = document.getElementById('schoolName');
+  const usernameInput = document.getElementById('username');
+  const suggestionsDiv = document.getElementById('usernameSuggestions');
+
+  // Generate username suggestions when school name changes
+  if (schoolNameInput && usernameInput && suggestionsDiv) {
+    schoolNameInput.addEventListener('input', async () => {
+      const schoolName = schoolNameInput.value.trim();
+      if (!schoolName) {
+        suggestionsDiv.innerHTML = '';
+        return;
+      }
+      const suggestions = await generateUsernameSuggestions(schoolName);
+      if (suggestions.length) {
+        let html = '<div class="suggestions-label">Suggested usernames:</div><div class="suggestions-list">';
+        suggestions.forEach(s => {
+          const isTaken = s.taken;
+          const clickable = !isTaken;
+          html += `<button type="button" class="suggestion-chip ${isTaken ? 'taken' : ''}" data-username="${s.name}" ${!clickable ? 'disabled' : ''}>${s.name} ${isTaken ? '(taken)' : ''}</button>`;
+        });
+        html += '</div>';
+        suggestionsDiv.innerHTML = html;
+        // Attach click handlers to non-disabled chips
+        document.querySelectorAll('.suggestion-chip:not(.taken)').forEach(chip => {
+          chip.addEventListener('click', () => {
+            usernameInput.value = chip.dataset.username;
+            suggestionsDiv.innerHTML = ''; // hide suggestions after selection
+          });
+        });
+      } else {
+        suggestionsDiv.innerHTML = '';
+      }
+    });
+  }
+
   if (signupForm) {
     signupForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const schoolName = document.getElementById('schoolName')?.value;
-      const schoolSlug = document.getElementById('schoolSlug')?.value;
+      const username = document.getElementById('username')?.value;
       const schoolAddress = document.getElementById('schoolAddress')?.value;
+      const phone = document.getElementById('schoolPhone')?.value;
       const email = document.getElementById('email')?.value;
       const password = document.getElementById('password')?.value;
-      if (!schoolName || !schoolSlug || !email || !password) {
+      if (!schoolName || !username || !email || !password) {
         showNotification("Please fill all required fields.", "error");
         return;
       }
-      await signupSchool(schoolName, schoolSlug, schoolAddress, email, password);
+      await signupSchool(schoolName, username, schoolAddress, phone, email, password);
     });
-  } else {
-    console.warn("Signup form not found on this page.");
   }
 }
 
@@ -363,13 +404,9 @@ export function initResetPasswordPage() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const role = userDoc.data().role;
-          if (role === 'super-admin') {
-            window.location.href = '/super-admin.html';
-          } else if (role === 'admin') {
-            window.location.href = '/admin/admin-dashboard.html';
-          } else if (role === 'teacher') {
-            window.location.href = '/teacher/teacher-dashboard.html';
-          }
+          if (role === 'super-admin') window.location.href = '/super-admin.html';
+          else if (role === 'admin') window.location.href = '/admin/admin-dashboard.html';
+          else if (role === 'teacher') window.location.href = '/teacher/teacher-dashboard.html';
         }
       } catch (err) {
         handleError(err, "Failed to verify user role.");
@@ -388,26 +425,21 @@ export function initResetPasswordPage() {
       }
       await resetPassword(email);
     });
-  } else {
-    console.warn("Reset form not found on this page.");
   }
 }
 
-// ---------- Dashboard helpers (unchanged) ----------
 export async function initAdminDashboard() {
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
       window.location.href = '/';
       return;
     }
-
     try {
       const userData = await getUserData();
       if (!userData || userData.role !== 'admin') {
         window.location.href = '/';
         return;
       }
-
       const userEmailEl = document.getElementById('userEmail');
       if (userEmailEl) userEmailEl.textContent = userData.email;
       const school = await getSchoolById(userData.schoolId);
@@ -417,7 +449,6 @@ export async function initAdminDashboard() {
       handleError(err, "Failed to load admin dashboard data.");
     }
   });
-
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {

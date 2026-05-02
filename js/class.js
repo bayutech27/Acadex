@@ -1,15 +1,13 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// FULLY INTEGRATED with Central Academic Calendar Engine
-
+// FULLY INTEGRATED with Central Academic Calendar Engine + real‑time subscription lock
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getTeacherData } from './teacher-dashboard.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { canEnterScores } from './plan.js';
+import { onSubscriptionChange } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
-// ✅ Import central calendar functions
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
 let currentSchoolId = null;
@@ -21,7 +19,8 @@ let classesMap = new Map();          // id -> { name, level }
 let subjectsMap = new Map();          // subjectId -> name
 let allSubjectsList = [];              // Array of { id, name, level }
 let studentsList = [];
-let isSubscriptionAllowed = false;
+let isSubscriptionActive = false;      // raw subscription status (status=active && locked=false)
+let unsubscribeSub = null;             // subscription listener
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
@@ -41,6 +40,44 @@ let reportState = {
   const key = skill.toLowerCase().replace(/[^a-z]/g, '');
   reportState.psychomotor[key] = 3;
 });
+
+// Helper: disable all subscription‑dependent UI
+function disableSubscriptionFeatures() {
+  const saveBtn = document.getElementById('saveReportBtn');
+  const printBtn = document.getElementById('printReportBtn');
+  const generateBtn = document.getElementById('generateBroadsheetBtn');
+  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
+  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '0.5'; }
+  if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = '0.5'; }
+  if (generateBtn) generateBtn.disabled = true;
+  if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
+  if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
+  const warningDiv = document.querySelector('.subscription-warning');
+  if (!warningDiv) {
+    const div = document.createElement('div');
+    div.className = 'subscription-warning';
+    div.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; margin-bottom: 16px; border-radius: 8px;';
+    div.innerHTML = '⚠️ Subscription inactive. Report card and broadsheet features are disabled. Please contact your administrator to renew.';
+    const container = document.querySelector('.class-report-container');
+    if (container) container.prepend(div);
+  }
+}
+
+function enableSubscriptionFeatures() {
+  const saveBtn = document.getElementById('saveReportBtn');
+  const printBtn = document.getElementById('printReportBtn');
+  const generateBtn = document.getElementById('generateBroadsheetBtn');
+  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
+  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; }
+  if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = '1'; }
+  if (generateBtn) generateBtn.disabled = false;
+  if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = false;
+  if (printBroadsheetBtn) printBroadsheetBtn.disabled = false;
+  const warning = document.querySelector('.subscription-warning');
+  if (warning) warning.remove();
+}
 
 // ------------------- Helper Functions -------------------
 function escapeHtml(str) {
@@ -75,8 +112,6 @@ function generateSessionOptions() {
   for (let i = 0; i < 5; i++) opts.push(`${year - i}/${year - i + 1}`);
   return opts;
 }
-
-// ✅ REMOVED getSchoolAcademicInfo – replaced by central calendar
 
 // NEW: Load grading based on class level (primary/secondary)
 async function loadGradingSettingByLevel(level, session, term) {
@@ -308,7 +343,7 @@ async function loadExistingReport(studentId) {
 }
 
 async function saveReportCard() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     showNotification("Cannot save report – subscription inactive.", "error");
     return;
   }
@@ -505,7 +540,7 @@ function printReportCard() {
 }
 
 async function loadReportCard(studentId, studentName) {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
     if (container) {
       container.innerHTML = `
@@ -691,7 +726,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
 }
 
 async function generateBroadsheet() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
     if (container) {
       container.innerHTML = `
@@ -833,7 +868,7 @@ async function generateBroadsheet() {
       html += `<td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td>`;
       html += `<td>${r.remark}</td>`;
-      html += `<tr>`;
+      html += `</tr>`;
     }
     html += `</tbody></table></div>`;
     container.innerHTML = html;
@@ -848,7 +883,7 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionAllowed) {
+  if (!isSubscriptionActive) {
     showNotification("Cannot save broadsheet – subscription inactive.", "error");
     return;
   }
@@ -950,10 +985,21 @@ export async function initClassReportPage() {
     return;
   }
 
-  // ✅ Initialise central calendar
+  // Initialise central calendar
   await initAcademicCalendar();
 
-  isSubscriptionAllowed = await canEnterScores(currentSchoolId);
+  // Set up real‑time subscription listener
+  if (unsubscribeSub) unsubscribeSub();
+  unsubscribeSub = onSubscriptionChange(currentSchoolId, async ({ isActive }) => {
+    isSubscriptionActive = isActive;
+    if (isSubscriptionActive) {
+      enableSubscriptionFeatures();
+    } else {
+      disableSubscriptionFeatures();
+    }
+    // Refresh UI (e.g., reload student list if needed)
+    await loadClassStudents();
+  });
 
   await fetchClassName();
   await loadSubjectsAndClasses();
@@ -1019,25 +1065,4 @@ export async function initClassReportPage() {
   if (saveBroadsheetBtn) saveBroadsheetBtn.addEventListener('click', saveBroadsheetToFirestore);
   const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
   if (printBroadsheetBtn) printBroadsheetBtn.addEventListener('click', printBroadsheet);
-
-  if (!isSubscriptionAllowed) {
-    const saveReportBtn = document.getElementById('saveReportBtn');
-    if (saveReportBtn) {
-      saveReportBtn.disabled = true;
-      saveReportBtn.style.opacity = '0.5';
-    }
-    if (printBtn) {
-      printBtn.disabled = true;
-      printBtn.style.opacity = '0.5';
-    }
-    if (generateBtn) generateBtn.disabled = true;
-    if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
-    if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
-    const warningDiv = document.createElement('div');
-    warningDiv.className = 'subscription-warning';
-    warningDiv.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; margin-bottom: 16px; border-radius: 8px;';
-    warningDiv.innerHTML = '⚠️ Subscription inactive. Report card and broadsheet features are disabled. Please contact your administrator to renew.';
-    const container = document.querySelector('.class-report-container');
-    if (container) container.prepend(warningDiv);
-  }
 }

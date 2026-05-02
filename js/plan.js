@@ -1,8 +1,8 @@
-// plan.js – Term‑based subscription management using Central Academic Calendar
+// plan.js – Term‑based subscription management with raw Firestore helpers for teacher pages
 import { db } from './firebase-config.js';
 import {
   doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs,
-  writeBatch, orderBy, limit
+  writeBatch, orderBy, limit, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { handleError } from './error-handler.js';
 
@@ -31,7 +31,7 @@ function getTermEndDateFromSessionAndTerm(session, term) {
   return new Date(Date.UTC(year, monthEnd, dayEnd, 23, 59, 59));
 }
 
-// ------------------- Core subscription helpers -------------------
+// ------------------- Core subscription helpers (existing) -------------------
 export async function getSubscriptionStatus(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
@@ -45,12 +45,20 @@ export async function getSubscriptionStatus(schoolId) {
 }
 
 /**
- * Check whether the subscription is active for the current term.
- * Active means:
- *   - status === 'active'
- *   - locked === false
- *   - stored term matches the current term (from central calendar)
- *   - stored session matches current session
+ * FOR DISPLAY ONLY – returns status exactly as stored in Firestore.
+ * Ignores term/session matching.
+ * @returns {string} 'active' or 'expired'
+ */
+export async function getSubscriptionDisplayStatus(schoolId) {
+  const sub = await getSubscriptionStatus(schoolId);
+  if (!sub) return 'expired';
+  if (sub.locked === true) return 'expired';
+  return sub.status === 'active' ? 'active' : 'expired';
+}
+
+/**
+ * Strict permission check for academic features (scores, reports, etc.).
+ * Requires term/session match and active status.
  */
 export async function isSubscriptionActive(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -58,7 +66,6 @@ export async function isSubscriptionActive(schoolId) {
   if (sub.status !== 'active') return false;
   if (sub.locked === true) return false;
 
-  // Get current term/session from central calendar (safe with retry)
   const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
   await initAcademicCalendar();
   let currentTerm, currentSession;
@@ -74,14 +81,12 @@ export async function isSubscriptionActive(schoolId) {
   if (!currentTerm || !currentSession) return false;
 
   if (sub.term !== currentTerm || sub.session !== currentSession) return false;
-
-  // Also check endDate if present (legacy)
   if (sub.endDate && sub.endDate.toDate() < new Date()) return false;
 
   return true;
 }
 
-// Granular check for score entry and report generation
+// Granular check for score entry and report generation (uses strict check)
 export async function canEnterScores(schoolId) {
   return await isSubscriptionActive(schoolId);
 }
@@ -119,7 +124,7 @@ export async function unlockSchool(schoolId) {
   }
 }
 
-// ------------------- Payment & student coverage -------------------
+// ------------------- Payment & student coverage (unchanged) -------------------
 export function calculateSubscriptionCost(coveredStudents, costPerStudent = 1000) {
   return coveredStudents * costPerStudent;
 }
@@ -218,17 +223,8 @@ async function markStudentsAsCovered(schoolId, count) {
   }
 }
 
-// ------------------- Term‑based auto‑lock and subscription initialisation -------------------
-/**
- * For every school, ensure the subscription document exists for the current term.
- * If it doesn't exist or the stored term/session does not match the current one,
- * create/update it with:
- *   - current term, session, startDate, endDate (computed)
- *   - status = 'expired', locked = true
- * This runs at page load and whenever the academic calendar changes.
- */
+// ------------------- Term‑based auto‑lock (only on calendar change) -------------------
 export async function autoLockExpiredSubscriptions() {
-  // Dynamically import calendar functions and ensure they are ready
   const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
   await initAcademicCalendar();
 
@@ -260,11 +256,9 @@ export async function autoLockExpiredSubscriptions() {
       const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
       const subSnap = await getDoc(subRef);
       const existingData = subSnap.exists() ? subSnap.data() : null;
-
       const matchesCurrent = existingData && existingData.term === currentTerm && existingData.session === currentSession;
 
       if (!existingData || !matchesCurrent) {
-        // Create or overwrite subscription document with current term (expired by default)
         const subscriptionData = {
           term: currentTerm,
           session: currentSession,
@@ -283,12 +277,9 @@ export async function autoLockExpiredSubscriptions() {
         };
         batch.set(subRef, subscriptionData, { merge: true });
         updateCount++;
-      } else {
-        // Already up‑to‑date – check if it expired by date
-        if (existingData.status === 'active' && existingData.endDate && existingData.endDate.toDate() < now) {
-          batch.update(subRef, { status: 'expired', locked: true, lastUpdated: now, autoExpired: true });
-          updateCount++;
-        }
+      } else if (existingData.status === 'active' && existingData.endDate && existingData.endDate.toDate() < now) {
+        batch.update(subRef, { status: 'expired', locked: true, lastUpdated: now, autoExpired: true });
+        updateCount++;
       }
     }
 
@@ -352,6 +343,45 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     handleError(err, "Failed to renew subscription for the current term.");
     return false;
   }
+}
+
+// ------------------- NEW: Raw subscription helpers for teacher pages (real‑time) -------------------
+/**
+ * Get the raw subscription data (no term validation)
+ * @returns {Promise<Object|null>}
+ */
+export async function getRawSubscription(schoolId) {
+  try {
+    const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
+    const snap = await getDoc(subRef);
+    if (!snap.exists()) return null;
+    return snap.data();
+  } catch (err) {
+    handleError(err, "Failed to fetch raw subscription.");
+    return null;
+  }
+}
+
+/**
+ * Listen to real‑time changes of the raw subscription.
+ * @param {string} schoolId
+ * @param {Function} callback - receives { isActive: boolean, data: object|null }
+ * @returns {Function} unsubscribe function
+ */
+export function onSubscriptionChange(schoolId, callback) {
+  const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+  const unsubscribe = onSnapshot(subRef, (snap) => {
+    let data = null;
+    let isActive = false;
+    if (snap.exists()) {
+      data = snap.data();
+      isActive = (data.status === 'active' && data.locked !== true);
+    }
+    callback({ isActive, data });
+  }, (err) => {
+    handleError(err, "Subscription listener error.");
+  });
+  return unsubscribe;
 }
 
 // ------------------- Deprecated (legacy) -------------------

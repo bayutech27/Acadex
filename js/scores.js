@@ -1,15 +1,11 @@
-// scores.js - Teacher score entry with subscription check, locked student restrictions,
-// and dynamic subject dropdown based on teacher's assigned subjects (from Firestore)
-// FULLY INTEGRATED with Central Academic Calendar Engine
-
+// scores.js - Teacher score entry with real‑time subscription lock
 import { db, auth } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getTeacherData } from './teacher-dashboard.js';
-import { canEnterScores } from './plan.js';
+import { onSubscriptionChange } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
-// ✅ Import central calendar functions
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
 let currentSchoolId = null;
@@ -25,7 +21,8 @@ let selectedSubjectId = null;
 let selectedTerm = '1';
 let selectedSession = '';
 let currentGrading = { ca: 40, exam: 60 };
-let isScoreEntryAllowed = false;
+let isScoreEntryAllowed = false;      // raw subscription status (status=active && locked=false)
+let unsubscribeSub = null;
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -38,8 +35,6 @@ function generateSessionOptions() {
   for (let i = 0; i < 5; i++) opts.push(`${year - i}/${year - i + 1}`);
   return opts;
 }
-
-// ✅ REMOVED getSchoolAcademicInfo – replaced by central calendar
 
 function getScoringDocId(session, term) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
@@ -276,18 +271,42 @@ async function saveAllScores(scoresData) {
   await batch.commit();
 }
 
-async function isSubscriptionActiveNow() {
-  try {
-    const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-    const subSnap = await getDoc(subRef);
-    if (!subSnap.exists()) return false;
-    const sub = subSnap.data();
-    const statusActive = String(sub.status).toLowerCase().trim() === 'active';
-    const notLocked = sub.locked !== true;
-    return statusActive && notLocked;
-  } catch (err) {
-    console.error("Error checking subscription:", err);
-    return false;
+function updateSubscriptionUI() {
+  const saveBtn = document.getElementById('saveScoresBtn');
+  const container = document.getElementById('scoresContainer');
+  if (!isScoreEntryAllowed) {
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.5';
+      saveBtn.title = 'Subscription inactive – cannot save scores';
+    }
+    if (container && !document.getElementById('subscriptionBanner')) {
+      const banner = document.createElement('div');
+      banner.id = 'subscriptionBanner';
+      banner.className = 'subscription-banner';
+      banner.innerHTML = `
+        <strong>⚠️ Subscription Required</strong><br>
+        Your school subscription is inactive. You cannot add or edit student scores. 
+        Please contact your school administrator to renew.
+      `;
+      container.prepend(banner);
+    }
+    // Disable all inputs if score entry not allowed
+    document.querySelectorAll('.ca-input, .exam-input').forEach(input => input.disabled = true);
+  } else {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.style.opacity = '1';
+      saveBtn.title = '';
+    }
+    const banner = document.getElementById('subscriptionBanner');
+    if (banner) banner.remove();
+    // Re‑enable inputs – but only if student is not locked (handled per row)
+    document.querySelectorAll('.ca-input, .exam-input').forEach(input => {
+      const row = input.closest('tr');
+      const isLocked = row?.dataset.locked === 'true';
+      input.disabled = !isScoreEntryAllowed || isLocked;
+    });
   }
 }
 
@@ -320,8 +339,8 @@ async function renderScoreTable() {
     const statusText = isLocked ? '🔒 Not Approved' : '✅ Approved';
     html += `<tr data-student-id="${student.id}" data-locked="${isLocked}" data-student-name="${escapeHtml(student.name)}">
       <td>${escapeHtml(student.name)}</td>
-      <td><input type="number" class="ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${disabledAttr}></td>
-      <td><input type="number" class="exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${disabledAttr}></td>
+      <td><input type="number" class="score-input ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${disabledAttr}></td>
+      <td><input type="number" class="score-input exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${disabledAttr}></td>
       <td class="total-cell">${total}</td>
       <td class="status-cell">${statusText}</td>
     </tr>`;
@@ -347,14 +366,8 @@ async function renderScoreTable() {
 }
 
 async function saveScores() {
-  const subscriptionActive = await isSubscriptionActiveNow();
-  if (!subscriptionActive) {
-    showNotification("❌ School subscription is inactive or expired. Cannot save scores. Please contact your school administrator to renew.", "error");
-    return;
-  }
-
   if (!isScoreEntryAllowed) {
-    showNotification("Score entry is currently disabled. Please contact administrator.", "error");
+    showNotification("❌ School subscription is inactive. Cannot save scores. Please contact your school administrator to renew.", "error");
     return;
   }
 
@@ -452,10 +465,17 @@ async function initScoresPage() {
     return;
   }
 
-  // ✅ Initialise central calendar
+  // Initialise central calendar (for term/session only, not subscription)
   await initAcademicCalendar();
 
-  isScoreEntryAllowed = await canEnterScores(currentSchoolId);
+  // Real‑time subscription listener
+  if (unsubscribeSub) unsubscribeSub();
+  unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
+    isScoreEntryAllowed = isActive;
+    updateSubscriptionUI();
+    // If table already rendered, re‑render to reflect new permission
+    if (selectedClassId && selectedSubjectId) renderScoreTable();
+  });
 
   await Promise.all([loadAllSubjects(), loadAllClasses()]);
   await loadTeacherAssignedSubjectsAndClasses();
@@ -463,7 +483,7 @@ async function initScoresPage() {
   populateSubjectDropdown();
   populateClassDropdown();
 
-  // ✅ Use central calendar for default session/term
+  // Use central calendar for default session/term
   const currentSession = getCurrentSession();
   const currentTermNum = getCurrentTerm();
   const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
@@ -490,7 +510,6 @@ async function initScoresPage() {
         const currentTermVal = document.getElementById('termSelect')?.value || defaultTermNum;
         await loadGradingSettingByClassLevel(selectedClassId, currentSessionVal, currentTermVal);
         if (selectedSubjectId) await renderScoreTable();
-        else renderScoreTable();
       } else {
         currentGrading = { ca: 40, exam: 60 };
         renderScoreTable();
@@ -531,26 +550,6 @@ async function initScoresPage() {
   const saveBtn = document.getElementById('saveScoresBtn');
   if (saveBtn) saveBtn.addEventListener('click', saveScores);
 
-  if (!isScoreEntryAllowed) {
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.style.opacity = '0.5';
-      saveBtn.title = 'Subscription inactive – cannot save scores';
-    }
-    const container = document.getElementById('scoresContainer');
-    if (container && !document.getElementById('subscriptionBanner')) {
-      const banner = document.createElement('div');
-      banner.id = 'subscriptionBanner';
-      banner.className = 'subscription-banner';
-      banner.innerHTML = `
-        <strong>⚠️ Subscription Required</strong><br>
-        Your school subscription is inactive. You cannot add or edit student scores. 
-        Please contact your school administrator to renew.
-      `;
-      container.prepend(banner);
-    }
-  }
-
   selectedSession = currentSession;
   selectedTerm = defaultTermNum;
   if (selectedClassId) {
@@ -559,6 +558,7 @@ async function initScoresPage() {
     await loadGradingSetting(selectedSession, selectedTerm);
   }
   renderScoreTable();
+  updateSubscriptionUI();
 }
 
 export { initScoresPage };

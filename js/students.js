@@ -1,14 +1,13 @@
 // students.js - Manage students with name parts, level filtering, dynamic class/subject loading
-// Fully integrated with Central Academic Calendar (via admin.js exports)
+// FULLY INTEGRATED with Central Academic Calendar (via admin.js exports)
+// MODIFIED: New student locked status based on raw subscription (active→locked true, inactive→locked false)
 
 import { db } from './firebase-config.js';
 import { 
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-// ✅ FIXED: Import from admin.js (not app.js) – getCurrentSchoolId now uses central calendar
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
-import { handleNewStudentAddition } from './plan.js';
-import { isSubscriptionActive } from './plan.js';
+import { handleNewStudentAddition, getRawSubscription } from './plan.js';   // ✅ get raw subscription
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
@@ -24,6 +23,18 @@ let studentForm, modal, admissionNoInput;
 let surnameInput, firstNameInput, otherNameInput;
 let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
+
+// Helper to get raw subscription active state (only status + locked, no term/session)
+async function isRawSubscriptionActive(schoolId) {
+  try {
+    const sub = await getRawSubscription(schoolId);
+    if (!sub) return false;
+    return (sub.status === 'active' && sub.locked !== true);
+  } catch (err) {
+    console.warn("Failed to get raw subscription:", err);
+    return false;
+  }
+}
 
 export async function initStudentsPage() {
   await protectAdminPage(); // ensures central calendar is initialised and user is admin
@@ -676,10 +687,12 @@ async function handleStudentSubmit(e) {
     return;
   }
 
+  // ✅ NEW LOGIC: Determine locked status based on raw subscription (status+locked)
   let lockedValue = false;
-  if (!editingStudentId) {
-    const isActive = await isSubscriptionActive(currentSchoolId);
-    lockedValue = isActive ? true : false;
+  if (!editingStudentId) {   // only for new student creation
+    const isRawActive = await isRawSubscriptionActive(currentSchoolId);
+    // If subscription is active → locked = true, else locked = false
+    lockedValue = isRawActive ? true : false;
   }
 
   const studentData = {

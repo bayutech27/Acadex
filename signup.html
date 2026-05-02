@@ -5,6 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Create School</title>
   <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Additional styles for username suggestions */
+    .suggestions-label {
+      font-size: 0.85rem;
+      color: #4b5563;
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+    .suggestions-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .suggestion-chip {
+      background: #e2e8f0;
+      border: none;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .suggestion-chip:hover:not(.taken) {
+      background: #cbd5e1;
+    }
+    .suggestion-chip.taken {
+      background: #fee2e2;
+      color: #991b1b;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: 500;
+      color: #1e293b;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+    button[type="submit"] {
+      width: 100%;
+      padding: 10px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .links {
+      text-align: center;
+      margin-top: 16px;
+    }
+    .message {
+      margin-top: 16px;
+    }
+  </style>
 </head>
 <body>
 <div class="container">
@@ -12,11 +78,32 @@
     <h1><span class="acadex-brand"><span class="acadex-a">A</span>cadex</span></h1>
     <h2>Create your school</h2>
     <form id="signupForm">
-      <input type="text" id="schoolName" placeholder="School Name" required>
-      <input type="text" id="schoolSlug" placeholder="School URL (slug)" required>
-      <textarea id="schoolAddress" placeholder="School Address (street, city, state, country)" rows="3" required></textarea>
-      <input type="email" id="email" placeholder="Admin Email" required>
-      <input type="password" id="password" placeholder="Password" required>
+      <div class="form-group">
+        <label for="schoolName">School Name *</label>
+        <input type="text" id="schoolName" placeholder="e.g., Excel International School" required>
+      </div>
+      <div class="form-group">
+        <label for="username">Username *</label>
+        <input type="text" id="username" placeholder="e.g., excel-school" required>
+        <div id="usernameSuggestions"></div>
+        <small>Your unique identifier for the school dashboard URL. Lowercase letters, numbers, and hyphens only.</small>
+      </div>
+      <div class="form-group">
+        <label for="schoolPhone">Phone Number</label>
+        <input type="tel" id="schoolPhone" placeholder="e.g., +234 801 234 5678">
+      </div>
+      <div class="form-group">
+        <label for="schoolAddress">School Address *</label>
+        <textarea id="schoolAddress" placeholder="street, city, state, country" rows="3" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="email">Admin Email *</label>
+        <input type="email" id="email" placeholder="admin@school.com" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password *</label>
+        <input type="password" id="password" placeholder="At least 6 characters" required>
+      </div>
       <button type="submit">Create School</button>
     </form>
     <div class="links">

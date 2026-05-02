@@ -1,4 +1,4 @@
-// super-admin.js - Super admin dashboard with manual toggles only (no loader overlays)
+// super-admin.js - Super admin dashboard with phone column
 import { db, auth } from './firebase-config.js';
 import { 
   collection, getDocs, doc, getDoc, updateDoc, query, where, 
@@ -132,20 +132,32 @@ async function loadSchools() {
     schoolsData = [];
     for (const schoolDoc of schoolsSnap.docs) {
       const school = { id: schoolDoc.id, ...schoolDoc.data() };
+      // Get admin email
       const adminQuery = query(collection(db, 'users'), where('schoolId', '==', school.id), where('role', '==', 'admin'));
       const adminSnap = await getDocs(adminQuery);
       school.adminEmail = adminSnap.empty ? '—' : adminSnap.docs[0].data().email;
+      
+      // Get subscription
       const subRef = doc(db, 'schools', school.id, 'subscription', 'current');
       const subSnap = await getDoc(subRef);
       school.subscription = subSnap.exists() ? subSnap.data() : null;
+      
+      // Get student counts
       const allStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id)));
       school.totalStudents = allStudentsSnap.size;
+      
       const activeStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id), where('status', '==', 'active')));
       school.activeStudents = activeStudentsSnap.size;
+      
       const lockedStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id), where('locked', '==', true)));
       school.lockedCount = lockedStudentsSnap.size;
+      
+      // ✅ Phone field
+      school.phone = school.phone || '';   // from school document
+      
       schoolsData.push(school);
     }
+    
     let filtered = schoolsData.filter(s => {
       const matchesSearch = (s.name?.toLowerCase().includes(search) || s.adminEmail?.toLowerCase().includes(search));
       const matchesStatus = !statusFilter || (s.subscription?.status === statusFilter);
@@ -161,7 +173,7 @@ function renderTable(schools) {
   const tbody = document.getElementById('schoolsTableBody');
   if (!tbody) return;
   if (!schools.length) {
-    tbody.innerHTML = '<tr><td colspan="9">No schools found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10">No schools found</td></tr>'; // ✅ colspan 10
     return;
   }
   tbody.innerHTML = schools.map(s => {
@@ -177,10 +189,13 @@ function renderTable(schools) {
       expiryDisplay = new Date(sub.endDate.toDate()).toLocaleDateString();
     }
     const hasPending = s.lockedCount > 0;
+    const phoneDisplay = s.phone ? escapeHtml(s.phone) : '—';
+    
     return `
       <tr data-school-id="${s.id}">
         <td>${escapeHtml(s.name || '—')}</td>
         <td>${escapeHtml(s.adminEmail)}</td>
+        <td>${phoneDisplay}</td>
         <td><span class="status-badge status-${statusClass}">${status}</span></td>
         <td>${sub.plan || 'basic'}</td>
         <td>${s.totalStudents || 0}</td>
@@ -202,7 +217,7 @@ function renderTable(schools) {
   });
 }
 
-// Handler for Activate/Suspend button – no loader overlay, only button disabled
+// Handler for Activate/Suspend button – unchanged
 async function handleToggle(e) {
   const btn = e.currentTarget;
   const schoolId = btn.dataset.id;
@@ -220,7 +235,6 @@ async function handleToggle(e) {
     }
 
     if (currentStatus === 'active') {
-      // SUSPEND: set status=expired, locked=true
       await updateDoc(subRef, {
         status: 'expired',
         locked: true,
@@ -229,7 +243,6 @@ async function handleToggle(e) {
       });
       showNotification("School suspended.", "success");
     } else {
-      // ACTIVATE: set status=active, locked=false, and update term/session/endDate
       const currentTerm = getCurrentTerm();
       const currentSession = getCurrentSession();
       const endDateObj = getTermEndDateFromSessionAndTerm(currentSession, currentTerm);
@@ -245,7 +258,6 @@ async function handleToggle(e) {
       await updateDoc(subRef, updateData);
       showNotification("School activated for current term.", "success");
     }
-    // Reload dashboard to reflect changes
     await loadDashboard();
   } catch (err) {
     console.error("Toggle error:", err);
