@@ -1,6 +1,7 @@
 // super-admin.js - Super admin dashboard
 // FIX 4: Activation uses rolling 3-month end date (no more hardcoded term dates that could immediately expire).
 // FIX 5: Activation sets status=active, locked=false, and a real future endDate — nothing else reverts this.
+// FIX 9: endDate is now always the end of the current term from the academic calendar.
 
 import { db, auth } from './firebase-config.js';
 import {
@@ -9,21 +10,13 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { showNotification, handleError } from './error-handler.js';
-import { initAcademicCalendar, getCurrentTerm, getCurrentSession, subscribeToCalendar } from './academic-calendar.js';
+import { initAcademicCalendar, getCurrentTerm, getCurrentSession, getTermDates, subscribeToCalendar } from './academic-calendar.js';
 
 let currentUser = null;
 let schoolsData = [];
 let calendarUnsubscribe = null;
 let isLoading = false;
 let loadTimeout = null;
-
-// FIX 4: Rolling end date helper — replaces hardcoded term dates.
-// Newly activated subscriptions always get a future expiry (3 months ahead).
-function getRollingEndDate(monthsAhead = 3) {
-  const end = new Date();
-  end.setMonth(end.getMonth() + monthsAhead);
-  return end;
-}
 
 // Kept for display in the table (expiry column) — NOT used for activation or expiry decisions.
 function getTermEndDateFromSessionAndTerm(session, term) {
@@ -234,9 +227,7 @@ function renderTable(schools) {
   });
 }
 
-// FIX 4 & 5: Activation writes a real future endDate (rolling 3 months).
-// status=active, locked=false. Nothing in the system will silently revert this
-// unless the real endDate passes and autoLockExpiredSubscriptions runs.
+// FIX 4 & 5 & 9: Activation now uses the current term's end date from the academic calendar.
 async function handleToggle(e) {
   const btn = e.currentTarget;
   const schoolId = btn.dataset.id;
@@ -254,7 +245,7 @@ async function handleToggle(e) {
     }
 
     if (currentStatus === 'active') {
-      // Suspend: mark expired and locked
+      // Suspend: mark expired and locked (endDate left unchanged)
       await updateDoc(subRef, {
         status: 'expired',
         locked: true,
@@ -263,24 +254,23 @@ async function handleToggle(e) {
       });
       showNotification("School suspended.", "success");
     } else {
-      // FIX 4: Activate with rolling end date so activation is always future-dated.
-      // FIX 5: Only status/locked/endDate are written — no term/session logic that
-      //         could be mismatched later and cause silent re-expiry.
+      // Activate: use the current term's end date from the academic calendar
       const currentTerm = getCurrentTerm();
       const currentSession = getCurrentSession();
-      const endDate = getRollingEndDate(3); // Always 3 months in the future
+      const termDates = getTermDates();   // { start, end } as "YYYY-MM-DD"
+      const termEndDate = new Date(termDates.end + 'T23:59:59.999Z'); // term end in UTC
 
       const updateData = {
         status: 'active',
         locked: false,
         term: currentTerm,
         session: currentSession,
-        endDate: endDate,
+        endDate: termEndDate,
         lastUpdated: new Date(),
         autoExpired: false
       };
       await updateDoc(subRef, updateData);
-      showNotification("School activated. Subscription valid for 3 months.", "success");
+      showNotification("School activated. Subscription valid until end of current term.", "success");
     }
     await loadDashboard();
   } catch (err) {

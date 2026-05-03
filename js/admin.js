@@ -2,6 +2,8 @@
 // FULLY INTEGRATED with Central Academic Calendar Engine
 // FIX 3: Removed autoLockExpiredSubscriptions() from protectAdminPage() —
 //         the dashboard only reads/displays subscription state, never mass-expires.
+// FIX 9: Automatically aligns subscription endDate to the current term’s end date
+//         (from the central academic calendar) whenever the subscription is active.
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -19,7 +21,6 @@ import {
   getSubscriptionDisplayStatus
 } from './plan.js';
 // FIX 3: autoLockExpiredSubscriptions intentionally NOT imported here.
-// It must not run automatically on admin dashboard load/refresh.
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
 
@@ -85,8 +86,6 @@ export async function getCurrentSchoolId() {
 let calendarStopPeriodicSync = null;
 
 // ------------------- Admin Page Protection -------------------
-// FIX 3: autoLockExpiredSubscriptions() is completely removed from this function.
-// The dashboard reads subscription state only — it does NOT trigger destructive writes.
 export async function protectAdminPage() {
   await waitForAuth();
 
@@ -122,7 +121,6 @@ export async function protectAdminPage() {
   }
 
   // FIX 3: No autoLockExpiredSubscriptions() call here.
-  // Subscription state is read from Firestore and displayed — never modified on page load.
 
   let access;
   try {
@@ -336,6 +334,46 @@ async function updateSubscriptionBadge(schoolId) {
 
 let subscriptionListenerUnsubscribe = null;
 
+// ------------------- FIX 9: Align subscription endDate to academic term end -------------------
+async function alignSubscriptionEndDate(schoolId, currentSubData) {
+  // Only align for active, unlocked subscriptions
+  if (!currentSubData || currentSubData.status !== 'active' || currentSubData.locked === true) {
+    return;
+  }
+
+  try {
+    // Get the current term's end date from the academic calendar
+    const termDates = getTermDates();   // returns { start, end } strings like "YYYY-MM-DD"
+    const termEndStr = termDates.end;
+    if (!termEndStr) return;
+
+    // Convert term end string to a Date at the very end of that day (23:59:59.999 UTC)
+    const termEndDate = new Date(termEndStr + 'T23:59:59.999Z');
+    if (isNaN(termEndDate.getTime())) return;
+
+    // Convert the stored endDate (Firestore Timestamp or Date) to a comparable Date
+    let storedEnd = null;
+    if (currentSubData.endDate) {
+      storedEnd = currentSubData.endDate.toDate ? currentSubData.endDate.toDate() : new Date(currentSubData.endDate);
+    }
+
+    // If the stored endDate is already exactly the term end date, do nothing
+    if (storedEnd && storedEnd.getTime() === termEndDate.getTime()) {
+      return;
+    }
+
+    // Update the subscription document with the correct term‑end date
+    const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+    await updateDoc(subRef, {
+      endDate: termEndDate,
+      lastUpdated: new Date()
+    });
+  } catch (err) {
+    // Silently ignore alignment errors – they should not block the UI
+    console.warn('Failed to align subscription endDate:', err);
+  }
+}
+
 // FIX 6: Real-time listener reads and displays — no writes triggered by UI.
 export function initSubscriptionUI(schoolId) {
   if (!schoolId) return;
@@ -345,6 +383,10 @@ export function initSubscriptionUI(schoolId) {
   subscriptionListenerUnsubscribe = onSnapshot(subRef, async (snap) => {
     if (!snap.exists()) return;
     const sub = snap.data();
+
+    // ---- FIX 9: Align endDate to term end whenever the subscription is active ----
+    await alignSubscriptionEndDate(schoolId, sub);
+
     await updateFeeDisplay(schoolId, sub);
     await updatePendingExtraDisplay(schoolId, sub);
 
