@@ -5,6 +5,8 @@
   import { getFirestore } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  import { getFunctions } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-functions.js';
+
 
   // TODO: Add SDKs for Firebase products that you want to use
   // https://firebase.google.com/docs/web/setup#available-libraries
@@ -25,7 +27,8 @@
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
+   const functions = getFunctions(app);
   const analytics = getAnalytics(app);
 
 // Export ONLY the initialized services
-export { auth, db, analytics };
+export { auth, db, analytics, functions };

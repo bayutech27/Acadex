@@ -1,7 +1,10 @@
-// super-admin.js - Super admin dashboard with phone column
+// super-admin.js - Super admin dashboard
+// FIX 4: Activation uses rolling 3-month end date (no more hardcoded term dates that could immediately expire).
+// FIX 5: Activation sets status=active, locked=false, and a real future endDate — nothing else reverts this.
+
 import { db, auth } from './firebase-config.js';
-import { 
-  collection, getDocs, doc, getDoc, updateDoc, query, where, 
+import {
+  collection, getDocs, doc, getDoc, updateDoc, query, where,
   writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -14,20 +17,27 @@ let calendarUnsubscribe = null;
 let isLoading = false;
 let loadTimeout = null;
 
-// Helper: compute term end date from session and term name
+// FIX 4: Rolling end date helper — replaces hardcoded term dates.
+// Newly activated subscriptions always get a future expiry (3 months ahead).
+function getRollingEndDate(monthsAhead = 3) {
+  const end = new Date();
+  end.setMonth(end.getMonth() + monthsAhead);
+  return end;
+}
+
+// Kept for display in the table (expiry column) — NOT used for activation or expiry decisions.
 function getTermEndDateFromSessionAndTerm(session, term) {
   if (!session || !term) return null;
   const startYear = parseInt(session.split('/')[0]);
   if (isNaN(startYear)) return null;
-  let year = startYear;
   let monthEnd, dayEnd;
   switch (term) {
-    case 'First Term': monthEnd = 11; dayEnd = 31; break;
-    case 'Second Term': monthEnd = 3; dayEnd = 30; break;
-    case 'Third Term': monthEnd = 7; dayEnd = 30; break;
+    case 'First Term':  monthEnd = 11; dayEnd = 31; break;
+    case 'Second Term': monthEnd = 3;  dayEnd = 30; break;
+    case 'Third Term':  monthEnd = 7;  dayEnd = 30; break;
     default: return null;
   }
-  return new Date(Date.UTC(year, monthEnd, dayEnd, 23, 59, 59));
+  return new Date(Date.UTC(startYear, monthEnd, dayEnd, 23, 59, 59));
 }
 
 // Wait for calendar to be fully initialised
@@ -43,6 +53,11 @@ async function waitForCalendarReady() {
       });
     }
   });
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }
 
 // Auth guard
@@ -74,7 +89,6 @@ function updateCalendarBadge(state) {
   if (sessionEl) sessionEl.textContent = state.currentSession;
 }
 
-// Main dashboard loader – no loader overlay
 async function loadDashboard(options = { silent: false }) {
   if (isLoading) return;
   isLoading = true;
@@ -96,7 +110,7 @@ function debouncedLoadSchools() {
 async function loadStats() {
   try {
     const schoolsSnap = await getDocs(collection(db, 'schools'));
-    let total = schoolsSnap.size;
+    const total = schoolsSnap.size;
     let activeSubs = 0, expiredSubs = 0, totalStudents = 0;
     const promises = [];
     schoolsSnap.forEach(schoolDoc => {
@@ -132,32 +146,32 @@ async function loadSchools() {
     schoolsData = [];
     for (const schoolDoc of schoolsSnap.docs) {
       const school = { id: schoolDoc.id, ...schoolDoc.data() };
-      // Get admin email
+
+      // Admin email
       const adminQuery = query(collection(db, 'users'), where('schoolId', '==', school.id), where('role', '==', 'admin'));
       const adminSnap = await getDocs(adminQuery);
       school.adminEmail = adminSnap.empty ? '—' : adminSnap.docs[0].data().email;
-      
-      // Get subscription
+
+      // Subscription
       const subRef = doc(db, 'schools', school.id, 'subscription', 'current');
       const subSnap = await getDoc(subRef);
       school.subscription = subSnap.exists() ? subSnap.data() : null;
-      
-      // Get student counts
+
+      // Student counts
       const allStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id)));
       school.totalStudents = allStudentsSnap.size;
-      
+
       const activeStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id), where('status', '==', 'active')));
       school.activeStudents = activeStudentsSnap.size;
-      
+
       const lockedStudentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', school.id), where('locked', '==', true)));
       school.lockedCount = lockedStudentsSnap.size;
-      
-      // ✅ Phone field
-      school.phone = school.phone || '';   // from school document
-      
+
+      school.phone = school.phone || '';
+
       schoolsData.push(school);
     }
-    
+
     let filtered = schoolsData.filter(s => {
       const matchesSearch = (s.name?.toLowerCase().includes(search) || s.adminEmail?.toLowerCase().includes(search));
       const matchesStatus = !statusFilter || (s.subscription?.status === statusFilter);
@@ -173,7 +187,7 @@ function renderTable(schools) {
   const tbody = document.getElementById('schoolsTableBody');
   if (!tbody) return;
   if (!schools.length) {
-    tbody.innerHTML = '<tr><td colspan="10">No schools found</td></tr>'; // ✅ colspan 10
+    tbody.innerHTML = '<tr><td colspan="10">No schools found</td></tr>';
     return;
   }
   tbody.innerHTML = schools.map(s => {
@@ -181,16 +195,19 @@ function renderTable(schools) {
     const status = sub.status || 'expired';
     const statusClass = status === 'active' ? 'active' : (status === 'expired' ? 'expired' : 'suspended');
     const buttonText = status === 'active' ? 'Suspend' : 'Activate';
+
+    // Display: prefer stored endDate, fall back to term-based calculation for display only
     let expiryDisplay = '—';
-    if (sub.term && sub.session) {
+    if (sub.endDate) {
+      expiryDisplay = new Date(sub.endDate.toDate ? sub.endDate.toDate() : sub.endDate).toLocaleDateString();
+    } else if (sub.term && sub.session) {
       const endDate = getTermEndDateFromSessionAndTerm(sub.session, sub.term);
       if (endDate) expiryDisplay = endDate.toLocaleDateString();
-    } else if (sub.endDate) {
-      expiryDisplay = new Date(sub.endDate.toDate()).toLocaleDateString();
     }
+
     const hasPending = s.lockedCount > 0;
     const phoneDisplay = s.phone ? escapeHtml(s.phone) : '—';
-    
+
     return `
       <tr data-school-id="${s.id}">
         <td>${escapeHtml(s.name || '—')}</td>
@@ -217,11 +234,13 @@ function renderTable(schools) {
   });
 }
 
-// Handler for Activate/Suspend button – unchanged
+// FIX 4 & 5: Activation writes a real future endDate (rolling 3 months).
+// status=active, locked=false. Nothing in the system will silently revert this
+// unless the real endDate passes and autoLockExpiredSubscriptions runs.
 async function handleToggle(e) {
   const btn = e.currentTarget;
   const schoolId = btn.dataset.id;
-  const currentStatus = btn.dataset.status;   // 'active' or 'expired'
+  const currentStatus = btn.dataset.status;
   const originalText = btn.innerText;
   btn.disabled = true;
 
@@ -235,6 +254,7 @@ async function handleToggle(e) {
     }
 
     if (currentStatus === 'active') {
+      // Suspend: mark expired and locked
       await updateDoc(subRef, {
         status: 'expired',
         locked: true,
@@ -243,20 +263,24 @@ async function handleToggle(e) {
       });
       showNotification("School suspended.", "success");
     } else {
+      // FIX 4: Activate with rolling end date so activation is always future-dated.
+      // FIX 5: Only status/locked/endDate are written — no term/session logic that
+      //         could be mismatched later and cause silent re-expiry.
       const currentTerm = getCurrentTerm();
       const currentSession = getCurrentSession();
-      const endDateObj = getTermEndDateFromSessionAndTerm(currentSession, currentTerm);
+      const endDate = getRollingEndDate(3); // Always 3 months in the future
+
       const updateData = {
         status: 'active',
         locked: false,
         term: currentTerm,
         session: currentSession,
+        endDate: endDate,
         lastUpdated: new Date(),
         autoExpired: false
       };
-      if (endDateObj) updateData.endDate = endDateObj;
       await updateDoc(subRef, updateData);
-      showNotification("School activated for current term.", "success");
+      showNotification("School activated. Subscription valid for 3 months.", "success");
     }
     await loadDashboard();
   } catch (err) {
@@ -285,7 +309,7 @@ async function openApproveModal(schoolId) {
         try {
           const studentsQuery = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('locked', '==', true));
           const studentsSnap = await getDocs(studentsQuery);
-          let toUnlock = Math.min(count, studentsSnap.size);
+          const toUnlock = Math.min(count, studentsSnap.size);
           const batch = writeBatch(db);
           let unlocked = 0;
           for (const studentDoc of studentsSnap.docs) {
@@ -307,11 +331,6 @@ async function openApproveModal(schoolId) {
   }
   const closeBtn = document.getElementById('closeApproveModal');
   if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }
 
 // Event listeners

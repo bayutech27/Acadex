@@ -1,12 +1,11 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// FULLY INTEGRATED with Central Academic Calendar Engine + real‑time subscription lock
+// DIRECT subscription check from Firestore – no listener, no bypass chance
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getTeacherData } from './teacher-dashboard.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { onSubscriptionChange } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 
@@ -19,8 +18,7 @@ let classesMap = new Map();          // id -> { name, level }
 let subjectsMap = new Map();          // subjectId -> name
 let allSubjectsList = [];              // Array of { id, name, level }
 let studentsList = [];
-let isSubscriptionActive = false;      // raw subscription status (status=active && locked=false)
-let unsubscribeSub = null;             // subscription listener
+let isSubscriptionActive = false;     // will be set by checkSubscription()
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
@@ -41,7 +39,32 @@ let reportState = {
   reportState.psychomotor[key] = 3;
 });
 
-// Helper: disable all subscription‑dependent UI
+// ------------------- Subscription check directly from Firestore -------------------
+async function checkSubscription() {
+  try {
+    const subDoc = await getDoc(doc(db, 'schools', currentSchoolId, 'subscription', 'current'));
+    if (!subDoc.exists()) {
+      isSubscriptionActive = false;
+      disableSubscriptionFeatures();
+      return false;
+    }
+    const subData = subDoc.data();
+    isSubscriptionActive = (subData.status === 'active' && subData.locked !== true);
+    if (isSubscriptionActive) {
+      enableSubscriptionFeatures();
+    } else {
+      disableSubscriptionFeatures();
+    }
+    return isSubscriptionActive;
+  } catch (err) {
+    handleError(err, "Failed to verify subscription.");
+    isSubscriptionActive = false;
+    disableSubscriptionFeatures();
+    return false;
+  }
+}
+
+// UI helpers
 function disableSubscriptionFeatures() {
   const saveBtn = document.getElementById('saveReportBtn');
   const printBtn = document.getElementById('printReportBtn');
@@ -113,7 +136,7 @@ function generateSessionOptions() {
   return opts;
 }
 
-// NEW: Load grading based on class level (primary/secondary)
+// ------------------- Grading loading (unchanged) -------------------
 async function loadGradingSettingByLevel(level, session, term) {
   if (!level) {
     currentGrading = { ca: 40, exam: 60 };
@@ -173,7 +196,7 @@ async function loadGradingSetting(session, term, classLevel = null) {
   }
 }
 
-// ------------------- Data Loading -------------------
+// ------------------- Data Loading (unchanged) -------------------
 async function fetchClassName() {
   try {
     const classRef = doc(db, 'classes', classId);
@@ -196,11 +219,7 @@ async function loadSubjectsAndClasses() {
     subjSnap.forEach(doc => {
       const data = doc.data();
       subjectsMap.set(doc.id, data.name);
-      allSubjectsList.push({
-        id: doc.id,
-        name: data.name,
-        level: data.level || null
-      });
+      allSubjectsList.push({ id: doc.id, name: data.name, level: data.level || null });
     });
     const classSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
     classesMap.clear();
@@ -242,7 +261,6 @@ async function fetchScores(studentId, term, session) {
   }
 }
 
-// ------------------- Subject Stats -------------------
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
@@ -289,7 +307,6 @@ async function computeSubjectStats(classId, term, session) {
   return subjectMap;
 }
 
-// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
 async function getRelevantSubjectsForClass(classId, term, session) {
   const classInfo = classesMap.get(classId);
   if (!classInfo) return [];
@@ -343,7 +360,9 @@ async function loadExistingReport(studentId) {
 }
 
 async function saveReportCard() {
-  if (!isSubscriptionActive) {
+  // Re‑check subscription from Firestore right before saving
+  const active = await checkSubscription();
+  if (!active) {
     showNotification("Cannot save report – subscription inactive.", "error");
     return;
   }
@@ -382,6 +401,7 @@ async function saveReportCard() {
     attendance,
     updatedAt: new Date()
   };
+
   showLoader();
   try {
     if (reportState.savedReportId) {
@@ -403,7 +423,7 @@ async function saveReportCard() {
   }
 }
 
-// ========== IMPROVED PRINT HANDLER (forces one page, no overlap) ==========
+// ========== PRINT HANDLER (unchanged) ==========
 function printReportCard() {
   const teacherText = document.getElementById('teacherCommentText');
   const printTeacher = document.getElementById('printTeacherComment');
@@ -432,84 +452,26 @@ function printReportCard() {
     .join('\n');
 
   const extraPrintCSS = `
-    /* Remove any page breaks inside the report card */
     .report-card, .report-card * {
       page-break-inside: avoid;
       page-break-after: avoid;
       page-break-before: avoid;
     }
-    @page {
-      size: A4;
-      margin: 8mm;
-    }
-    body, .print-container {
-      margin: 0;
-      padding: 0;
-      background: white;
-    }
-    .print-container {
-      width: 100%;
-      max-width: 210mm;
-      margin: 0 auto;
-    }
-    .report-card {
-      padding: 2px !important;
-      margin: 0 !important;
-      font-size: 8.5px !important;
-      line-height: 1.2;
-    }
-    /* Subject table – compact */
-    .subject-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 6px !important;
-    }
-    .subject-table th, .subject-table td {
-      padding: 2px 2px !important;
-      word-break: break-word;
-    }
-    .subject-table th:not(:first-child) {
-      height: 50px !important;
-      width: 24px !important;
-      writing-mode: vertical-rl;
-      transform: rotate(180deg);
-      white-space: normal;
-      font-size: 5px;
-    }
-    /* Student details grid */
-    .student-details-grid {
-      font-size: 6px !important;
-      gap: 2px 4px !important;
-      margin-bottom: 2px !important;
-    }
-    /* Skills tables */
-    .skills-table, .summary-table, .grade-scale-table {
-      font-size: 5px !important;
-    }
-    .skills-table th, .skills-table td,
-    .summary-table th, .summary-table td {
-      padding: 1px 2px !important;
-    }
-    /* Comments and signature */
-    .comments-section {
-      font-size: 7px !important;
-      margin-top: 2px !important;
-    }
-    .signature-stamp {
-      margin-top: 2px !important;
-      padding-top: 2px !important;
-    }
-    /* Hide interactive elements */
-    .rating-tick, select, textarea, button, .comment-controls, .tick {
-      display: none !important;
-    }
-    .print-value, .print-comment-text {
-      display: block !important;
-    }
-    /* Force no overflow */
-    .report-card, .report-card * {
-      overflow: visible !important;
-    }
+    @page { size: A4; margin: 8mm; }
+    body, .print-container { margin: 0; padding: 0; background: white; }
+    .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
+    .report-card { padding: 2px !important; margin: 0 !important; font-size: 8.5px !important; line-height: 1.2; }
+    .subject-table { width: 100%; border-collapse: collapse; font-size: 6px !important; }
+    .subject-table th, .subject-table td { padding: 2px 2px !important; word-break: break-word; }
+    .subject-table th:not(:first-child) { height: 50px !important; width: 24px !important; writing-mode: vertical-rl; transform: rotate(180deg); white-space: normal; font-size: 5px; }
+    .student-details-grid { font-size: 6px !important; gap: 2px 4px !important; margin-bottom: 2px !important; }
+    .skills-table, .summary-table, .grade-scale-table { font-size: 5px !important; }
+    .skills-table th, .skills-table td, .summary-table th, .summary-table td { padding: 1px 2px !important; }
+    .comments-section { font-size: 7px !important; margin-top: 2px !important; }
+    .signature-stamp { margin-top: 2px !important; padding-top: 2px !important; }
+    .rating-tick, select, textarea, button, .comment-controls, .tick { display: none !important; }
+    .print-value, .print-comment-text { display: block !important; }
+    .report-card, .report-card * { overflow: visible !important; }
   `;
 
   printWindow.document.write(`
@@ -661,15 +623,8 @@ async function loadClassStudents() {
   
   const style = document.createElement('style');
   style.textContent = `
-    .student-list-item:hover {
-      background-color: #e9ecef !important;
-      transform: translateX(5px);
-    }
-    .student-list-item.active {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-      color: white !important;
-      border-left: 4px solid gold;
-    }
+    .student-list-item:hover { background-color: #e9ecef !important; transform: translateX(5px); }
+    .student-list-item.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-left: 4px solid gold; }
   `;
   if (!document.querySelector('#student-list-styles')) {
     style.id = 'student-list-styles';
@@ -685,7 +640,7 @@ async function loadClassStudents() {
   });
 }
 
-// ==================== BROADSHEET FUNCTIONS (with subject filtering) ====================
+// ==================== BROADSHEET FUNCTIONS ====================
 async function fetchClassScores(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return [];
@@ -883,7 +838,8 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionActive) {
+  const active = await checkSubscription();
+  if (!active) {
     showNotification("Cannot save broadsheet – subscription inactive.", "error");
     return;
   }
@@ -985,27 +941,15 @@ export async function initClassReportPage() {
     return;
   }
 
-  // Initialise central calendar
   await initAcademicCalendar();
 
-  // Set up real‑time subscription listener
-  if (unsubscribeSub) unsubscribeSub();
-  unsubscribeSub = onSubscriptionChange(currentSchoolId, async ({ isActive }) => {
-    isSubscriptionActive = isActive;
-    if (isSubscriptionActive) {
-      enableSubscriptionFeatures();
-    } else {
-      disableSubscriptionFeatures();
-    }
-    // Refresh UI (e.g., reload student list if needed)
-    await loadClassStudents();
-  });
+  // Check subscription directly and set initial UI state
+  await checkSubscription();
 
   await fetchClassName();
   await loadSubjectsAndClasses();
   await loadStudentsList();
 
-  // BROADSHEET CLASS DROPDOWN: only the teacher's assigned class
   const broadsheetClassSelect = document.getElementById('broadsheetClassSelect');
   if (broadsheetClassSelect) {
     broadsheetClassSelect.innerHTML = '';

@@ -1,4 +1,6 @@
-// plan.js – Term‑based subscription management with raw Firestore helpers for teacher pages
+// plan.js – Subscription management
+// FIXED: Subscriptions only expire when real endDate passes — never due to term/session mismatch.
+
 import { db } from './firebase-config.js';
 import {
   doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs,
@@ -8,30 +10,30 @@ import { handleError } from './error-handler.js';
 
 const SUBSCRIPTION_DOC_ID = 'current';
 
-// ------------------- Helper: Compute term end date from session and term name -------------------
+// ------------------- FIX 4: Rolling 3-month end date (replaces hardcoded term dates) -------------------
+// No longer uses term-based hardcoded dates that could immediately expire new activations.
+function getRollingEndDate(monthsAhead = 3) {
+  const end = new Date();
+  end.setMonth(end.getMonth() + monthsAhead);
+  return end;
+}
+
+// Kept for display/legacy use only — NOT used for expiry decisions.
 function getTermEndDateFromSessionAndTerm(session, term) {
   if (!session || !term) return null;
   const startYear = parseInt(session.split('/')[0]);
   if (isNaN(startYear)) return null;
-  let year = startYear;
   let monthEnd, dayEnd;
   switch (term) {
-    case 'First Term':
-      monthEnd = 11; dayEnd = 31;   // December 31
-      break;
-    case 'Second Term':
-      monthEnd = 3; dayEnd = 30;    // April 30
-      break;
-    case 'Third Term':
-      monthEnd = 7; dayEnd = 30;    // August 30
-      break;
-    default:
-      return null;
+    case 'First Term':  monthEnd = 11; dayEnd = 31; break;
+    case 'Second Term': monthEnd = 3;  dayEnd = 30; break;
+    case 'Third Term':  monthEnd = 7;  dayEnd = 30; break;
+    default: return null;
   }
-  return new Date(Date.UTC(year, monthEnd, dayEnd, 23, 59, 59));
+  return new Date(Date.UTC(startYear, monthEnd, dayEnd, 23, 59, 59));
 }
 
-// ------------------- Core subscription helpers (existing) -------------------
+// ------------------- Core subscription helpers -------------------
 export async function getSubscriptionStatus(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
@@ -46,8 +48,7 @@ export async function getSubscriptionStatus(schoolId) {
 
 /**
  * FOR DISPLAY ONLY – returns status exactly as stored in Firestore.
- * Ignores term/session matching.
- * @returns {string} 'active' or 'expired'
+ * Never checks term/session. Never triggers writes.
  */
 export async function getSubscriptionDisplayStatus(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -57,8 +58,13 @@ export async function getSubscriptionDisplayStatus(schoolId) {
 }
 
 /**
- * Strict permission check for academic features (scores, reports, etc.).
- * Requires term/session match and active status.
+ * FIX 1 & 2: isSubscriptionActive checks ONLY:
+ *   1. status === 'active'
+ *   2. locked !== true
+ *   3. endDate has NOT passed
+ *
+ * Term/session mismatch is NO LONGER a reason to return false.
+ * This keeps manually activated schools active until their real endDate passes.
  */
 export async function isSubscriptionActive(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -66,35 +72,23 @@ export async function isSubscriptionActive(schoolId) {
   if (sub.status !== 'active') return false;
   if (sub.locked === true) return false;
 
-  const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
-  await initAcademicCalendar();
-  let currentTerm, currentSession;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      currentTerm = getCurrentTerm();
-      currentSession = getCurrentSession();
-      break;
-    } catch (e) {
-      await new Promise(r => setTimeout(r, 100));
-    }
+  // FIX 2: Only real date expiry matters
+  if (sub.endDate) {
+    const endDate = sub.endDate.toDate ? sub.endDate.toDate() : new Date(sub.endDate);
+    if (endDate < new Date()) return false;
   }
-  if (!currentTerm || !currentSession) return false;
-
-  if (sub.term !== currentTerm || sub.session !== currentSession) return false;
-  if (sub.endDate && sub.endDate.toDate() < new Date()) return false;
 
   return true;
 }
 
-// Granular check for score entry and report generation (uses strict check)
 export async function canEnterScores(schoolId) {
   return await isSubscriptionActive(schoolId);
 }
 
 /**
- * Enforce subscription access for admin/teacher actions.
- * If subscription is inactive, allow only onboarding (adding students/teachers)
- * but deny all core academic functions (scores, reports, broadsheets).
+ * FIX 1: enforceAccessGuard no longer uses term/session validation.
+ * Access is denied only if the subscription is genuinely inactive
+ * (status !== active, locked, or past endDate).
  */
 export async function enforceAccessGuard(user, schoolId) {
   if (user.role === 'super-admin') return { allowed: true };
@@ -105,7 +99,7 @@ export async function enforceAccessGuard(user, schoolId) {
   return { allowed: true };
 }
 
-// ------------------- Lock / Unlock school (by admin) -------------------
+// ------------------- Lock / Unlock school -------------------
 export async function lockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
@@ -124,7 +118,7 @@ export async function unlockSchool(schoolId) {
   }
 }
 
-// ------------------- Payment & student coverage (unchanged) -------------------
+// ------------------- Payment & student coverage -------------------
 export function calculateSubscriptionCost(coveredStudents, costPerStudent = 1000) {
   return coveredStudents * costPerStudent;
 }
@@ -223,29 +217,12 @@ async function markStudentsAsCovered(schoolId, count) {
   }
 }
 
-// ------------------- Term‑based auto‑lock (only on calendar change) -------------------
+// ------------------- FIX 8: Safe autoLockExpiredSubscriptions -------------------
+// ONLY expires schools whose endDate has genuinely passed.
+// NEVER creates new expired records.
+// NEVER overwrites active subscriptions due to term/session mismatch.
 export async function autoLockExpiredSubscriptions() {
-  const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
-  await initAcademicCalendar();
-
-  let currentTerm, currentSession;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      currentTerm = getCurrentTerm();
-      currentSession = getCurrentSession();
-      break;
-    } catch (e) {
-      await new Promise(r => setTimeout(r, 100));
-    }
-  }
-  if (!currentTerm || !currentSession) {
-    console.warn('autoLockExpiredSubscriptions: Could not retrieve current term/session, aborting.');
-    return;
-  }
-
-  const endDate = getTermEndDateFromSessionAndTerm(currentSession, currentTerm);
   const now = new Date();
-
   try {
     const schoolsSnapshot = await getDocs(collection(db, 'schools'));
     const batch = writeBatch(db);
@@ -255,44 +232,42 @@ export async function autoLockExpiredSubscriptions() {
       const schoolId = schoolDoc.id;
       const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
       const subSnap = await getDoc(subRef);
-      const existingData = subSnap.exists() ? subSnap.data() : null;
-      const matchesCurrent = existingData && existingData.term === currentTerm && existingData.session === currentSession;
 
-      if (!existingData || !matchesCurrent) {
-        const subscriptionData = {
-          term: currentTerm,
-          session: currentSession,
-          startDate: now,
-          endDate: endDate,
-          status: 'expired',
-          locked: true,
-          plan: existingData?.plan || 'basic',
-          costPerStudent: existingData?.costPerStudent || 1000,
-          totalStudents: existingData?.totalStudents || 0,
-          coveredStudents: existingData?.coveredStudents || 0,
-          extraStudentsPendingApproval: existingData?.extraStudentsPendingApproval || 0,
-          totalAmount: existingData?.totalAmount || 0,
-          lastUpdated: now,
-          autoExpired: true
-        };
-        batch.set(subRef, subscriptionData, { merge: true });
-        updateCount++;
-      } else if (existingData.status === 'active' && existingData.endDate && existingData.endDate.toDate() < now) {
-        batch.update(subRef, { status: 'expired', locked: true, lastUpdated: now, autoExpired: true });
-        updateCount++;
+      // FIX 8: Skip schools with no subscription doc — do NOT create expired records
+      if (!subSnap.exists()) continue;
+
+      const data = subSnap.data();
+
+      // FIX 2: Only expire when real endDate has passed and subscription is currently active
+      if (
+        data.status === 'active' &&
+        data.locked !== true &&
+        data.endDate
+      ) {
+        const endDate = data.endDate.toDate ? data.endDate.toDate() : new Date(data.endDate);
+        if (endDate < now) {
+          batch.update(subRef, {
+            status: 'expired',
+            locked: true,
+            lastUpdated: now,
+            autoExpired: true
+          });
+          updateCount++;
+        }
       }
+      // All other cases: do nothing. Term/session mismatch is NOT a reason to expire.
     }
 
     if (updateCount > 0) {
       await batch.commit();
-      console.log(`Term rollover: updated ${updateCount} subscriptions to ${currentTerm} ${currentSession} (all set to expired).`);
+      console.log(`autoLockExpiredSubscriptions: expired ${updateCount} school(s) whose endDate has passed.`);
     }
   } catch (err) {
-    handleError(err, "Failed to sync subscriptions for the new term.");
+    handleError(err, "Failed to run autoLockExpiredSubscriptions.");
   }
 }
 
-// ------------------- Renew subscription for current term (used when school pays) -------------------
+// ------------------- FIX 4: renewSubscriptionForCurrentTerm uses rolling end date -------------------
 export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents, costPerStudent = 1000) {
   try {
     const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
@@ -312,7 +287,9 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     const subSnap = await getDoc(subRef);
     const now = new Date();
-    const endDate = getTermEndDateFromSessionAndTerm(currentSession, currentTerm);
+
+    // FIX 4: Use rolling 3-month end date so activation is always future-dated
+    const endDate = getRollingEndDate(3);
 
     const data = {
       status: 'active',
@@ -345,11 +322,7 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
   }
 }
 
-// ------------------- NEW: Raw subscription helpers for teacher pages (real‑time) -------------------
-/**
- * Get the raw subscription data (no term validation)
- * @returns {Promise<Object|null>}
- */
+// ------------------- Raw subscription helpers for teacher/realtime pages -------------------
 export async function getRawSubscription(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
@@ -363,10 +336,8 @@ export async function getRawSubscription(schoolId) {
 }
 
 /**
- * Listen to real‑time changes of the raw subscription.
- * @param {string} schoolId
- * @param {Function} callback - receives { isActive: boolean, data: object|null }
- * @returns {Function} unsubscribe function
+ * FIX 6: Real-time subscription listener — unchanged API, behaviour preserved.
+ * isActive = status === 'active' && locked !== true (no term/session check here).
  */
 export function onSubscriptionChange(schoolId, callback) {
   const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
@@ -384,8 +355,7 @@ export function onSubscriptionChange(schoolId, callback) {
   return unsubscribe;
 }
 
-// ------------------- Deprecated (legacy) -------------------
+// ------------------- Deprecated -------------------
 export async function syncAcademicSession(schoolId) {
   console.warn('syncAcademicSession is deprecated; academic calendar is now centralised.');
-  return;
 }

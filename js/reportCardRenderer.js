@@ -138,7 +138,8 @@ export function renderReportCardUI({
   const overallRemark = getGradeRemark(overallGrade);
 
   // Skills tables – side by side
-  let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:200px;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  // CHANGE 3: Reduced width by ~25% via max-width on wrapper and tighter table widths
+  let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:150px; max-width:100%;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
@@ -147,7 +148,7 @@ export function renderReportCardUI({
   }
   psychomotorHtml += `</tbody></table>`;
 
-  let affectiveHtml = `<table class="skills-table affective-table" style="flex:1; min-width:200px;"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
+  let affectiveHtml = `<table class="skills-table affective-table" style="flex:1; min-width:150px; max-width:100%;"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
   for (const skill of affectiveSkillsList) {
     const key = getSkillKey(skill);
     const val = psychomotor?.[key] ?? 3;
@@ -170,24 +171,33 @@ export function renderReportCardUI({
     </table>`;
 
   // Attendance table
+  // CHANGE 1: Attendance moved to RIGHT, Summary to LEFT.
+  // Attendance label column width doubled via min-width on first col.
   const attendanceHtml = `
     <div class="attendance-section">
       <div class="section-title">📅 Attendance Record</div>
-      <table class="attendance-table">
+      <table class="attendance-table" style="width:100%;">
+        <colgroup>
+          <col style="min-width: 260px; white-space: nowrap;">
+          <col>
+        </colgroup>
         <tbody>
-          <tr><td class="attendance-label">No of times School opened</td>
+          <tr>
+            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times School opened</td>
             <td class="attendance-input-cell">
               <input type="number" class="attendance-input school-opened" value="${attendance.schoolOpened || 0}" min="0" step="1">
               <span class="print-value attendance-value school-opened-value">${attendance.schoolOpened || 0}</span>
             </td>
           </tr>
-          <tr><td class="attendance-label">No of times present</td>
+          <tr>
+            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times present</td>
             <td class="attendance-input-cell">
               <input type="number" class="attendance-input present" value="${attendance.present || 0}" min="0" step="1">
               <span class="print-value attendance-value present-value">${attendance.present || 0}</span>
             </td>
           </tr>
-          <tr><td class="attendance-label">No of times absent</td>
+          <tr>
+            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times absent</td>
             <td class="attendance-input-cell">
               <input type="number" class="attendance-input absent" value="${attendance.absent || 0}" min="0" step="1">
               <span class="print-value attendance-value absent-value">${attendance.absent || 0}</span>
@@ -208,7 +218,7 @@ export function renderReportCardUI({
   </div>`;
 
   const age = student.dob ? calculateAge(student.dob) : '—';
-  const studentDetailsHtml = `<div style="background-color:#D2B48C; padding:10px; line-height:1.2; border-radius:8px; margin-bottom:15px; color:#000; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; overflow: auto; font-size: 1.3em; font-weight: bold;">
+  const studentDetailsHtml = `<div class="student-details-band" style="background-color:#D2B48C; padding:10px; line-height:1.2; border-radius:8px; margin-bottom:15px; color:#000; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; overflow: auto; font-size: 1.3em; font-weight: bold;">
     <div><strong style="font-size: 1.2em;">Name:</strong> <span style="font-size: 1.3em; font-weight: 700;">${escapeHtml(student.name).toUpperCase()}</span></div>
     <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
     <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
@@ -219,25 +229,31 @@ export function renderReportCardUI({
     <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
   </div>`;
 
+  // CHANGE 2: Subject table width reduced ~30% — flex ratio changed and max-width applied
   let subjectTableHeader = '';
   if (isPrimary) {
     subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th></tr></thead>`;
   } else {
     subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead>`;
   }
+  // Table itself is 100% of its container; container flex is reduced below
   const subjectTableHtml = `<table class="subject-table" style="border-collapse: collapse; width: 100%; border: 2px solid #000; background: white;">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  const skillsSideBySide = `<div style="display:flex; gap:20px; flex-wrap:wrap; justify-content:space-between;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
-  const rightColumnHtml = `<div class="skills-stack-col">${skillsSideBySide}</div>`;
+  // Skills side-by-side: shifted right by 30% via margin-left on the inner wrapper.
+  // The outer right column keeps its current flex sizing; only the tables inside move rightward.
+  const skillsSideBySide = `<div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:space-between; max-width:100%; margin-left:30%;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
 
+  // CHANGE 2+3: Left col flex reduced (was flex:2), right col (skills) flex kept at 1 but constrained
+  // Left column: subject table + grade scale, flex:1.4 (was 2) to reduce subject table width ~30%
   const leftColumnContent = subjectTableHtml + `<div style="margin-top:20px;">${getGradeScaleHtml()}</div>`;
+  const rightColumnHtml = `<div class="skills-stack-col" style="max-width: 75%;">${skillsSideBySide}</div>`;
 
   const mainGridHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
-    <div style="flex: 2; min-width: 250px;">${leftColumnContent}</div>
-    <div style="flex: 1; min-width: 250px;">${rightColumnHtml}</div>
+    <div style="flex: 1.4; min-width: 250px; max-width: 70%;">${leftColumnContent}</div>
+    <div style="flex: 1; min-width: 200px; max-width: 30%;">${rightColumnHtml}</div>
   </div>`;
 
-  // Comments – larger font for better readability
+  // CHANGE 5: Comments bank prefill — ensure first option is selected if no saved comment
   const commentOptions = (() => {
     const generalComments = [
       'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
@@ -248,65 +264,226 @@ export function renderReportCardUI({
     while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
     return [...new Set(allComments)];
   })();
+
+  // Resolve effective teacher comment: use saved or fall back to first option
+  const effectiveTeacherComment = comments.teacherComment || commentOptions[0] || '';
+  const effectivePrincipalComment = comments.principalComment || commentOptions[0] || '';
+
+  // CHANGE 4: "Teacher's Comment" → "Class Teacher's Comment"
+  // CHANGE 6: Font sizes reduced by ~40% (was 1.2rem → ~0.72rem, h3 reduced proportionally)
   const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
-  const commentsHtml = `<div style="background-color:#f9f9f9; border:2px solid #ddd; border-radius:10px; padding:15px; margin-top:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); color:#000;">
-    <h3>Comments</h3>
-    <div class="comment-group" style="margin-bottom: 15px;">
-      <label style="font-size: 1.2rem; font-weight: bold; display: block; margin-bottom: 5px;">Teacher's Comment:</label>
+  const commentsHtml = `<div class="comments-section" style="background-color:#f9f9f9; border:1px solid #ddd; border-radius:4px; padding:4px 10px; margin-top:4px; box-shadow:none; color:#000; line-height:1.2;">
+    <h3 style="font-size: 0.65rem; margin: 0 0 3px 0; line-height:1.2;">Comments</h3>
+    <div class="comment-group" style="margin-bottom: 3px;">
+      <label style="font-size: 0.62rem; font-weight: bold; display: block; margin-bottom: 2px; line-height:1.2;">Class Teacher's Comment:</label>
       <div class="comment-controls">
-        <select id="teacherCommentSelect" style="font-size: 1.2rem; padding: 5px; width: 100%; margin-bottom: 8px;">${commentOptions.map(opt => `<option value="${opt}" ${comments.teacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="teacherCommentText" rows="2" style="width:100%; font-size: 1.2rem; padding: 8px;">${escapeHtml(comments.teacherComment || '')}</textarea>
+        <select id="teacherCommentSelect" style="font-size: 0.62rem; padding: 1px; width: 100%; margin-bottom: 2px; height: 18px;">${commentOptions.map(opt => `<option value="${opt}" ${effectiveTeacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
+        <textarea id="teacherCommentText" rows="1" style="width:100%; font-size: 0.62rem; padding: 2px; height: 18px; resize:none; overflow:hidden;">${escapeHtml(effectiveTeacherComment)}</textarea>
       </div>
-      <div class="print-comment-text" id="printTeacherComment" style="font-size: 1.2rem; margin-top: 5px;">${escapeHtml(comments.teacherComment || '')}</div>
+      <div class="print-comment-text" id="printTeacherComment" style="font-size: 0.62rem; margin-top: 1px; line-height:1.2;">${escapeHtml(effectiveTeacherComment)}</div>
     </div>
-    <div class="comment-group">
-      <label style="font-size: 1.2rem; font-weight: bold; display: block; margin-bottom: 5px;">${principalLabel}</label>
+    <div class="comment-group" style="margin-bottom: 0;">
+      <label style="font-size: 0.62rem; font-weight: bold; display: block; margin-bottom: 2px; line-height:1.2;">${principalLabel}</label>
       <div class="comment-controls">
-        <select id="principalCommentSelect" style="font-size: 1.2rem; padding: 5px; width: 100%; margin-bottom: 8px;">${commentOptions.map(opt => `<option value="${opt}" ${comments.principalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="principalCommentText" rows="2" style="width:100%; font-size: 1.2rem; padding: 8px;">${escapeHtml(comments.principalComment || '')}</textarea>
+        <select id="principalCommentSelect" style="font-size: 0.62rem; padding: 1px; width: 100%; margin-bottom: 2px; height: 18px;">${commentOptions.map(opt => `<option value="${opt}" ${effectivePrincipalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
+        <textarea id="principalCommentText" rows="1" style="width:100%; font-size: 0.62rem; padding: 2px; height: 18px; resize:none; overflow:hidden;">${escapeHtml(effectivePrincipalComment)}</textarea>
       </div>
-      <div class="print-comment-text" id="printPrincipalComment" style="font-size: 1.2rem; margin-top: 5px;">${escapeHtml(comments.principalComment || '')}</div>
+      <div class="print-comment-text" id="printPrincipalComment" style="font-size: 0.62rem; margin-top: 1px; line-height:1.2;">${escapeHtml(effectivePrincipalComment)}</div>
     </div>
   </div>`;
-
-  // Removed signatureHtml (principal's signature, stamp, date) completely
 
   const topRowHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
-    <div style="flex: 0 0 auto; width: 60%;">${attendanceHtml}</div>
     <div style="flex: 0 0 auto; width: 35%;">${summaryHtml}</div>
+    <div style="flex: 0 0 auto; width: 42%;">${attendanceHtml}</div>
   </div>`;
 
-  // Global styles with print-color-adjust for background preservation
+  // Global styles with the crucial print fix for overlapping tables
   const globalStyles = `
     <style>
+      /*
+       * ─── PRINT COLOR PRESERVATION ───────────────────────────────────────────────
+       * Force Chrome, Edge, and all WebKit/Blink browsers to retain background
+       * colors, gradients, and images when printing or exporting to PDF.
+       * Must be declared at the top level (not inside @media print) so the
+       * browser honours it before the print pipeline strips graphics.
+       */
+      *,
+      *::before,
+      *::after {
+        -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+
+      /* ─── BASE COLORS ─────────────────────────────────────────────────────────── */
       * { color: #000000 !important; }
-      table, th, td { border: 2px solid #000 !important; border-collapse: collapse; }
-      .subject-table th, .attendance-table th, .summary-table th { background-color: #ADD8E6 !important; }
-      .grade-scale-table th { background-color: #FFD700 !important; }
-      .skills-table th, .skills-table td { border: 2px solid #000 !important; }
+
+      table, th, td {
+        border: 2px solid #000 !important;
+        border-collapse: collapse;
+      }
+
       th, td { padding: 8px; text-align: left; }
       .section-title { font-weight: bold; margin-bottom: 8px; }
       select, textarea, input { color: #000 !important; background-color: #fff !important; }
+
+      /* ─── TABLE HEADER BACKGROUND COLORS ─────────────────────────────────────── */
+      /* Subject table, attendance table, and summary table headers — light blue */
+      .subject-table thead tr,
+      .subject-table th,
+      .attendance-table thead tr,
+      .attendance-table th,
+      .summary-table thead tr,
+      .summary-table th {
+        background-color: #ADD8E6 !important;
+      }
+
+      /* Grade scale table headers — gold */
+      .grade-scale-table thead tr,
+      .grade-scale-table th {
+        background-color: #FFD700 !important;
+      }
+
+      /* Skills tables (psychomotor + affective) headers */
+      .skills-table thead tr,
+      .skills-table th {
+        background-color: #ADD8E6 !important;
+        border: 2px solid #000 !important;
+      }
+      .skills-table td {
+        border: 2px solid #000 !important;
+      }
+
+      /* ─── STUDENT DETAILS BAND — tan/brown ───────────────────────────────────── */
+      .student-details-band {
+        background-color: #D2B48C !important;
+      }
+
+      /* ─── COMMENTS SECTION ────────────────────────────────────────────────────── */
+      .comments-section {
+        background-color: #f9f9f9 !important;
+      }
+
+      /* ─── REPORT CARD OUTER WRAPPER ───────────────────────────────────────────── */
+      .report-card-wrapper {
+        background-color: #ffffff !important;
+      }
+
+      /* ─── @MEDIA PRINT ────────────────────────────────────────────────────────── */
       @media print {
+        /* 1. Remove any absolute positioning – the main culprit for overlapping */
+        .report-card,
+        .report-card *,
+        #report-card,
+        #report-card * {
+          position: static !important;
+          float: none !important;
+        }
+
+        /* 2. Let containers grow naturally */
+        html, body, .report-card, #report-card {
+          height: auto !important;
+          overflow: visible !important;
+        }
+
+        /* 3. Keep each table together, and add space to prevent crunching */
+        .attendance-table,
+        .summary-table,
+        .subject-table,
+        .skills-table,
+        .records-table {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin-bottom: 1.5rem;
+        }
+
+        /* 4. Basic print-friendly table layout */
+        table {
+          border-collapse: collapse;
+          width: 100%;
+        }
+        td, th {
+          border: 1px solid #000 !important;
+          padding: 4px;
+        }
+
+        /* 5. Re-assert all background colors inside @media print so no browser
+              can override them when generating the print raster / PDF. */
+        .subject-table thead tr,
+        .subject-table th,
+        .attendance-table thead tr,
+        .attendance-table th,
+        .summary-table thead tr,
+        .summary-table th,
+        .skills-table thead tr,
+        .skills-table th {
+          background-color: #ADD8E6 !important;
+        }
+
+        .grade-scale-table thead tr,
+        .grade-scale-table th {
+          background-color: #FFD700 !important;
+        }
+
+        .student-details-band {
+          background-color: #D2B48C !important;
+        }
+
+        .comments-section {
+          background-color: #f9f9f9 !important;
+        }
+
+        .report-card-wrapper {
+          background-color: #ffffff !important;
+        }
+
+        /* 6. Hide interactive elements, show static values */
         .rating-tick, select, textarea, button, .comment-controls, .tick {
           display: none !important;
         }
         .print-value, .print-comment-text {
           display: block !important;
         }
+
+        /* 7. Page background */
         body, .print-container {
-          background: white;
+          background: white !important;
         }
-        .report-card, .report-card * {
-          page-break-inside: avoid;
-          break-inside: avoid;
+
+        /* 8. Constrain comments section height in print — slightly larger than before for readability */
+        .comments-section {
+          padding: 3px 8px !important;
+          margin-top: 2px !important;
+          border-width: 1px !important;
+          line-height: 1.2 !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        .comments-section h3 {
+          font-size: 0.58rem !important;
+          margin: 0 0 2px 0 !important;
+          line-height: 1.2 !important;
+        }
+        .comments-section label {
+          font-size: 0.55rem !important;
+          margin-bottom: 1px !important;
+          line-height: 1.2 !important;
+        }
+        .comment-group {
+          margin-bottom: 2px !important;
+        }
+        .print-comment-text {
+          font-size: 0.55rem !important;
+          margin-top: 1px !important;
+          line-height: 1.2 !important;
+          padding: 0 !important;
         }
       }
     </style>
   `;
 
   const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml;
-  const finalHtml = `<div style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
+  const finalHtml = `<div class="report-card-wrapper" style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
 
   container.innerHTML = finalHtml;
 

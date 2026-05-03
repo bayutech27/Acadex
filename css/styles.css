@@ -101,10 +101,11 @@ h1, h2, h3, h4, h5, h6 {
   color: white !important;
   background: none !important;
   border: none !important;
-  font-size: 1.5rem !important;
+  font-size: 2.3rem !important;
   cursor: pointer !important;
   transition: var(--transition) !important;
 }
+
 .close-sidebar:hover {
   color: white !important;
   opacity: 0.8 !important;
@@ -258,7 +259,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* School address (desktop only) */
 .school-address {
-  font-size: 0.8rem;
+  font-size: 1rem;
   color: var(--gray-500);
   margin-top: 0.125rem;
 }
@@ -347,7 +348,7 @@ h1, h2, h3, h4, h5, h6 {
   top: 0;
   left: -280px;
   width: 280px;
-  height: 100vh;
+  height: 80vh;
   background: var(--secondary);
   z-index: 10000;               /* Extremely high to stay above all elements */
   transition: left 0.3s ease;

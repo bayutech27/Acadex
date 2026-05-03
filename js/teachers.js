@@ -1,12 +1,12 @@
-// teachers.js - Manage teachers with subscription payment banner, level-based filtering, and validation
-// ✅ FIXED: import getCurrentSchoolId from './admin.js' (not './app.js')
-import { db, auth } from './firebase-config.js';
-import { 
+// teachers.js - Manage teachers (primary exemption + Auth deletion via Cloud Function)
+import { db, auth, functions } from './firebase-config.js';   // ✅ exports getFunctions() instance
+import {
   collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
-import { getCurrentSchoolId } from './admin.js';   // ✅ FIXED
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-functions.js';
+import { getCurrentSchoolId } from './admin.js';
 import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -224,7 +224,6 @@ async function loadTeachers() {
       return;
     }
 
-    // Responsive: wrap table in scrollable container with global class
     const html = `
       <div class="table-responsive-wrapper">
         <table class="data-table">
@@ -281,18 +280,30 @@ async function loadTeachers() {
     container.innerHTML = html;
     
     window.editTeacher = (id) => openModal(id);
+
+    // ✅ CORRECTED: Delete teacher with Auth removal via Cloud Function
     window.deleteTeacher = async (id) => {
       if (confirm('Delete this teacher? This action cannot be undone.')) {
         showLoader();
         try {
+          // 1. Delete Firestore teacher document
           await deleteDoc(doc(db, 'teachers', id));
-          await deleteDoc(doc(db, 'users', id)).catch(console.warn);
-          showNotification("Teacher deleted from Firestore. Auth user still exists (delete manually from Firebase Console).", "success");
-          await loadTeachers();
+          // 2. Delete Firestore user document (if exists)
+          try {
+            await deleteDoc(doc(db, 'users', id));
+          } catch (e) {
+            console.warn('User document may not exist:', e);
+          }
+          // 3. Call Cloud Function to delete Auth account
+          const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
+          await deleteTeacherAccount({ teacherUid: id });
+
+          showNotification("Teacher and login account deleted successfully.", "success");
         } catch (err) {
-          handleError(err, "Failed to delete teacher.");
+          handleError(err, "Failed to delete teacher. Firestore data removed, but authentication may still exist.");
         } finally {
           hideLoader();
+          await loadTeachers();   // refresh list regardless
         }
       }
     };
@@ -440,10 +451,13 @@ async function handleTeacherSubmit(e) {
     return;
   }
 
-  const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
-  if (subjectConflictMsg) {
-    showNotification(subjectConflictMsg, "error");
-    return;
+  // ✅ PRIMARY‑LEVEL EXEMPTION: skip subject conflict check
+  if (level !== 'primary') {
+    const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
+    if (subjectConflictMsg) {
+      showNotification(subjectConflictMsg, "error");
+      return;
+    }
   }
 
   if (isClassTeacher) {

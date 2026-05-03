@@ -1,6 +1,7 @@
 // admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
 // FULLY INTEGRATED with Central Academic Calendar Engine
-// UPDATED: Logout buttons (#logoutBtn and .mobile-logout-btn) now work correctly
+// FIX 3: Removed autoLockExpiredSubscriptions() from protectAdminPage() —
+//         the dashboard only reads/displays subscription state, never mass-expires.
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -13,16 +14,17 @@ import {
   enforceAccessGuard,
   isSubscriptionActive,
   handleNewStudentAddition,
-  autoLockExpiredSubscriptions,
   getSubscriptionStatus,
   approveExtraStudents,
   getSubscriptionDisplayStatus
 } from './plan.js';
+// FIX 3: autoLockExpiredSubscriptions intentionally NOT imported here.
+// It must not run automatically on admin dashboard load/refresh.
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
 
 // ========== ACADEMIC CALENDAR IMPORTS ==========
-import { 
+import {
   initAcademicCalendar as initCentralCalendar,
   getCurrentTerm,
   getCurrentSession,
@@ -83,6 +85,8 @@ export async function getCurrentSchoolId() {
 let calendarStopPeriodicSync = null;
 
 // ------------------- Admin Page Protection -------------------
+// FIX 3: autoLockExpiredSubscriptions() is completely removed from this function.
+// The dashboard reads subscription state only — it does NOT trigger destructive writes.
 export async function protectAdminPage() {
   await waitForAuth();
 
@@ -117,16 +121,8 @@ export async function protectAdminPage() {
     hidePageLoader();
   }
 
-  const lastCheck = localStorage.getItem(`autoLockLastCheck_${schoolId}`);
-  const today = new Date().toDateString();
-  if (lastCheck !== today) {
-    try {
-      await autoLockExpiredSubscriptions();
-      localStorage.setItem(`autoLockLastCheck_${schoolId}`, today);
-    } catch (err) {
-      handleError(err, "Failed to check subscription status.");
-    }
-  }
+  // FIX 3: No autoLockExpiredSubscriptions() call here.
+  // Subscription state is read from Firestore and displayed — never modified on page load.
 
   let access;
   try {
@@ -137,7 +133,7 @@ export async function protectAdminPage() {
     showSubscriptionExpiredBanner();
     access = { allowed: false, onboardingOnly: true };
   }
-  
+
   if (!access.allowed) {
     window.__subscriptionExpired = true;
     showSubscriptionExpiredBanner();
@@ -146,14 +142,13 @@ export async function protectAdminPage() {
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
-  
-  setupLogout(); // Attach logout handlers to all logout buttons
-  
+
+  setupLogout();
+
   return { user: currentUser, userData: currentUserData };
 }
 
-// ------------------- LOGOUT: FIXED -------------------
-// This function properly attaches event listeners to #logoutBtn and .mobile-logout-btn
+// ------------------- LOGOUT -------------------
 let logoutHandlersAttached = false;
 
 export function setupLogout() {
@@ -164,40 +159,36 @@ export function setupLogout() {
     event.preventDefault();
     showLoader();
     try {
-      // Stop calendar sync if running
       if (calendarStopPeriodicSync) {
         calendarStopPeriodicSync();
         calendarStopPeriodicSync = null;
       }
-      await logoutUser(); // from auth.js – clears storage, signs out, redirects to '/'
+      await logoutUser();
     } catch (err) {
       handleError(err, "Logout failed. Please try again.");
       hideLoader();
     }
   };
 
-  // Header logout button
   const headerLogoutBtn = document.getElementById('logoutBtn');
   if (headerLogoutBtn) {
     headerLogoutBtn.removeEventListener('click', performLogout);
     headerLogoutBtn.addEventListener('click', performLogout);
   }
 
-  // Mobile sidebar logout button
   const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
   if (mobileLogoutBtn) {
     mobileLogoutBtn.removeEventListener('click', performLogout);
     mobileLogoutBtn.addEventListener('click', performLogout);
   }
 
-  // Legacy sidebar items (if any .logout-nav-item exists)
   document.querySelectorAll('.logout-nav-item').forEach(btn => {
     btn.removeEventListener('click', performLogout);
     btn.addEventListener('click', performLogout);
   });
 }
 
-// Non-dismissible subscription warning banner
+// ------------------- Subscription Banners -------------------
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -225,7 +216,6 @@ function hideSubscriptionExpiredBanner() {
   if (banner) banner.remove();
 }
 
-// Payment banner with Paystack (Pay Now) + WhatsApp
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
@@ -321,7 +311,7 @@ export function setupSidebar() {
   });
 }
 
-// ✅ FIXED: Subscription badge uses raw display status (only Firestore status + locked)
+// FIX 6: Badge uses raw display status — reads Firestore only, no destructive writes.
 async function updateSubscriptionBadge(schoolId) {
   try {
     const displayStatus = await getSubscriptionDisplayStatus(schoolId);
@@ -346,6 +336,7 @@ async function updateSubscriptionBadge(schoolId) {
 
 let subscriptionListenerUnsubscribe = null;
 
+// FIX 6: Real-time listener reads and displays — no writes triggered by UI.
 export function initSubscriptionUI(schoolId) {
   if (!schoolId) return;
   if (subscriptionListenerUnsubscribe) subscriptionListenerUnsubscribe();
@@ -385,7 +376,6 @@ async function updateFeeDisplay(schoolId, sub) {
       totalActiveStudents = studentsSnap.size;
     } catch (err) {
       handleError(err, "Failed to count active students.");
-      totalActiveStudents = 0;
     }
     const totalFee = totalActiveStudents * costPerStudent;
     feeContainer.innerHTML = `
@@ -421,7 +411,6 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
     lockedCount = lockedSnap.size;
   } catch (err) {
     handleError(err, "Failed to count locked students.");
-    lockedCount = 0;
   }
 
   if (lockedCount === 0) {
@@ -436,22 +425,18 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
     try {
       const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
       const subSnap = await getDoc(subRef);
-      if (subSnap.exists()) {
-        const subData = subSnap.data();
-        costPerStudent = subData.costPerStudent || 1000;
-      }
+      if (subSnap.exists()) costPerStudent = subSnap.data().costPerStudent || 1000;
     } catch (err) {
       handleError(err, "Failed to fetch subscription cost.");
     }
   }
 
   const totalExtraFee = lockedCount * costPerStudent;
-
   pendingContainer.innerHTML = `
     <div style="background: #e0f2fe; border-left: 4px solid #0284c7; border-radius: 12px; padding: 16px 20px; margin: 16px 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
       <div>
         <strong style="font-size: 1rem;">⏳ Pending Extra Students</strong><br>
-        ${lockedCount} student(s) awaiting super‑admin approval.<br>
+        ${lockedCount} student(s) awaiting super-admin approval.<br>
         <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong>
       </div>
       <div style="display: flex; gap: 12px; flex-wrap: wrap;">
