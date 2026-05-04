@@ -1,4 +1,6 @@
 // reportCardRenderer.js - Shared report card rendering engine
+// Layout: subjects table extreme left, skills tables extreme right
+// Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
 import { showNotification } from './error-handler.js';
 
 export function renderReportCardUI({
@@ -50,11 +52,10 @@ export function renderReportCardUI({
   }
 
   const calculateGrade = isPrimary ? calculateGradePrimary : calculateGradeSecondary;
-  const getGradeRemark = isPrimary ? getGradeRemarkPrimary : getGradeRemarkSecondary;
+  const getGradeRemark  = isPrimary ? getGradeRemarkPrimary  : getGradeRemarkSecondary;
 
-  function getTermSuffix(t) {
-    return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd';
-  }
+  function getTermSuffix(t) { return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd'; }
+
   function calculateAge(dobString) {
     if (!dobString) return null;
     const birthDate = new Date(dobString);
@@ -66,34 +67,27 @@ export function renderReportCardUI({
   }
 
   function getGradeScaleHtml() {
-    if (isPrimary) {
-      const primaryScale = [
-        ['A+', '90-100', 'Exceptional'],
-        ['A', '80-89', 'Excellent'],
-        ['B+', '70-79', 'Very Good'],
-        ['B', '60-69', 'Good'],
-        ['C', '50-59', 'Fairly Good'],
-        ['D', '40-49', 'Pass'],
-        ['F', '0-39', 'Fail']
-      ];
-      return `<table class="grade-scale-table" style="width: 90%; margin-top: 20px;"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${primaryScale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
-    } else {
-      const secondaryScale = [
-        ['A1','85-100','Excellent'], ['B2','75-84.9','Very Good'], ['B3','70-74.9','Good'],
-        ['C4','65-69.9','Credit'], ['C5','60-64.9','Credit'], ['C6','50-59.9','Credit'],
-        ['D7','45-49.9','Pass'], ['E8','40-44.9','Pass'], ['F9','0-39.9','Fail']
-      ];
-      return `<table class="grade-scale-table" style="width: 90%; margin-top: 20px;"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${secondaryScale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
-    }
+    const primaryScale = [
+      ['A+','90-100','Exceptional'],['A','80-89','Excellent'],['B+','70-79','Very Good'],
+      ['B','60-69','Good'],['C','50-59','Fairly Good'],['D','40-49','Pass'],['F','0-39','Fail']
+    ];
+    const secondaryScale = [
+      ['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],
+      ['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],
+      ['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']
+    ];
+    const scale = isPrimary ? primaryScale : secondaryScale;
+    return `<table class="rc-grade-scale">
+      <thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead>
+      <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>
+    </table>`;
   }
 
-  const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
-  const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
-  function getSkillKey(skill) {
-    return skill.toLowerCase().replace(/[^a-z]/g, '');
-  }
+  const psychomotorSkillsList = ['Handling of tools','Public Speaking','Speech Fluency','Handwriting','Sport and Game','Drawing/Painting'];
+  const affectiveSkillsList   = ['Attentiveness','Neatness','Honesty','Politeness','Punctuality','Self-control/Calmness','Obedience','Reliability','Relationship with others','Leadership'];
+  function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
 
-  // Build subject table rows
+  // ── Subject table rows ───────────────────────────────────────────────────────
   let tableRows = '';
   let totalScore = 0;
   let subjectCount = 0;
@@ -103,7 +97,7 @@ export function renderReportCardUI({
       const total = (score.ca || 0) + (score.exam || 0);
       totalScore += total;
       subjectCount++;
-      const grade = calculateGrade(total);
+      const grade  = calculateGrade(total);
       const remark = getGradeRemark(grade);
       let positionHtml = '—';
       let classAvg = '—';
@@ -117,13 +111,18 @@ export function renderReportCardUI({
         classAvg = stat.classAverage ?? '—';
       }
       if (isPrimary) {
-        tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                 <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                 <td>${grade}</td><td>${remark}</td></tr>`;
+        tableRows += `<tr>
+          <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
+          <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+          <td>${grade}</td><td>${remark}</td>
+        </tr>`;
       } else {
-        tableRows += `<tr><td style="text-align:left">${escapeHtml(subjectName)}</td>
-                 <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-                 <td>${grade}</td><td>${remark}</td><td>${positionHtml}</td><td>${classAvg}</td></tr>`;
+        tableRows += `<tr>
+          <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
+          <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
+          <td>${grade}</td><td>${remark}</td>
+          <td>${positionHtml}</td><td>${classAvg}</td>
+        </tr>`;
       }
     }
   } else {
@@ -131,37 +130,21 @@ export function renderReportCardUI({
     tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
   }
 
-  const average = subjectCount ? (totalScore / subjectCount).toFixed(1) : 0;
-  const overallGrade = calculateGrade(parseFloat(average));
   const totalObtainable = subjectCount * 100;
-  const percentageAvg = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
-  const overallRemark = getGradeRemark(overallGrade);
+  const percentageAvg   = subjectCount ? ((totalScore / totalObtainable) * 100).toFixed(1) : 0;
+  const overallGrade    = calculateGrade(parseFloat(percentageAvg));
+  const overallRemark   = getGradeRemark(overallGrade);
 
-  // Skills tables – side by side
-  // CHANGE 3: Reduced width by ~25% via max-width on wrapper and tighter table widths
-  let psychomotorHtml = `<table class="skills-table psychomotor-table" style="flex:1; min-width:150px; max-width:100%;"><thead><tr><th>Psychomotor Skills</th><th>Rating (1-5)</th></tr></thead><tbody>`;
-  for (const skill of psychomotorSkillsList) {
-    const key = getSkillKey(skill);
-    const val = psychomotor?.[key] ?? 3;
-    psychomotorHtml += `<tr><td>${escapeHtml(skill)}</td>
-      <td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
-  }
-  psychomotorHtml += `</tbody></table>`;
+  // ── Subject table ────────────────────────────────────────────────────────────
+  const subjectTableHeader = isPrimary
+    ? `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>`
+    : `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th><th>Pos.</th><th>Cls Avg</th></tr></thead>`;
+  const subjectTableHtml = `<table class="rc-subject-table">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  let affectiveHtml = `<table class="skills-table affective-table" style="flex:1; min-width:150px; max-width:100%;"><thead><tr><th>Affective Domain</th><th>Rating (1-5)</th></tr></thead><tbody>`;
-  for (const skill of affectiveSkillsList) {
-    const key = getSkillKey(skill);
-    const val = psychomotor?.[key] ?? 3;
-    affectiveHtml += `<tr><td>${escapeHtml(skill)}</td>
-      <td class="rating-container" data-skill-key="${key}"><span class="print-value">${val}</span></td></tr>`;
-  }
-  affectiveHtml += `</tbody></table>`;
-
-  const ratingGuideHtml = `<div class="rating-guide" style="margin-top:12px; font-size:0.8rem; color:#000;">Rating Guide: 1 - Poor | 2 - Fair | 3 - Good | 4 - Very Good | 5 - Excellent</div>`;
-
-  // Summary table
-  const summaryHtml = `<div class="section-title">📊 Summary of Performance</div>
-    <table class="summary-table">
+  // ── Summary table ────────────────────────────────────────────────────────────
+  const summaryHtml = `
+    <div class="rc-section-title">📊 Summary of Performance</div>
+    <table class="rc-summary-table">
       <tr><th>Total Obtained</th><td>${totalScore}</td></tr>
       <tr><th>Total Obtainable</th><td>${totalObtainable}</td></tr>
       <tr><th>Total Subjects</th><td>${subjectCount}</td></tr>
@@ -170,417 +153,486 @@ export function renderReportCardUI({
       <tr><th>Remark</th><td>${overallRemark}</td></tr>
     </table>`;
 
-  // Attendance table
-  // CHANGE 1: Attendance moved to RIGHT, Summary to LEFT.
-  // Attendance label column width doubled via min-width on first col.
+  // ── Attendance table ─────────────────────────────────────────────────────────
   const attendanceHtml = `
-    <div class="attendance-section">
-      <div class="section-title">📅 Attendance Record</div>
-      <table class="attendance-table" style="width:100%;">
-        <colgroup>
-          <col style="min-width: 260px; white-space: nowrap;">
-          <col>
-        </colgroup>
-        <tbody>
-          <tr>
-            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times School opened</td>
-            <td class="attendance-input-cell">
-              <input type="number" class="attendance-input school-opened" value="${attendance.schoolOpened || 0}" min="0" step="1">
-              <span class="print-value attendance-value school-opened-value">${attendance.schoolOpened || 0}</span>
-            </td>
-          </tr>
-          <tr>
-            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times present</td>
-            <td class="attendance-input-cell">
-              <input type="number" class="attendance-input present" value="${attendance.present || 0}" min="0" step="1">
-              <span class="print-value attendance-value present-value">${attendance.present || 0}</span>
-            </td>
-          </tr>
-          <tr>
-            <td class="attendance-label" style="white-space: nowrap; min-width: 260px;">No of times absent</td>
-            <td class="attendance-input-cell">
-              <input type="number" class="attendance-input absent" value="${attendance.absent || 0}" min="0" step="1">
-              <span class="print-value attendance-value absent-value">${attendance.absent || 0}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="rc-section-title">📅 Attendance Record</div>
+    <table class="rc-attendance-table">
+      <tbody>
+        <tr>
+          <td class="rc-att-label">No of times School opened</td>
+          <td class="rc-att-cell">
+            <input type="number" class="rc-att-input school-opened" value="${attendance.schoolOpened || 0}" min="0" step="1">
+            <span class="rc-print-val school-opened-value">${attendance.schoolOpened || 0}</span>
+          </td>
+        </tr>
+        <tr>
+          <td class="rc-att-label">No of times present</td>
+          <td class="rc-att-cell">
+            <input type="number" class="rc-att-input present" value="${attendance.present || 0}" min="0" step="1">
+            <span class="rc-print-val present-value">${attendance.present || 0}</span>
+          </td>
+        </tr>
+        <tr>
+          <td class="rc-att-label">No of times absent</td>
+          <td class="rc-att-cell">
+            <input type="number" class="rc-att-input absent" value="${attendance.absent || 0}" min="0" step="1">
+            <span class="rc-print-val absent-value">${attendance.absent || 0}</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  // ── Skills tables ────────────────────────────────────────────────────────────
+  let psychomotorRows = '';
+  for (const skill of psychomotorSkillsList) {
+    const key = getSkillKey(skill);
+    const val = psychomotor?.[key] ?? 3;
+    psychomotorRows += `<tr>
+      <td class="rc-skill-name">${escapeHtml(skill)}</td>
+      <td class="rc-rating-cell" data-skill-key="${key}"><span class="rc-print-val">${val}</span></td>
+    </tr>`;
+  }
+  let affectiveRows = '';
+  for (const skill of affectiveSkillsList) {
+    const key = getSkillKey(skill);
+    const val = psychomotor?.[key] ?? 3;
+    affectiveRows += `<tr>
+      <td class="rc-skill-name">${escapeHtml(skill)}</td>
+      <td class="rc-rating-cell" data-skill-key="${key}"><span class="rc-print-val">${val}</span></td>
+    </tr>`;
+  }
+  const skillsStack = `
+    <table class="rc-skills-table">
+      <thead><tr><th>Psychomotor Skills</th><th>Rating (1–5)</th></tr></thead>
+      <tbody>${psychomotorRows}</tbody>
+    </table>
+    <table class="rc-skills-table rc-skills-table--lower">
+      <thead><tr><th>Affective Domain</th><th>Rating (1–5)</th></tr></thead>
+      <tbody>${affectiveRows}</tbody>
+    </table>
+    <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
+
+  // ── Header ───────────────────────────────────────────────────────────────────
+  const headerHtml = `
+    <div class="rc-header">
+      <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="Logo">` : ''}</div>
+      <div class="rc-header-text">
+        <h1>${escapeHtml(school.name)}</h1>
+        ${school.address ? `<div class="rc-school-address">${escapeHtml(school.address)}</div>` : ''}
+      </div>
+      <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
     </div>`;
 
-  // Header with logo, school name, address, and student photo
-  const headerHtml = `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-    <div style="flex: 0 0 auto;">${school.logo ? `<img src="${school.logo}" style="max-width: 100px; max-height: 100px; object-fit: contain;" alt="Logo">` : ''}</div>
-    <div style="flex: 1; text-align: center;">
-      <h1 style="font-size: 28px; margin: 0; color: #000;">${escapeHtml(school.name)}</h1>
-      ${school.address ? `<div style="font-size: 16px; margin-top: 5px; color: #000;">${escapeHtml(school.address)}</div>` : ''}
-    </div>
-    <div style="flex: 0 0 auto;">${student.passport ? `<img src="${student.passport}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;" alt="Passport">` : ''}</div>
-  </div>`;
-
+  // ── Student details band ─────────────────────────────────────────────────────
   const age = student.dob ? calculateAge(student.dob) : '—';
-  const studentDetailsHtml = `<div class="student-details-band" style="background-color:#D2B48C; padding:10px; line-height:1.2; border-radius:8px; margin-bottom:15px; color:#000; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; overflow: auto; font-size: 1.3em; font-weight: bold;">
-    <div><strong style="font-size: 1.2em;">Name:</strong> <span style="font-size: 1.3em; font-weight: 700;">${escapeHtml(student.name).toUpperCase()}</span></div>
-    <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
-    <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
-    <div><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
-    <div><strong>Class:</strong> ${escapeHtml(className)}</div>
-    <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
-    <div><strong>Session:</strong> ${session}</div>
-    <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
-  </div>`;
+  const detailsBand = `
+    <div class="rc-details-band">
+      <div><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
+      <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
+      <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
+      <div><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
+      <div><strong>Class:</strong> ${escapeHtml(className)}</div>
+      <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
+      <div><strong>Session:</strong> ${session}</div>
+      <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
+    </div>`;
 
-  // CHANGE 2: Subject table width reduced ~30% — flex ratio changed and max-width applied
-  let subjectTableHeader = '';
-  if (isPrimary) {
-    subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th></tr></thead>`;
-  } else {
-    subjectTableHeader = `<thead><tr style="background-color:#ADD8E6;"><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total (100)</th><th>Grade</th><th>Remark</th><th>Position</th><th>Class Ave.</th></tr></thead>`;
-  }
-  // Table itself is 100% of its container; container flex is reduced below
-  const subjectTableHtml = `<table class="subject-table" style="border-collapse: collapse; width: 100%; border: 2px solid #000; background: white;">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
-
-  // Skills side-by-side: shifted right by 30% via margin-left on the inner wrapper.
-  // The outer right column keeps its current flex sizing; only the tables inside move rightward.
-  const skillsSideBySide = `<div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:space-between; max-width:100%; margin-left:30%;">${psychomotorHtml}${affectiveHtml}</div>${ratingGuideHtml}`;
-
-  // CHANGE 2+3: Left col flex reduced (was flex:2), right col (skills) flex kept at 1 but constrained
-  // Left column: subject table + grade scale, flex:1.4 (was 2) to reduce subject table width ~30%
-  const leftColumnContent = subjectTableHtml + `<div style="margin-top:20px;">${getGradeScaleHtml()}</div>`;
-  const rightColumnHtml = `<div class="skills-stack-col" style="max-width: 75%;">${skillsSideBySide}</div>`;
-
-  const mainGridHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
-    <div style="flex: 1.4; min-width: 250px; max-width: 70%;">${leftColumnContent}</div>
-    <div style="flex: 1; min-width: 200px; max-width: 30%;">${rightColumnHtml}</div>
-  </div>`;
-
-  // CHANGE 5: Comments bank prefill — ensure first option is selected if no saved comment
+  // ── Comments ─────────────────────────────────────────────────────────────────
   const commentOptions = (() => {
-    const generalComments = [
-      'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
-      'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
+    const general = [
+      'Keep up the great work!','Your effort is commendable.','Consistent practice will yield even better results.',
+      'You have shown improvement this term.','Stay focused and keep pushing forward.','Your positive attitude is appreciated.',
+      'Continue to participate actively in class.','You are capable of achieving even more.','Great teamwork and collaboration skills.',
+      'Your curiosity and willingness to learn are assets.'
     ];
-    let allComments = [...generalComments];
-    const extraComments = ['Your participation is valued.', 'You have shown growth.', 'Excellent punctuality.'];
-    while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
-    return [...new Set(allComments)];
+    const extra = ['Your participation in class discussions is valued.','You have shown growth in problem-solving skills.','Excellent punctuality and attendance.'];
+    let all = [...general];
+    while (all.length < 30) all.push(extra[all.length % extra.length]);
+    return [...new Set(all)];
   })();
 
-  // Resolve effective teacher comment: use saved or fall back to first option
-  const effectiveTeacherComment = comments.teacherComment || commentOptions[0] || '';
+  const effectiveTeacherComment   = comments.teacherComment   || commentOptions[0] || '';
   const effectivePrincipalComment = comments.principalComment || commentOptions[0] || '';
-
-  // CHANGE 4: "Teacher's Comment" → "Class Teacher's Comment"
-  // CHANGE 6: Font sizes reduced by ~40% (was 1.2rem → ~0.72rem, h3 reduced proportionally)
   const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
-  const commentsHtml = `<div class="comments-section" style="background-color:#f9f9f9; border:1px solid #ddd; border-radius:4px; padding:4px 10px; margin-top:4px; box-shadow:none; color:#000; line-height:1.2;">
-    <h3 style="font-size: 0.65rem; margin: 0 0 3px 0; line-height:1.2;">Comments</h3>
-    <div class="comment-group" style="margin-bottom: 3px;">
-      <label style="font-size: 0.62rem; font-weight: bold; display: block; margin-bottom: 2px; line-height:1.2;">Class Teacher's Comment:</label>
-      <div class="comment-controls">
-        <select id="teacherCommentSelect" style="font-size: 0.62rem; padding: 1px; width: 100%; margin-bottom: 2px; height: 18px;">${commentOptions.map(opt => `<option value="${opt}" ${effectiveTeacherComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="teacherCommentText" rows="1" style="width:100%; font-size: 0.62rem; padding: 2px; height: 18px; resize:none; overflow:hidden;">${escapeHtml(effectiveTeacherComment)}</textarea>
-      </div>
-      <div class="print-comment-text" id="printTeacherComment" style="font-size: 0.62rem; margin-top: 1px; line-height:1.2;">${escapeHtml(effectiveTeacherComment)}</div>
-    </div>
-    <div class="comment-group" style="margin-bottom: 0;">
-      <label style="font-size: 0.62rem; font-weight: bold; display: block; margin-bottom: 2px; line-height:1.2;">${principalLabel}</label>
-      <div class="comment-controls">
-        <select id="principalCommentSelect" style="font-size: 0.62rem; padding: 1px; width: 100%; margin-bottom: 2px; height: 18px;">${commentOptions.map(opt => `<option value="${opt}" ${effectivePrincipalComment === opt ? 'selected' : ''}>${opt}</option>`).join('')}</select>
-        <textarea id="principalCommentText" rows="1" style="width:100%; font-size: 0.62rem; padding: 2px; height: 18px; resize:none; overflow:hidden;">${escapeHtml(effectivePrincipalComment)}</textarea>
-      </div>
-      <div class="print-comment-text" id="printPrincipalComment" style="font-size: 0.62rem; margin-top: 1px; line-height:1.2;">${escapeHtml(effectivePrincipalComment)}</div>
-    </div>
-  </div>`;
 
-  const topRowHtml = `<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; align-items: flex-start; justify-content: center;">
-    <div style="flex: 0 0 auto; width: 35%;">${summaryHtml}</div>
-    <div style="flex: 0 0 auto; width: 42%;">${attendanceHtml}</div>
-  </div>`;
+  const commentsHtml = `
+    <div class="rc-comments">
+      <strong>Comments</strong>
+      <div class="rc-comment-row">
+        <label>Class Teacher's Comment:</label>
+        <div class="rc-comment-controls">
+          <select id="teacherCommentSelect">${commentOptions.map(o => `<option value="${o}" ${effectiveTeacherComment === o ? 'selected' : ''}>${o}</option>`).join('')}</select>
+          <textarea id="teacherCommentText" rows="1">${escapeHtml(effectiveTeacherComment)}</textarea>
+        </div>
+        <div id="printTeacherComment" class="rc-print-comment">${escapeHtml(effectiveTeacherComment)}</div>
+      </div>
+      <div class="rc-comment-row">
+        <label>${principalLabel}</label>
+        <div class="rc-comment-controls">
+          <select id="principalCommentSelect">${commentOptions.map(o => `<option value="${o}" ${effectivePrincipalComment === o ? 'selected' : ''}>${o}</option>`).join('')}</select>
+          <textarea id="principalCommentText" rows="1">${escapeHtml(effectivePrincipalComment)}</textarea>
+        </div>
+        <div id="printPrincipalComment" class="rc-print-comment">${escapeHtml(effectivePrincipalComment)}</div>
+      </div>
+    </div>`;
 
-  // Global styles with the crucial print fix for overlapping tables
-  const globalStyles = `
+  // ── STYLES ───────────────────────────────────────────────────────────────────
+  // All sizing uses relative / clamp() units so the layout scales at any zoom.
+  // Two-column row uses CSS Grid (62fr 35fr) – columns grow/shrink together,
+  // never overflow. Below 600 px the grid collapses to a single column.
+  const styles = `
     <style>
-      /*
-       * ─── PRINT COLOR PRESERVATION ───────────────────────────────────────────────
-       * Force Chrome, Edge, and all WebKit/Blink browsers to retain background
-       * colors, gradients, and images when printing or exporting to PDF.
-       * Must be declared at the top level (not inside @media print) so the
-       * browser honours it before the print pipeline strips graphics.
-       */
-      *,
-      *::before,
-      *::after {
+      /* Force colours for print engines */
+      *, *::before, *::after {
         -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
         color-adjust: exact !important;
+        color: #000 !important;
       }
 
-      /* ─── BASE COLORS ─────────────────────────────────────────────────────────── */
-      * { color: #000000 !important; }
+      /* ── Wrapper ── */
+      .rc-wrapper {
+        width: 100%;
+        max-width: 210mm;
+        margin: 0 auto;
+        background: #fff !important;
+        border: 2px solid #000;
+        padding: clamp(8px, 2%, 20px);
+        box-sizing: border-box;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: clamp(9px, 1.2vw, 13px);
+      }
 
-      table, th, td {
-        border: 2px solid #000 !important;
+      /* ── Header ── */
+      .rc-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .rc-header-logo img,
+      .rc-header-passport img {
+        max-width: clamp(60px, 8vw, 100px);
+        max-height: clamp(60px, 8vw, 100px);
+        object-fit: cover;
+        border-radius: 4px;
+      }
+      .rc-header-text {
+        flex: 1;
+        text-align: center;
+      }
+      .rc-header-text h1 {
+        margin: 0;
+        font-size: clamp(14px, 2vw, 22px);
+      }
+      .rc-school-address { font-size: 0.85em; color: #444; }
+
+      /* ── Details band ── */
+      .rc-details-band {
+        background: #D2B48C !important;
+        padding: clamp(6px, 1.5%, 12px);
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
+        gap: 4px 8px;
+        font-weight: bold;
+        font-size: 0.95em;
+        border-radius: 4px;
+        margin-bottom: 12px;
+      }
+      .rc-student-name { font-size: 1.1em; font-weight: 700; }
+
+      /* ── Summary + Attendance row (top) ── */
+      .rc-top-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: clamp(8px, 2%, 20px);
+        margin-bottom: clamp(10px, 2%, 18px);
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .rc-top-row > div {
+        flex: 1 1 clamp(160px, 38%, 300px);
+      }
+
+      /* ── Section title ── */
+      .rc-section-title {
+        font-weight: bold;
+        margin-bottom: 5px;
+        font-size: 0.95em;
+      }
+
+      /* ── Shared table base ── */
+      .rc-subject-table,
+      .rc-summary-table,
+      .rc-attendance-table,
+      .rc-skills-table,
+      .rc-grade-scale {
+        width: 100%;
         border-collapse: collapse;
+        border: 2px solid #000;
+        background: #fff !important;
+      }
+      .rc-subject-table th, .rc-subject-table td,
+      .rc-summary-table th, .rc-summary-table td,
+      .rc-attendance-table th, .rc-attendance-table td,
+      .rc-skills-table th,   .rc-skills-table td,
+      .rc-grade-scale th,    .rc-grade-scale td {
+        border: 1px solid #000 !important;
+        padding: clamp(2px, 0.6%, 6px);
+        text-align: center;
+        vertical-align: middle;
+      }
+      .rc-subject-table th,
+      .rc-summary-table th,
+      .rc-attendance-table th,
+      .rc-skills-table th {
+        background: #ADD8E6 !important;
+      }
+      .rc-grade-scale th { background: #FFD700 !important; }
+
+      /* Left-align subject name and attendance label */
+      .rc-subj-name,
+      .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
+
+      /* Skills name cell – always horizontal, never rotated */
+      .rc-skill-name {
+        text-align: left !important;
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        white-space: normal !important;
+        word-break: break-word;
       }
 
-      th, td { padding: 8px; text-align: left; }
-      .section-title { font-weight: bold; margin-bottom: 8px; }
-      select, textarea, input { color: #000 !important; background-color: #fff !important; }
-
-      /* ─── TABLE HEADER BACKGROUND COLORS ─────────────────────────────────────── */
-      /* Subject table, attendance table, and summary table headers — light blue */
-      .subject-table thead tr,
-      .subject-table th,
-      .attendance-table thead tr,
-      .attendance-table th,
-      .summary-table thead tr,
-      .summary-table th {
-        background-color: #ADD8E6 !important;
+      /* ── MAIN TWO-COLUMN GRID ──────────────────────────────────────────────
+         subjects (left) 62 parts  |  gap  |  skills (right) 35 parts
+         Uses fr units so both columns scale proportionally at any zoom level.
+         min-width:0 on each column prevents grid blow-out.
+      ── */
+      .rc-main-row {
+        display: grid;
+        grid-template-columns: 62fr 35fr;
+        gap: clamp(12px, 3%, 28px);
+        align-items: start;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .rc-col-left,
+      .rc-col-right {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(6px, 1.5%, 14px);
       }
 
-      /* Grade scale table headers — gold */
-      .grade-scale-table thead tr,
-      .grade-scale-table th {
-        background-color: #FFD700 !important;
+      .rc-rating-guide {
+        font-size: 0.78em;
+        color: #444;
+        margin-top: 2px;
       }
 
-      /* Skills tables (psychomotor + affective) headers */
-      .skills-table thead tr,
-      .skills-table th {
-        background-color: #ADD8E6 !important;
-        border: 2px solid #000 !important;
+      /* ── Rating ticks ── */
+      .rc-tick-row {
+        display: flex;
+        gap: 3px;
+        justify-content: center;
+        flex-wrap: wrap;
       }
-      .skills-table td {
-        border: 2px solid #000 !important;
+      .rc-tick {
+        width: clamp(14px, 2vw, 20px);
+        height: clamp(14px, 2vw, 20px);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #999;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 0.75em;
+        user-select: none;
+      }
+      .rc-tick.selected { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6; }
+
+      /* ── Attendance input ── */
+      .rc-att-input {
+        width: 100%;
+        max-width: 80px;
+        padding: 2px 4px;
+        box-sizing: border-box;
+        font-size: inherit;
       }
 
-      /* ─── STUDENT DETAILS BAND — tan/brown ───────────────────────────────────── */
-      .student-details-band {
-        background-color: #D2B48C !important;
+      /* ── Comments ── */
+      .rc-comments {
+        background: #f9f9f9 !important;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: clamp(4px, 1%, 10px);
+        margin-top: 10px;
+        font-size: 0.9em;
+      }
+      .rc-comment-row {
+        margin-top: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .rc-comment-controls { display: flex; flex-direction: column; gap: 2px; }
+      .rc-comment-controls select,
+      .rc-comment-controls textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: inherit;
+        background: #fff !important;
       }
 
-      /* ─── COMMENTS SECTION ────────────────────────────────────────────────────── */
-      .comments-section {
-        background-color: #f9f9f9 !important;
+      /* Print-only values hidden on screen */
+      .rc-print-val,
+      .rc-print-comment { display: none; }
+
+      /* ── Mobile: stack columns ── */
+      @media (max-width: 600px) {
+        .rc-wrapper   { padding: 8px; font-size: 11px; }
+        .rc-main-row  { grid-template-columns: 1fr; gap: 16px; }
+        .rc-top-row   { flex-direction: column; }
+        .rc-details-band { grid-template-columns: 1fr 1fr; }
+        .rc-header-logo img,
+        .rc-header-passport img { max-width: 55px; max-height: 55px; }
       }
 
-      /* ─── REPORT CARD OUTER WRAPPER ───────────────────────────────────────────── */
-      .report-card-wrapper {
-        background-color: #ffffff !important;
-      }
-
-      /* ─── @MEDIA PRINT ────────────────────────────────────────────────────────── */
+      /* ── Print ── */
       @media print {
-        /* 1. Remove any absolute positioning – the main culprit for overlapping */
-        .report-card,
-        .report-card *,
-        #report-card,
-        #report-card * {
-          position: static !important;
-          float: none !important;
+        .rc-wrapper {
+          max-width: 100%;
+          border: none;
+          padding: 0;
+          font-size: 8pt;
         }
+        /* Keep the two-column layout on print */
+        .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
 
-        /* 2. Let containers grow naturally */
-        html, body, .report-card, #report-card {
-          height: auto !important;
-          overflow: visible !important;
-        }
+        /* Hide interactive elements */
+        .rc-att-input,
+        .rc-tick-row,
+        .rc-comment-controls,
+        select, textarea, button { display: none !important; }
 
-        /* 3. Keep each table together, and add space to prevent crunching */
-        .attendance-table,
-        .summary-table,
-        .subject-table,
-        .skills-table,
-        .records-table {
+        /* Show print-only values */
+        .rc-print-val    { display: inline !important; }
+        .rc-print-comment { display: block !important; }
+
+        /* Tables stay on one page if possible */
+        .rc-subject-table,
+        .rc-summary-table,
+        .rc-attendance-table,
+        .rc-skills-table,
+        .rc-grade-scale {
           break-inside: avoid;
           page-break-inside: avoid;
-          margin-bottom: 1.5rem;
         }
 
-        /* 4. Basic print-friendly table layout */
-        table {
-          border-collapse: collapse;
-          width: 100%;
-        }
-        td, th {
-          border: 1px solid #000 !important;
-          padding: 4px;
-        }
+        html, body { height: auto !important; overflow: visible !important; }
+        .rc-scroll-outer { overflow: visible !important; }
 
-        /* 5. Re-assert all background colors inside @media print so no browser
-              can override them when generating the print raster / PDF. */
-        .subject-table thead tr,
-        .subject-table th,
-        .attendance-table thead tr,
-        .attendance-table th,
-        .summary-table thead tr,
-        .summary-table th,
-        .skills-table thead tr,
-        .skills-table th {
-          background-color: #ADD8E6 !important;
-        }
-
-        .grade-scale-table thead tr,
-        .grade-scale-table th {
-          background-color: #FFD700 !important;
-        }
-
-        .student-details-band {
-          background-color: #D2B48C !important;
-        }
-
-        .comments-section {
-          background-color: #f9f9f9 !important;
-        }
-
-        .report-card-wrapper {
-          background-color: #ffffff !important;
-        }
-
-        /* 6. Hide interactive elements, show static values */
-        .rating-tick, select, textarea, button, .comment-controls, .tick {
-          display: none !important;
-        }
-        .print-value, .print-comment-text {
-          display: block !important;
-        }
-
-        /* 7. Page background */
-        body, .print-container {
-          background: white !important;
-        }
-
-        /* 8. Constrain comments section height in print — slightly larger than before for readability */
-        .comments-section {
-          padding: 3px 8px !important;
-          margin-top: 2px !important;
-          border-width: 1px !important;
-          line-height: 1.2 !important;
-          break-inside: avoid !important;
-          page-break-inside: avoid !important;
-        }
-        .comments-section h3 {
-          font-size: 0.58rem !important;
-          margin: 0 0 2px 0 !important;
-          line-height: 1.2 !important;
-        }
-        .comments-section label {
-          font-size: 0.55rem !important;
-          margin-bottom: 1px !important;
-          line-height: 1.2 !important;
-        }
-        .comment-group {
-          margin-bottom: 2px !important;
-        }
-        .print-comment-text {
-          font-size: 0.55rem !important;
-          margin-top: 1px !important;
-          line-height: 1.2 !important;
-          padding: 0 !important;
-        }
+        @page { size: A4; margin: 8mm; }
       }
-    </style>
-  `;
+    </style>`;
 
-  const innerHtml = globalStyles + headerHtml + studentDetailsHtml + topRowHtml + mainGridHtml + commentsHtml;
-  const finalHtml = `<div class="report-card-wrapper" style="border: 2px solid #000; padding: 15px; border-radius: 4px; background-color: white;">${innerHtml}</div>`;
+  // ── Final HTML assembly ───────────────────────────────────────────────────────
+  const cardHtml = `
+    ${styles}
+    <div class="rc-wrapper">
+      ${headerHtml}
+      ${detailsBand}
 
+      <!-- Summary & Attendance: top row -->
+      <div class="rc-top-row">
+        <div>${summaryHtml}</div>
+        <div>${attendanceHtml}</div>
+      </div>
+
+      <!-- Main content: subjects LEFT  |  skills RIGHT -->
+      <div class="rc-main-row">
+        <!-- LEFT: subjects table + grade scale -->
+        <div class="rc-col-left">
+          ${subjectTableHtml}
+          ${getGradeScaleHtml()}
+        </div>
+        <!-- RIGHT: psychomotor + affective tables -->
+        <div class="rc-col-right">
+          ${skillsStack}
+        </div>
+      </div>
+
+      ${commentsHtml}
+    </div>`;
+
+  const finalHtml = `<div class="rc-scroll-outer" style="overflow-x:auto;">${cardHtml}</div>`;
   container.innerHTML = finalHtml;
 
-  // Synchronize attendance spans
-  const syncAttendanceSpans = () => {
-    const openedInput = document.querySelector('.attendance-input.school-opened');
-    const presentInput = document.querySelector('.attendance-input.present');
-    const absentInput = document.querySelector('.attendance-input.absent');
-    if (openedInput) {
-      const openedSpan = document.querySelector('.school-opened-value');
-      if (openedSpan) openedSpan.textContent = openedInput.value;
-    }
-    if (presentInput) {
-      const presentSpan = document.querySelector('.present-value');
-      if (presentSpan) presentSpan.textContent = presentInput.value;
-    }
-    if (absentInput) {
-      const absentSpan = document.querySelector('.absent-value');
-      if (absentSpan) absentSpan.textContent = absentInput.value;
-    }
-  };
-  document.querySelectorAll('.attendance-input').forEach(input => {
-    input.addEventListener('input', syncAttendanceSpans);
-  });
-
-  // Rating tick widgets
-  function createTickRating(skillKey, currentValue) {
-    const containerDiv = document.createElement('div');
-    containerDiv.className = 'rating-tick';
+  // ── Attach interactive rating ticks ──────────────────────────────────────────
+  container.querySelectorAll('.rc-rating-cell').forEach(el => {
+    const key = el.dataset.skillKey;
+    if (!key) return;
+    const val = psychomotor?.[key] ?? 3;
+    const tickRow = document.createElement('div');
+    tickRow.className = 'rc-tick-row';
     for (let i = 1; i <= 5; i++) {
       const tick = document.createElement('span');
-      tick.className = 'tick' + (i === currentValue ? ' selected' : '');
+      tick.className = 'rc-tick' + (i === val ? ' selected' : '');
       tick.textContent = i;
       tick.addEventListener('click', (e) => {
         e.stopPropagation();
-        const parent = tick.parentNode;
-        Array.from(parent.children).forEach(t => t.classList.remove('selected'));
+        tickRow.querySelectorAll('.rc-tick').forEach(t => t.classList.remove('selected'));
         tick.classList.add('selected');
-        if (onRatingChange) onRatingChange(skillKey, i);
-        const ratingContainer = parent.closest('.rating-container');
-        if (ratingContainer) {
-          const printSpan = ratingContainer.querySelector('.print-value');
-          if (printSpan) printSpan.textContent = i;
-        }
+        if (onRatingChange) onRatingChange(key, i);
+        const printSpan = el.querySelector('.rc-print-val');
+        if (printSpan) printSpan.textContent = i;
       });
-      containerDiv.appendChild(tick);
+      tickRow.appendChild(tick);
     }
-    return containerDiv;
-  }
-
-  document.querySelectorAll('.rating-container').forEach(containerEl => {
-    const skillKey = containerEl.dataset.skillKey;
-    if (skillKey) {
-      const currentVal = psychomotor?.[skillKey] ?? 3;
-      const widget = createTickRating(skillKey, currentVal);
-      containerEl.appendChild(widget);
-    }
+    el.appendChild(tickRow);
   });
 
-  // Comment sync
-  const teacherSelect = document.getElementById('teacherCommentSelect');
-  const teacherText = document.getElementById('teacherCommentText');
+  // ── Attendance live sync ──────────────────────────────────────────────────────
+  container.querySelectorAll('.rc-att-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const spanClass = '.' + inp.classList[1] + '-value';
+      const span = container.querySelector(spanClass);
+      if (span) span.textContent = inp.value;
+    });
+  });
+
+  // ── Comment selects / textareas ───────────────────────────────────────────────
+  const teacherSelect   = document.getElementById('teacherCommentSelect');
+  const teacherText     = document.getElementById('teacherCommentText');
   const principalSelect = document.getElementById('principalCommentSelect');
-  const principalText = document.getElementById('principalCommentText');
-  const printTeacher = document.getElementById('printTeacherComment');
-  const printPrincipal = document.getElementById('printPrincipalComment');
+  const principalText   = document.getElementById('principalCommentText');
+  const printTeacher    = document.getElementById('printTeacherComment');
+  const printPrincipal  = document.getElementById('printPrincipalComment');
 
-  if (teacherSelect) {
-    teacherSelect.onchange = () => {
-      const val = teacherSelect.value;
-      if (teacherText) teacherText.value = val;
-      if (printTeacher) printTeacher.textContent = escapeHtml(val);
-      if (onTeacherCommentChange) onTeacherCommentChange(val);
-    };
-  }
-  if (teacherText) {
-    teacherText.oninput = () => {
-      const val = teacherText.value;
-      if (printTeacher) printTeacher.textContent = escapeHtml(val);
-      if (onTeacherCommentChange) onTeacherCommentChange(val);
-    };
-  }
-  if (principalSelect) {
-    principalSelect.onchange = () => {
-      const val = principalSelect.value;
-      if (principalText) principalText.value = val;
-      if (printPrincipal) printPrincipal.textContent = escapeHtml(val);
-      if (onPrincipalCommentChange) onPrincipalCommentChange(val);
-    };
-  }
-  if (principalText) {
-    principalText.oninput = () => {
-      const val = principalText.value;
-      if (printPrincipal) printPrincipal.textContent = escapeHtml(val);
-      if (onPrincipalCommentChange) onPrincipalCommentChange(val);
-    };
-  }
+  if (teacherSelect) teacherSelect.onchange = () => {
+    const val = teacherSelect.value;
+    if (teacherText)  teacherText.value = val;
+    if (printTeacher) printTeacher.textContent = escapeHtml(val);
+    if (onTeacherCommentChange) onTeacherCommentChange(val);
+  };
+  if (teacherText) teacherText.oninput = () => {
+    const val = teacherText.value;
+    if (printTeacher) printTeacher.textContent = escapeHtml(val);
+    if (onTeacherCommentChange) onTeacherCommentChange(val);
+  };
+  if (principalSelect) principalSelect.onchange = () => {
+    const val = principalSelect.value;
+    if (principalText)  principalText.value = val;
+    if (printPrincipal) printPrincipal.textContent = escapeHtml(val);
+    if (onPrincipalCommentChange) onPrincipalCommentChange(val);
+  };
+  if (principalText) principalText.oninput = () => {
+    const val = principalText.value;
+    if (printPrincipal) printPrincipal.textContent = escapeHtml(val);
+    if (onPrincipalCommentChange) onPrincipalCommentChange(val);
+  };
 
-  return { fullHtml: finalHtml, totalScore, totalObtainable, average, overallGrade };
+  return { fullHtml: finalHtml, totalScore, totalObtainable, average: percentageAvg, overallGrade };
 }

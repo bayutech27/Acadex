@@ -48,11 +48,37 @@ function escapeHtml(str) {
   return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }
 
-function generateSessionOptions() {
-  const year = new Date().getFullYear();
-  let opts = [];
-  for (let i = 0; i < 5; i++) opts.push(`${year - i}/${year - i + 1}`);
-  return opts;
+// ==================== NEW: Dynamic session loading ====================
+async function loadSessionOptions(schoolId) {
+  try {
+    const scoresQuery = query(
+      collection(db, 'scores'),
+      where('schoolId', '==', schoolId)
+    );
+    const snapshot = await getDocs(scoresQuery);
+
+    const sessionsSet = new Set();
+    snapshot.forEach(doc => {
+      const session = doc.data().session;
+      if (session) sessionsSet.add(session);
+    });
+
+    // Sort descending (newest first)
+    const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
+      const [yearA] = a.split('/');
+      const [yearB] = b.split('/');
+      return parseInt(yearB) - parseInt(yearA);
+    });
+
+    return sortedSessions;
+  } catch (err) {
+    console.error('Failed to load session options:', err);
+    // Fallback to a fixed list if the query fails
+    const year = new Date().getFullYear();
+    const fallback = [];
+    for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
+    return fallback;
+  }
 }
 
 // ------------------- Grading loading (unchanged) -------------------
@@ -367,11 +393,9 @@ async function renderScoreTable() {
   }
   tableHtml += `</tbody></table>`;
   
-  // Wrap in responsive container
   const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
   container.innerHTML = wrapperHtml;
 
-  // Attach input listeners for auto‑total calculation
   if (isScoreEntryAllowed) {
     document.querySelectorAll('.ca-input:not([disabled]), .exam-input:not([disabled])').forEach(input => {
       input.addEventListener('input', function() {
@@ -391,7 +415,6 @@ async function renderScoreTable() {
 
 // ------------------- Save scores -------------------
 async function saveScores() {
-  // Re‑verify subscription right before saving
   const active = await checkSubscription();
   if (!active) {
     showNotification("❌ School subscription is inactive. Cannot save scores. Please contact your school administrator to renew.", "error");
@@ -493,10 +516,7 @@ async function initScoresPage() {
     return;
   }
 
-  // Initialise central calendar (for term/session only, not subscription)
   await initAcademicCalendar();
-
-  // Check subscription directly (replaces listener)
   await checkSubscription();
 
   await Promise.all([loadAllSubjects(), loadAllClasses()]);
@@ -505,16 +525,23 @@ async function initScoresPage() {
   populateSubjectDropdown();
   populateClassDropdown();
 
-  // Use central calendar for default session/term
   const currentSession = getCurrentSession();
   const currentTermName = getCurrentTerm();
   const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum = termMap[currentTermName] || '1';
 
-  const sessions = generateSessionOptions();
+  // ===== Dynamic session options =====
+  const distinctSessions = await loadSessionOptions(currentSchoolId);
+  // Ensure the current session is always present (even if no scores exist for it yet)
+  if (!distinctSessions.includes(currentSession)) {
+    distinctSessions.unshift(currentSession);
+  }
+
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
-    sessionSelect.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+    sessionSelect.innerHTML = distinctSessions.map(s =>
+      `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
+    ).join('');
   }
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;

@@ -1,6 +1,6 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
 // FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
-// Subscription is considered ACTIVE only if status === 'active' AND locked !== true
+// DYNAMIC SESSION DROPDOWN – shows only sessions with existing scores for the school
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
@@ -98,14 +98,14 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="grade-scale-table"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>}@`;
+  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
-  container.className = 'rating-tick';
+  container.className = 'rc-tick-row';
   for (let i = 1; i <= 5; i++) {
     const tick = document.createElement('span');
-    tick.className = 'tick' + (i === currentValue ? ' selected' : '');
+    tick.className = 'rc-tick' + (i === currentValue ? ' selected' : '');
     tick.textContent = i;
     tick.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -113,9 +113,9 @@ function createTickRating(skillKey, currentValue) {
       Array.from(parent.children).forEach(t => t.classList.remove('selected'));
       tick.classList.add('selected');
       editorState.psychomotor[skillKey] = i;
-      const ratingContainer = parent.closest('.rating-container');
+      const ratingContainer = parent.closest('.rc-rating-cell');
       if (ratingContainer) {
-        const printSpan = ratingContainer.querySelector('.print-value');
+        const printSpan = ratingContainer.querySelector('.rc-print-val');
         if (printSpan) printSpan.textContent = i;
       }
     });
@@ -128,18 +128,36 @@ function createTickRating(skillKey, currentValue) {
 function getScoringDocId(session, term, level) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
-function generateSessionOptionsFromCurrent(currentSession) {
-  if (!currentSession || typeof currentSession !== 'string') return [];
-  const parts = currentSession.split('/');
-  if (parts.length !== 2) return [];
-  const startYear = parseInt(parts[0], 10);
-  if (isNaN(startYear)) return [];
-  const sessions = [];
-  for (let i = 0; i < 5; i++) {
-    const year = startYear - i;
-    sessions.push(`${year}/${year + 1}`);
+
+// ==================== DYNAMIC SESSION OPTIONS ====================
+async function loadSessionOptions(schoolId) {
+  try {
+    const scoresQuery = query(
+      collection(db, 'scores'),
+      where('schoolId', '==', schoolId)
+    );
+    const snapshot = await getDocs(scoresQuery);
+
+    const sessionsSet = new Set();
+    snapshot.forEach(doc => {
+      const session = doc.data().session;
+      if (session) sessionsSet.add(session);
+    });
+
+    const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
+      const [yearA] = a.split('/');
+      const [yearB] = b.split('/');
+      return parseInt(yearB) - parseInt(yearA);
+    });
+
+    return sortedSessions;
+  } catch (err) {
+    console.error('Failed to load session options:', err);
+    const year = new Date().getFullYear();
+    const fallback = [];
+    for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
+    return fallback;
   }
-  return sessions;
 }
 
 // ------------------- Data Loading -------------------
@@ -438,13 +456,13 @@ async function saveEditorReport() {
     return;
   }
   if (!editorState.selectedStudent) return alert('Select a student.');
-  const totalScore = parseInt(document.querySelector('.summary-table tr:nth-child(1) td')?.textContent) || 0;
-  const totalObtainable = parseInt(document.querySelector('.summary-table tr:nth-child(2) td')?.textContent) || 0;
-  const average = parseFloat(document.querySelector('.summary-table tr:nth-child(4) td')?.textContent) || 0;
-  const overallGrade = document.querySelector('.summary-table tr:nth-child(5) td')?.textContent || 'N/A';
-  const schoolOpened = parseInt(document.querySelector('.attendance-input.school-opened')?.value) || 0;
-  const present = parseInt(document.querySelector('.attendance-input.present')?.value) || 0;
-  const absent = parseInt(document.querySelector('.attendance-input.absent')?.value) || 0;
+  const totalScore      = parseInt(document.querySelector('.rc-summary-table tr:nth-child(1) td')?.textContent) || 0;
+  const totalObtainable = parseInt(document.querySelector('.rc-summary-table tr:nth-child(2) td')?.textContent) || 0;
+  const average         = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
+  const overallGrade    = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
+  const schoolOpened    = parseInt(document.querySelector('.rc-att-input.school-opened')?.value) || 0;
+  const present         = parseInt(document.querySelector('.rc-att-input.present')?.value) || 0;
+  const absent          = parseInt(document.querySelector('.rc-att-input.absent')?.value) || 0;
   const attendance = { schoolOpened, present, absent };
   const reportData = {
     studentId: editorState.selectedStudent.id,
@@ -476,13 +494,14 @@ async function saveEditorReport() {
   }
 }
 
-// ========== IMPROVED PRINT HANDLER ==========
+// ========== PRINT HANDLER — updated to match rc-* class names from reportCardRenderer ==========
 function handlePrint() {
-  const teacherText = document.getElementById('teacherCommentText');
-  const printTeacher = document.getElementById('printTeacherComment');
+  // Sync any typed comments into the print-only divs
+  const teacherText    = document.getElementById('teacherCommentText');
+  const printTeacher   = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
 
-  const principalText = document.getElementById('principalCommentText');
+  const principalText  = document.getElementById('principalCommentText');
   const printPrincipal = document.getElementById('printPrincipalComment');
   if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
 
@@ -506,85 +525,74 @@ function handlePrint() {
     .map(style => style.innerHTML)
     .join('\n');
 
+  // ── Print CSS — mirrors the rc-* layout from reportCardRenderer ──────────────
+  // The two-column grid (62fr 35fr) is preserved on print via the renderer's own
+  // @media print block. This block only needs to handle page setup and
+  // hide/show toggles for interactive vs. print-only elements.
   const extraPrintCSS = `
-    .report-card, .report-card * {
-      page-break-inside: avoid;
-      page-break-after: avoid;
-      page-break-before: avoid;
-    }
-    @page {
-      size: A4;
-      margin: 8mm;
-    }
+    @page { size: A4; margin: 8mm; }
+
     body, .print-container {
-      margin: 0;
-      padding: 0;
-      background: white;
+      margin: 0; padding: 0; background: white;
     }
     .print-container {
       width: 100%;
       max-width: 210mm;
       margin: 0 auto;
     }
-    .report-card {
-      padding: 4px !important;
-      margin: 0 !important;
-      font-size: 9px !important;
+
+    /* Preserve the fluid two-column grid at print size */
+    .rc-wrapper {
+      max-width: 100%;
+      border: none;
+      padding: 0;
+      font-size: 8pt;
     }
-    .subject-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 6.5px !important;
-      line-height: 1.2;
+    .rc-main-row {
+      display: grid !important;
+      grid-template-columns: 62fr 35fr !important;
+      gap: 14px !important;
     }
-    .subject-table th, .subject-table td {
-      padding: 3px 2px !important;
-      word-break: break-word;
+    .rc-col-left,
+    .rc-col-right { min-width: 0; }
+
+    /* Hide all interactive elements */
+    .rc-att-input,
+    .rc-tick-row,
+    .rc-comment-controls,
+    select, textarea, button { display: none !important; }
+
+    /* Show print-only values */
+    .rc-print-val     { display: inline !important; }
+    .rc-print-comment { display: block !important; }
+
+    /* Overflow reset for the scroll wrapper */
+    .rc-scroll-outer { overflow: visible !important; }
+
+    /* Keep tables intact across pages */
+    .rc-subject-table,
+    .rc-summary-table,
+    .rc-attendance-table,
+    .rc-skills-table,
+    .rc-grade-scale {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
-    .subject-table th:not(:first-child) {
-      height: 70px !important;
-      width: 28px !important;
-      padding: 4px 2px !important;
-      writing-mode: vertical-rl;
-      transform: rotate(180deg);
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.2;
-      vertical-align: middle;
+
+    /* Colours must survive print */
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+      color-adjust: exact !important;
     }
-    .subject-table th:first-child,
-    .subject-table td:first-child {
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.3;
-      padding: 4px 3px !important;
-    }
-    .student-details-grid {
-      font-size: 7px !important;
-      gap: 2px 4px !important;
-      margin-bottom: 4px !important;
-    }
-    .skills-table, .summary-table, .grade-scale-table {
-      font-size: 6px !important;
-    }
-    .skills-table th, .skills-table td,
-    .summary-table th, .summary-table td {
-      padding: 2px 3px !important;
-    }
-    .comments-section {
-      font-size: 8px !important;
-      margin-top: 4px !important;
-    }
-    .signature-stamp {
-      margin-top: 4px !important;
-      padding-top: 2px !important;
-    }
-    .rating-tick, select, textarea, button, .comment-controls, .tick {
-      display: none !important;
-    }
-    .print-value, .print-comment-text {
-      display: block !important;
-    }
+    .rc-subject-table th,
+    .rc-summary-table th,
+    .rc-attendance-table th,
+    .rc-skills-table th { background: #ADD8E6 !important; }
+    .rc-grade-scale th  { background: #FFD700 !important; }
+    .rc-details-band    { background: #D2B48C !important; }
+    .rc-comments        { background: #f9f9f9 !important; }
+    .rc-wrapper         { background: #fff    !important; }
   `;
 
   printWindow.document.write(`
@@ -592,11 +600,14 @@ function handlePrint() {
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Report Card - ${escapeHtml(editorState.selectedStudent?.name || 'Student')}</title>
+      <title>Report Card – ${escapeHtml(editorState.selectedStudent?.name || 'Student')}</title>
       <link rel="stylesheet" href="${externalCssUrl}">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body {
+          background: white;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
         .print-container { width: 210mm; margin: 0 auto; background: white; }
         ${inlineStyles}
         ${extraPrintCSS}
@@ -649,7 +660,7 @@ async function generateBroadsheet() {
     const term1Scores = await fetchClassScores(classId, '1', session);
     const term2Scores = await fetchClassScores(classId, '2', session);
     const term3Scores = await fetchClassScores(classId, '3', session);
-    
+
     const scoresByStudentTerm = new Map();
     const storeScores = (termScores, termNum) => {
       for (const score of termScores) {
@@ -662,7 +673,7 @@ async function generateBroadsheet() {
     storeScores(term1Scores, 1);
     storeScores(term2Scores, 2);
     storeScores(term3Scores, 3);
-    
+
     const termAverages = new Map();
     for (const student of classStudents) {
       const averages = {};
@@ -674,10 +685,7 @@ async function generateBroadsheet() {
         let subjectCount = 0;
         for (const subj of relevantSubjects) {
           const score = studentScoreMap.get(subj.id);
-          if (score) {
-            totalScore += score.total;
-            subjectCount++;
-          }
+          if (score) { totalScore += score.total; subjectCount++; }
         }
         if (subjectCount > 0) {
           const avg = (totalScore / (subjectCount * 100)) * 100;
@@ -691,7 +699,7 @@ async function generateBroadsheet() {
       const combinedAvg = termsWithData > 0 ? (sumCombined / termsWithData).toFixed(1) : null;
       termAverages.set(student.id, { ...averages, combined: combinedAvg });
     }
-    
+
     const studentResults = [];
     for (const student of classStudents) {
       const subjectDetails = [];
@@ -706,7 +714,7 @@ async function generateBroadsheet() {
       const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
       const grade = calculateGrade(average);
       const remark = getGradeRemark(grade);
-      
+
       const tAvg = termAverages.get(student.id);
       studentResults.push({
         studentId: student.id,
@@ -722,14 +730,14 @@ async function generateBroadsheet() {
         combinedAvg: tAvg && tAvg.combined ? tAvg.combined + '%' : '—'
       });
     }
-    
+
     studentResults.sort((a, b) => b.average - a.average);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
       if (i > 0 && studentResults[i].average < studentResults[i-1].average) rank = i+1;
       studentResults[i].position = rank;
     }
-    
+
     let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – Term ${term}</h3></div>`;
     html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
     html += `<thead>`;
@@ -740,7 +748,7 @@ async function generateBroadsheet() {
     for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>`;
     html += `</thead><tbody>`;
-    
+
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
       html += `<tr>`;
@@ -814,72 +822,32 @@ async function saveBroadsheetToFirestore() {
   }
 }
 
+// ---------- Broadsheet print – landscape A4 (unchanged) ----------
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { alert('No broadsheet to print.'); return; }
+  if (!container || !container.innerHTML.trim()) { alert('No broadsheet to download.'); return; }
   const originalContent = container.cloneNode(true);
   const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
   const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    alert('Please allow popups.');
-    return;
-  }
+  if (!printWindow) { alert('Please allow popups.'); return; }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style'))
-    .map(style => style.innerHTML)
-    .join('\n');
-    
+  const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+
   const printCSS = `
-    @page {
-      size: landscape;
-      margin: 1cm;
-    }
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', sans-serif;
-      font-size: 10px;
-    }
-    .broadsheet-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 8px;
-    }
-    .broadsheet-table th, .broadsheet-table td {
-      border: 1px solid #000;
-      padding: 4px 3px;
-      text-align: center;
-      vertical-align: middle;
-    }
-    .student-name-cell {
-      text-align: left !important;
-    }
-    .table-responsive-wrapper {
-      overflow: visible !important;
-      border: none !important;
-      margin: 0 !important;
-    }
-    tr, td, th {
-      page-break-inside: avoid;
-      page-break-after: avoid;
-    }
-    .broadsheet-table {
-      page-break-after: avoid;
-    }
+    @page { size: A4 landscape; margin: 1cm; }
+    body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; font-size:10px; }
+    .broadsheet-table { width:100%; border-collapse:collapse; font-size:8px; }
+    .broadsheet-table th, .broadsheet-table td { border:1px solid #000; padding:4px 3px; text-align:center; vertical-align:middle; }
+    .student-name-cell { text-align:left !important; }
+    .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
+    tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
   `;
-  
+
   printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-    <head><title>${title}</title>
+    <!DOCTYPE html><html><head><title>${title}</title>
     <link rel="stylesheet" href="${externalCssUrl}">
-    <style>
-      ${inlineStyles}
-      ${printCSS}
-    </style>
-    </head>
-    <body>${originalContent.outerHTML}</body>
-    </html>
+    <style>${inlineStyles}${printCSS}</style>
+    </head><body>${originalContent.outerHTML}</body></html>
   `);
   printWindow.document.close();
   printWindow.print();
@@ -920,7 +888,7 @@ async function onEditorClassChange() {
       document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
       el.classList.add('active');
       resetRatingsToDefaults();
-      await renderReportCard(el.dataset.id, el.textContent);
+      await renderReportCard(el.dataset.id, el.textContent.trim());
     });
   });
   await onEditorFilterChange();
@@ -932,9 +900,8 @@ async function onEditorFilterChange() {
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
-// ---------- Unified subscription UI update (shows/hides payment banner & toggles buttons) ----------
+// ---------- Unified subscription UI update ----------
 function updateSubscriptionUI() {
-  // 1. Payment banner container – create if needed
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');
     if (contentDiv) {
@@ -975,7 +942,6 @@ function updateSubscriptionUI() {
     }
   }
 
-  // 2. Enable/disable all subscription‑dependent buttons
   const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
   btns.forEach(id => {
     const btn = document.getElementById(id);
@@ -990,7 +956,6 @@ function updateSubscriptionUI() {
     }
   });
 
-  // 3. Show/hide warning banner inside content area (like class.js)
   const existingWarning = document.querySelector('.subscription-warning-banner');
   if (!isSubscriptionActive) {
     if (!existingWarning) {
@@ -1016,12 +981,11 @@ export async function initResultsPage() {
     return;
   }
 
-  // Set up real‑time subscription listener (raw status)
+  // Set up real‑time subscription listener
   if (unsubscribeSub) unsubscribeSub();
   unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
     isSubscriptionActive = isActive;
     updateSubscriptionUI();
-    // If a report is already loaded, re‑render it to reflect new subscription state
     if (editorState.selectedStudent) {
       renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
     }
@@ -1047,17 +1011,24 @@ export async function initResultsPage() {
   classSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
-      select.innerHTML = '<option value="">-- Select Class --</option>' + Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
+      select.innerHTML = '<option value="">-- Select Class --</option>' +
+        Array.from(classesMap.entries())
+          .map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`)
+          .join('');
     }
   });
 
-  // Session options
-  const sessions = generateSessionOptionsFromCurrent(currentSession);
+  // ===== DYNAMIC SESSION OPTIONS =====
+  const distinctSessions = await loadSessionOptions(currentSchoolId);
+  if (!distinctSessions.includes(currentSession)) distinctSessions.unshift(currentSession);
+
   const sessionSelects = ['broadsheetSessionSelect', 'editorSessionSelect'];
   sessionSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
-      select.innerHTML = sessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
+      select.innerHTML = distinctSessions
+        .map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`)
+        .join('');
     }
   });
 
@@ -1068,7 +1039,7 @@ export async function initResultsPage() {
     if (select) select.value = currentTermNum;
   });
 
-  // Load default grading for current context
+  // Load default grading
   await loadGradingSetting(currentSession, currentTermNum, 'secondary');
   await loadGradingSetting(currentSession, currentTermNum, 'primary');
 
@@ -1084,6 +1055,12 @@ export async function initResultsPage() {
   document.getElementById('editorClassSelect')?.addEventListener('change', onEditorClassChange);
   document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
   document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
+
+  // ---------- RENAME BUTTONS: "Print/PDF" → "Print/Download" ----------
+  const downloadBroadsheetBtn = document.getElementById('printBroadsheetBtn');
+  if (downloadBroadsheetBtn) downloadBroadsheetBtn.textContent = 'Print/Download';
+  const downloadReportBtn = document.getElementById('printReportBtn');
+  if (downloadReportBtn) downloadReportBtn.textContent = 'Print/Download';
 
   updateSubscriptionUI();
   await onEditorClassChange();
