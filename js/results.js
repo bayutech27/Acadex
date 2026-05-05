@@ -17,7 +17,7 @@ let studentsList = [];
 let subjectsMap = new Map();
 let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
-let isSubscriptionActive = false;      // raw subscription status (status='active' && locked !== true)
+let isSubscriptionActive = false;
 let unsubscribeSub = null;
 
 let editorState = {
@@ -132,24 +132,15 @@ function getScoringDocId(session, term, level) {
 // ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
   try {
-    const scoresQuery = query(
-      collection(db, 'scores'),
-      where('schoolId', '==', schoolId)
-    );
+    const scoresQuery = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
     const snapshot = await getDocs(scoresQuery);
-
     const sessionsSet = new Set();
-    snapshot.forEach(doc => {
-      const session = doc.data().session;
-      if (session) sessionsSet.add(session);
-    });
-
+    snapshot.forEach(doc => { const session = doc.data().session; if (session) sessionsSet.add(session); });
     const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
       const [yearA] = a.split('/');
       const [yearB] = b.split('/');
       return parseInt(yearB) - parseInt(yearA);
     });
-
     return sortedSessions;
   } catch (err) {
     console.error('Failed to load session options:', err);
@@ -249,10 +240,7 @@ async function loadGradingSetting(session, term, level = 'secondary') {
 }
 
 async function saveGradingSetting(level = 'secondary') {
-  if (!isSubscriptionActive) {
-    alert('Subscription inactive. Cannot save grading settings.');
-    return;
-  }
+  if (!isSubscriptionActive) { alert('Subscription inactive. Cannot save grading settings.'); return; }
   const gradingSelect = document.getElementById(level === 'secondary' ? 'gradingSelect' : 'primaryGradingSelect');
   if (!gradingSelect) return;
   const grading = gradingSelect.value;
@@ -262,26 +250,16 @@ async function saveGradingSetting(level = 'secondary') {
     session = document.getElementById('broadsheetSessionSelect')?.value;
     term = document.getElementById('broadsheetTermSelect')?.value;
   }
-  if (!session || !term) {
-    alert('Session/Term not set. Please select a session and term first.');
-    return;
-  }
+  if (!session || !term) { alert('Session/Term not set. Please select a session and term first.'); return; }
   const docId = getScoringDocId(session, term, level);
   try {
     await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
-    if (level === 'secondary') {
-      const [ca, exam] = grading.split('/').map(Number);
-      currentGrading = { ca, exam };
-    }
+    if (level === 'secondary') { const [ca, exam] = grading.split('/').map(Number); currentGrading = { ca, exam }; }
     alert(`Grading saved for ${level} level.`);
     if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   } catch (err) {
-    if (err.code === 'permission-denied') {
-      alert('Permission denied. Subscription required to save grading.');
-    } else {
-      console.error(err);
-      alert('Failed to save grading. Check console.');
-    }
+    if (err.code === 'permission-denied') alert('Permission denied. Subscription required to save grading.');
+    else { console.error(err); alert('Failed to save grading. Check console.'); }
   }
 }
 
@@ -292,9 +270,7 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
   const allScores = await fetchClassScores(classId, term, session);
   const subjectMap = new Map();
   let targetSubjectIds = subjectIdsToInclude ? new Set(subjectIdsToInclude) : new Set(subjectsMap.keys());
-  for (const subjId of targetSubjectIds) {
-    subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
-  }
+  for (const subjId of targetSubjectIds) subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
   for (const score of allScores) {
     if (!targetSubjectIds.has(score.subjectId)) continue;
     const total = (score.ca || 0) + (score.exam || 0);
@@ -316,7 +292,7 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
   return subjectMap;
 }
 
-// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
+// ------------------- Helper: Get relevant subjects -------------------
 async function getRelevantSubjectsForClass(classId, session) {
   const classInfo = classesMap.get(classId);
   if (!classInfo) return [];
@@ -357,34 +333,38 @@ async function getStudentAverageForTerm(studentId, term, session) {
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
-    container.innerHTML = `<div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;"><h3>⚠️ Subscription Required</h3><p>Report cards are unavailable because the school subscription is inactive.</p><p>Please contact your administrator to renew.</p></div>`;
+    container.innerHTML = `<div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;"><h3>⚠️ Subscription Required</h3><p>Report cards are unavailable because the school subscription is inactive.</p><p>Please contact your administrator to renew.</p></div>`;
     document.getElementById('reportActions').style.display = 'none';
     return;
   }
   editorState.selectedStudent = { id: studentId, name: studentName };
-  editorState.term = document.getElementById('editorTermSelect')?.value || '1';
+  editorState.term    = document.getElementById('editorTermSelect')?.value    || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
-  const classId = document.getElementById('editorClassSelect')?.value;
-  const className = classesMap.get(classId)?.name || 'Class';
-  const classInfo = classesMap.get(classId);
+  const classId    = document.getElementById('editorClassSelect')?.value;
+  const className  = classesMap.get(classId)?.name || 'Class';
+  const classInfo  = classesMap.get(classId);
   const classLevel = classInfo?.level || 'secondary';
-  const isPrimary = (classLevel === 'primary');
+  const isPrimary  = (classLevel === 'primary');
 
   await loadGradingSetting(editorState.session, editorState.term, classLevel);
 
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
+  // ── email and phone queried from Firestore school document ──
   const school = {
-    name: schoolDoc.exists() ? schoolDoc.data().name : 'School Name',
+    name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
     address: schoolDoc.exists() ? schoolDoc.data().address : '',
-    logo: schoolDoc.exists() ? schoolDoc.data().logo : null
+    logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
+    email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
+    phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : ''
   };
+
   const student = studentsList.find(s => s.id === studentId) || {};
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
   const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
   const scoresWithNames = scoresRaw.filter(s => relevantSubjectIds.includes(s.subjectId)).map(score => ({
-    subjectId: score.subjectId,
+    subjectId:   score.subjectId,
     subjectName: subjectsMap.get(score.subjectId)?.name || score.subjectId,
-    ca: score.ca,
+    ca:   score.ca,
     exam: score.exam
   }));
 
@@ -393,35 +373,26 @@ async function renderReportCard(studentId, studentName) {
   await loadExistingEditorReport(studentId);
 
   const studentData = {
-    id: studentId,
-    name: studentName,
+    id: studentId, name: studentName,
     admissionNumber: student.admissionNumber || '—',
     gender: student.gender || '—',
-    dob: student.dob || '',
-    club: student.club || '—',
+    dob:    student.dob    || '',
+    club:   student.club   || '—',
     passport: student.passport || null
   };
 
-  const comments = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
+  const comments   = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
   const attendance = editorState.attendance || { schoolOpened: 0, present: 0, absent: 0 };
 
   renderReportCardUI({
-    student: studentData,
-    scores: scoresWithNames,
-    className,
-    school,
-    grading: currentGrading,
-    psychomotor: editorState.psychomotor,
-    comments,
-    term: editorState.term,
-    session: editorState.session,
-    subjectStats,
+    student: studentData, scores: scoresWithNames, className, school,
+    grading: currentGrading, psychomotor: editorState.psychomotor, comments,
+    term: editorState.term, session: editorState.session, subjectStats,
     container: document.getElementById('reportCardContent'),
-    attendance,
-    isPrimary,
-    onRatingChange: (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
-    onTeacherCommentChange: (newComment) => { editorState.teacherComment = newComment; },
-    onPrincipalCommentChange: (newComment) => { editorState.principalComment = newComment; }
+    attendance, isPrimary,
+    onRatingChange:          (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
+    onTeacherCommentChange:  (newComment)          => { editorState.teacherComment   = newComment; },
+    onPrincipalCommentChange:(newComment)          => { editorState.principalComment = newComment; }
   });
   document.getElementById('reportActions').style.display = 'flex';
 }
@@ -429,9 +400,8 @@ async function renderReportCard(studentId, studentName) {
 async function loadExistingEditorReport(studentId) {
   resetRatingsToDefaults();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
-  const reportsRef = collection(db, 'reports');
   const q = query(
-    reportsRef,
+    collection(db, 'reports'),
     where('studentId', '==', studentId),
     where('schoolId', '==', currentSchoolId),
     where('term', '==', editorState.term),
@@ -441,9 +411,9 @@ async function loadExistingEditorReport(studentId) {
   if (!snap.empty) {
     const data = snap.docs[0].data();
     if (data.psychomotor) Object.assign(editorState.psychomotor, data.psychomotor);
-    editorState.teacherComment = data.teacherComment || '';
+    editorState.teacherComment   = data.teacherComment   || '';
     editorState.principalComment = data.principalComment || '';
-    editorState.savedReportId = snap.docs[0].id;
+    editorState.savedReportId    = snap.docs[0].id;
     if (data.attendance) editorState.attendance = data.attendance;
   } else {
     editorState.savedReportId = null;
@@ -451,10 +421,7 @@ async function loadExistingEditorReport(studentId) {
 }
 
 async function saveEditorReport() {
-  if (!isSubscriptionActive) {
-    alert('Cannot save report – subscription inactive.');
-    return;
-  }
+  if (!isSubscriptionActive) { alert('Cannot save report – subscription inactive.'); return; }
   if (!editorState.selectedStudent) return alert('Select a student.');
   const totalScore      = parseInt(document.querySelector('.rc-summary-table tr:nth-child(1) td')?.textContent) || 0;
   const totalObtainable = parseInt(document.querySelector('.rc-summary-table tr:nth-child(2) td')?.textContent) || 0;
@@ -467,18 +434,11 @@ async function saveEditorReport() {
   const reportData = {
     studentId: editorState.selectedStudent.id,
     classId: document.getElementById('editorClassSelect')?.value,
-    schoolId: currentSchoolId,
-    term: editorState.term,
-    session: editorState.session,
-    totalScore,
-    maxTotal: totalObtainable,
-    average,
-    overallGrade,
+    schoolId: currentSchoolId, term: editorState.term, session: editorState.session,
+    totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: editorState.psychomotor,
-    teacherComment: editorState.teacherComment,
-    principalComment: editorState.principalComment,
-    attendance,
-    updatedAt: new Date()
+    teacherComment: editorState.teacherComment, principalComment: editorState.principalComment,
+    attendance, updatedAt: new Date()
   };
   try {
     if (editorState.savedReportId) {
@@ -494,13 +454,11 @@ async function saveEditorReport() {
   }
 }
 
-// ========== PRINT HANDLER — updated to match rc-* class names from reportCardRenderer ==========
+// ========== PRINT HANDLER ==========
 function handlePrint() {
-  // Sync any typed comments into the print-only divs
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
-
   const principalText  = document.getElementById('principalCommentText');
   const printPrincipal = document.getElementById('printPrincipalComment');
   if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
@@ -515,84 +473,31 @@ function handlePrint() {
 
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    alert('Please allow popups for this site to print the report.');
-    return;
-  }
+  if (!printWindow) { alert('Please allow popups for this site to print the report.'); return; }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style'))
-    .map(style => style.innerHTML)
-    .join('\n');
+  const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
-  // ── Print CSS — mirrors the rc-* layout from reportCardRenderer ──────────────
-  // The two-column grid (62fr 35fr) is preserved on print via the renderer's own
-  // @media print block. This block only needs to handle page setup and
-  // hide/show toggles for interactive vs. print-only elements.
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
-
-    body, .print-container {
-      margin: 0; padding: 0; background: white;
-    }
-    .print-container {
-      width: 100%;
-      max-width: 210mm;
-      margin: 0 auto;
-    }
-
-    /* Preserve the fluid two-column grid at print size */
-    .rc-wrapper {
-      max-width: 100%;
-      border: none;
-      padding: 0;
-      font-size: 8pt;
-    }
-    .rc-main-row {
-      display: grid !important;
-      grid-template-columns: 62fr 35fr !important;
-      gap: 14px !important;
-    }
-    .rc-col-left,
-    .rc-col-right { min-width: 0; }
-
-    /* Hide all interactive elements */
-    .rc-att-input,
-    .rc-tick-row,
-    .rc-comment-controls,
-    select, textarea, button { display: none !important; }
-
-    /* Show print-only values */
+    body, .print-container { margin: 0; padding: 0; background: white; }
+    .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
+    .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
+    .rc-school-name { font-size: 22pt !important; }
+    .rc-main-row { display: grid !important; grid-template-columns: 62fr 35fr !important; gap: 14px !important; }
+    .rc-col-left, .rc-col-right { min-width: 0; }
+    .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
     .rc-print-val     { display: inline !important; }
-    .rc-print-comment { display: block !important; }
-
-    /* Overflow reset for the scroll wrapper */
-    .rc-scroll-outer { overflow: visible !important; }
-
-    /* Keep tables intact across pages */
-    .rc-subject-table,
-    .rc-summary-table,
-    .rc-attendance-table,
-    .rc-skills-table,
-    .rc-grade-scale {
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-
-    /* Colours must survive print */
-    *, *::before, *::after {
-      -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-      color-adjust: exact !important;
-    }
-    .rc-subject-table th,
-    .rc-summary-table th,
-    .rc-attendance-table th,
-    .rc-skills-table th { background: #ADD8E6 !important; }
-    .rc-grade-scale th  { background: #FFD700 !important; }
-    .rc-details-band    { background: #D2B48C !important; }
-    .rc-comments        { background: #f9f9f9 !important; }
-    .rc-wrapper         { background: #fff    !important; }
+    .rc-print-comment { display: block  !important; }
+    .rc-scroll-outer  { overflow: visible !important; }
+    .rc-details-band  { background: #1a3a5c !important; }
+    .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+    .rc-details-cell strong { color: #a8d8f0 !important; }
+    .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale { break-inside: avoid; page-break-inside: avoid; }
+    *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
+    .rc-grade-scale th { background: #FFD700 !important; }
+    .rc-comments { background: #f9f9f9 !important; }
   `;
 
   printWindow.document.write(`
@@ -604,10 +509,7 @@ function handlePrint() {
       <link rel="stylesheet" href="${externalCssUrl}">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          background: white;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
+        body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .print-container { width: 210mm; margin: 0 auto; background: white; }
         ${inlineStyles}
         ${extraPrintCSS}
@@ -619,27 +521,24 @@ function handlePrint() {
     </html>
   `);
   printWindow.document.close();
-  setTimeout(() => {
-    printWindow.focus();
-    printWindow.print();
-  }, 300);
+  setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
 // ------------------- BROADSHEET ENGINE -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
-    container.innerHTML = `<div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;"><h3>⚠️ Subscription Required</h3><p>Broadsheets are unavailable because the school subscription is inactive.</p></div>`;
+    container.innerHTML = `<div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;"><h3>⚠️ Subscription Required</h3><p>Broadsheets are unavailable because the school subscription is inactive.</p></div>`;
     document.getElementById('broadsheetActions').style.display = 'none';
     return;
   }
   const classId = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
-  const term = document.getElementById('broadsheetTermSelect')?.value;
+  const term    = document.getElementById('broadsheetTermSelect')?.value;
   if (!classId || !session || !term) { alert('Please select Class, Session and Term'); return; }
 
-  const classInfo = classesMap.get(classId);
-  const className = classInfo?.name || 'Class';
+  const classInfo     = classesMap.get(classId);
+  const className     = classInfo?.name || 'Class';
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) {
     const container = document.getElementById('broadsheetContainer');
@@ -670,31 +569,23 @@ async function generateBroadsheet() {
         studentMap.get(termNum).set(score.subjectId, { ca: score.ca, exam: score.exam, total: score.ca + score.exam });
       }
     };
-    storeScores(term1Scores, 1);
-    storeScores(term2Scores, 2);
-    storeScores(term3Scores, 3);
+    storeScores(term1Scores, 1); storeScores(term2Scores, 2); storeScores(term3Scores, 3);
 
     const termAverages = new Map();
     for (const student of classStudents) {
       const averages = {};
-      let sumCombined = 0;
-      let termsWithData = 0;
+      let sumCombined = 0, termsWithData = 0;
       for (const t of [1,2,3]) {
         const studentScoreMap = scoresByStudentTerm.get(student.id)?.get(t) || new Map();
-        let totalScore = 0;
-        let subjectCount = 0;
+        let totalScore = 0, subjectCount = 0;
         for (const subj of relevantSubjects) {
           const score = studentScoreMap.get(subj.id);
           if (score) { totalScore += score.total; subjectCount++; }
         }
         if (subjectCount > 0) {
           const avg = (totalScore / (subjectCount * 100)) * 100;
-          averages[t] = avg.toFixed(1);
-          sumCombined += avg;
-          termsWithData++;
-        } else {
-          averages[t] = null;
-        }
+          averages[t] = avg.toFixed(1); sumCombined += avg; termsWithData++;
+        } else { averages[t] = null; }
       }
       const combinedAvg = termsWithData > 0 ? (sumCombined / termsWithData).toFixed(1) : null;
       termAverages.set(student.id, { ...averages, combined: combinedAvg });
@@ -712,22 +603,16 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
-      const grade = calculateGrade(average);
-      const remark = getGradeRemark(grade);
-
-      const tAvg = termAverages.get(student.id);
+      const grade   = calculateGrade(average);
+      const remark  = getGradeRemark(grade);
+      const tAvg    = termAverages.get(student.id);
       studentResults.push({
-        studentId: student.id,
-        studentName: student.name,
-        totalScore: totalScoreOverall,
-        average,
-        grade,
-        remark,
-        subjectDetails,
-        term1Avg: tAvg ? (tAvg[1] !== null ? tAvg[1] + '%' : '—') : '—',
-        term2Avg: tAvg ? (tAvg[2] !== null ? tAvg[2] + '%' : '—') : '—',
-        term3Avg: tAvg ? (tAvg[3] !== null ? tAvg[3] + '%' : '—') : '—',
-        combinedAvg: tAvg && tAvg.combined ? tAvg.combined + '%' : '—'
+        studentId: student.id, studentName: student.name,
+        totalScore: totalScoreOverall, average, grade, remark, subjectDetails,
+        term1Avg: tAvg ? (tAvg[1] !== null ? tAvg[1]+'%' : '—') : '—',
+        term2Avg: tAvg ? (tAvg[2] !== null ? tAvg[2]+'%' : '—') : '—',
+        term3Avg: tAvg ? (tAvg[3] !== null ? tAvg[3]+'%' : '—') : '—',
+        combinedAvg: tAvg && tAvg.combined ? tAvg.combined+'%' : '—'
       });
     }
 
@@ -738,32 +623,20 @@ async function generateBroadsheet() {
       studentResults[i].position = rank;
     }
 
-    let html = `<div style="margin-bottom: 1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – Term ${term}</h3></div>`;
+    let html = `<div style="margin-bottom:1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – Term ${term}</h3></div>`;
     html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
-    html += `<thead>`;
-    html += `<tr><th>S/N</th><th>Student Name</th>`;
+    html += `<thead><tr><th>S/N</th><th>Student Name</th>`;
     for (const subj of relevantSubjects) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
     html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
     html += `<tr><th></th><th></th>`;
     for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
-    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>`;
-    html += `</thead><tbody>`;
-
+    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr>`;
-      html += `<td>${i+1}</td>`;
-      html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
-      html += `<td>${r.totalScore}</td>`;
-      html += `<td>${r.term1Avg}</td>`;
-      html += `<td>${r.term2Avg}</td>`;
-      html += `<td>${r.term3Avg}</td>`;
-      html += `<td>${r.combinedAvg}</td>`;
-      html += `<td>${r.grade}</td>`;
-      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td>`;
-      html += `<td>${r.remark}</td>`;
-      html += `</tr>`;
+      html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
+      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
     }
     html += `</tbody></table></div>`;
     const container = document.getElementById('broadsheetContainer');
@@ -779,50 +652,30 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionActive) {
-    alert('Cannot save broadsheet – subscription inactive.');
-    return;
-  }
+  if (!isSubscriptionActive) { alert('Cannot save broadsheet – subscription inactive.'); return; }
   if (!window.currentBroadsheetData) { alert('No broadsheet data to save. Generate first.'); return; }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
-    schoolId: currentSchoolId,
-    classId,
-    session,
-    term,
+    schoolId: currentSchoolId, classId, session, term,
     students: studentResults.map(s => ({
-      studentId: s.studentId,
-      studentName: s.studentName,
-      totalScore: s.totalScore,
-      average: s.average,
-      grade: s.grade,
-      remark: s.remark,
-      position: s.position,
-      term1Avg: s.term1Avg,
-      term2Avg: s.term2Avg,
-      term3Avg: s.term3Avg,
-      combinedAvg: s.combinedAvg,
-      subjectDetails: s.subjectDetails
+      studentId: s.studentId, studentName: s.studentName, totalScore: s.totalScore,
+      average: s.average, grade: s.grade, remark: s.remark, position: s.position,
+      term1Avg: s.term1Avg, term2Avg: s.term2Avg, term3Avg: s.term3Avg,
+      combinedAvg: s.combinedAvg, subjectDetails: s.subjectDetails
     })),
     subjects: subjects.map(s => ({ id: s.id, name: s.name })),
-    createdAt: new Date(),
-    updatedAt: new Date()
+    createdAt: new Date(), updatedAt: new Date()
   };
   try {
     await setDoc(doc(db, 'broadsheets', docId), broadsheetData, { merge: true });
     alert('Broadsheet saved successfully.');
   } catch (err) {
-    if (err.code === 'permission-denied') {
-      alert('Permission denied. Subscription required to save broadsheets.');
-    } else {
-      console.error(err);
-      alert('Save failed.');
-    }
+    if (err.code === 'permission-denied') alert('Permission denied. Subscription required to save broadsheets.');
+    else { console.error(err); alert('Save failed.'); }
   }
 }
 
-// ---------- Broadsheet print – landscape A4 (unchanged) ----------
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
   if (!container || !container.innerHTML.trim()) { alert('No broadsheet to download.'); return; }
@@ -832,7 +685,6 @@ function printBroadsheet() {
   if (!printWindow) { alert('Please allow popups.'); return; }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
-
   const printCSS = `
     @page { size: A4 landscape; margin: 1cm; }
     body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; font-size:10px; }
@@ -842,7 +694,6 @@ function printBroadsheet() {
     .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
     tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
   `;
-
   printWindow.document.write(`
     <!DOCTYPE html><html><head><title>${title}</title>
     <link rel="stylesheet" href="${externalCssUrl}">
@@ -857,20 +708,16 @@ function printBroadsheet() {
 async function onEditorClassChange() {
   const classId = document.getElementById('editorClassSelect')?.value;
   const studentContainer = document.getElementById('studentListContainer');
-  const reportContent = document.getElementById('reportCardContent');
-  const reportActions = document.getElementById('reportActions');
-
+  const reportContent    = document.getElementById('reportCardContent');
+  const reportActions    = document.getElementById('reportActions');
   if (!classId) {
     if (studentContainer) studentContainer.innerHTML = '<p>Select a class</p>';
-    if (reportContent) reportContent.innerHTML = '<p>Select a student</p>';
-    if (reportActions) reportActions.style.display = 'none';
+    if (reportContent)    reportContent.innerHTML    = '<p>Select a student</p>';
+    if (reportActions)    reportActions.style.display = 'none';
     return;
   }
   const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) {
-    if (studentContainer) studentContainer.innerHTML = '<p>No students</p>';
-    return;
-  }
+  if (!classStudents.length) { if (studentContainer) studentContainer.innerHTML = '<p>No students</p>'; return; }
   let html = '';
   classStudents.forEach(student => { html += `<div class="student-list-item" data-id="${student.id}">${escapeHtml(student.name)}</div>`; });
   if (studentContainer) studentContainer.innerHTML = html;
@@ -882,7 +729,6 @@ async function onEditorClassChange() {
     resetRatingsToDefaults();
     await renderReportCard(firstStudent.id, firstStudent.name);
   }
-
   document.querySelectorAll('.student-list-item').forEach(el => {
     el.addEventListener('click', async () => {
       document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
@@ -895,7 +741,7 @@ async function onEditorClassChange() {
 }
 
 async function onEditorFilterChange() {
-  editorState.term = document.getElementById('editorTermSelect')?.value || '1';
+  editorState.term    = document.getElementById('editorTermSelect')?.value    || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
@@ -942,18 +788,10 @@ function updateSubscriptionUI() {
     }
   }
 
-  const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
+  const btns = ['saveGradingBtn','savePrimaryGradingBtn','generateBroadsheetBtn','saveBroadsheetBtn','printBroadsheetBtn','saveReportBtn','printReportBtn'];
   btns.forEach(id => {
     const btn = document.getElementById(id);
-    if (btn) {
-      if (isSubscriptionActive) {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-      } else {
-        btn.disabled = true;
-        btn.style.opacity = '0.5';
-      }
-    }
+    if (btn) { btn.disabled = !isSubscriptionActive; btn.style.opacity = isSubscriptionActive ? '1' : '0.5'; }
   });
 
   const existingWarning = document.querySelector('.subscription-warning-banner');
@@ -961,7 +799,7 @@ function updateSubscriptionUI() {
     if (!existingWarning) {
       const warningBanner = document.createElement('div');
       warningBanner.className = 'subscription-warning-banner';
-      warningBanner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; margin-bottom: 16px; border-radius: 8px;';
+      warningBanner.style.cssText = 'background:#fee2e2;color:#991b1b;padding:12px;text-align:center;margin-bottom:16px;border-radius:8px;';
       warningBanner.innerHTML = '⚠️ Subscription inactive. Report cards and broadsheets are disabled. Please renew to access these features.';
       const contentDiv = document.querySelector('.content');
       if (contentDiv) contentDiv.insertBefore(warningBanner, contentDiv.firstChild);
@@ -976,74 +814,51 @@ export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
   currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) {
-    alert('School ID missing. Please log out and log in again.');
-    return;
-  }
+  if (!currentSchoolId) { alert('School ID missing. Please log out and log in again.'); return; }
 
-  // Set up real‑time subscription listener
   if (unsubscribeSub) unsubscribeSub();
   unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
     isSubscriptionActive = isActive;
     updateSubscriptionUI();
-    if (editorState.selectedStudent) {
-      renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
-    }
+    if (editorState.selectedStudent) renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   });
 
   await initAcademicCalendar();
 
   const currentSession = getCurrentSession();
-  const currentTerm = getCurrentTerm();
-  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const currentTerm    = getCurrentTerm();
+  const termMap        = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const currentTermNum = termMap[currentTerm] || '1';
 
   try {
     await loadClassesAndSubjects();
     await loadAllStudents();
-  } catch (err) {
-    console.error('Data loading failed', err);
-    return;
-  }
+  } catch (err) { console.error('Data loading failed', err); return; }
 
-  // Populate class selects
   const classSelects = ['broadsheetClassSelect', 'editorClassSelect'];
   classSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
       select.innerHTML = '<option value="">-- Select Class --</option>' +
-        Array.from(classesMap.entries())
-          .map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`)
-          .join('');
+        Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
     }
   });
 
-  // ===== DYNAMIC SESSION OPTIONS =====
   const distinctSessions = await loadSessionOptions(currentSchoolId);
   if (!distinctSessions.includes(currentSession)) distinctSessions.unshift(currentSession);
 
   const sessionSelects = ['broadsheetSessionSelect', 'editorSessionSelect'];
   sessionSelects.forEach(id => {
     const select = document.getElementById(id);
-    if (select) {
-      select.innerHTML = distinctSessions
-        .map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`)
-        .join('');
-    }
+    if (select) select.innerHTML = distinctSessions.map(s => `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`).join('');
   });
 
-  // Term selects
   const termSelects = ['broadsheetTermSelect', 'editorTermSelect'];
-  termSelects.forEach(id => {
-    const select = document.getElementById(id);
-    if (select) select.value = currentTermNum;
-  });
+  termSelects.forEach(id => { const select = document.getElementById(id); if (select) select.value = currentTermNum; });
 
-  // Load default grading
   await loadGradingSetting(currentSession, currentTermNum, 'secondary');
   await loadGradingSetting(currentSession, currentTermNum, 'primary');
 
-  // Event listeners
   document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
@@ -1056,7 +871,6 @@ export async function initResultsPage() {
   document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
   document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
 
-  // ---------- RENAME BUTTONS: "Print/PDF" → "Print/Download" ----------
   const downloadBroadsheetBtn = document.getElementById('printBroadsheetBtn');
   if (downloadBroadsheetBtn) downloadBroadsheetBtn.textContent = 'Print/Download';
   const downloadReportBtn = document.getElementById('printReportBtn');

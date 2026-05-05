@@ -212,13 +212,15 @@ export function renderReportCardUI({
     </table>
     <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
 
-  // ── Header ───────────────────────────────────────────────────────────────────
+  // ── Header — school name enlarged; email + phone (from Firestore school data) shown under address ──
   const headerHtml = `
     <div class="rc-header">
       <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="Logo">` : ''}</div>
       <div class="rc-header-text">
-        <h1>${escapeHtml(school.name)}</h1>
+        <h1 class="rc-school-name">${escapeHtml(school.name)}</h1>
         ${school.address ? `<div class="rc-school-address">${escapeHtml(school.address)}</div>` : ''}
+        ${school.phone   ? `<div class="rc-school-contact">📞 ${escapeHtml(school.phone)}</div>`   : ''}
+        ${school.email   ? `<div class="rc-school-contact">✉️ ${escapeHtml(school.email)}</div>`   : ''}
       </div>
       <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
     </div>`;
@@ -227,14 +229,14 @@ export function renderReportCardUI({
   const age = student.dob ? calculateAge(student.dob) : '—';
   const detailsBand = `
     <div class="rc-details-band">
-      <div><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
-      <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
-      <div><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
-      <div><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
-      <div><strong>Class:</strong> ${escapeHtml(className)}</div>
-      <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
-      <div><strong>Session:</strong> ${session}</div>
-      <div><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
+      <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
+      <div class="rc-details-cell"><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
+      <div class="rc-details-cell"><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
+      <div class="rc-details-cell"><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
+      <div class="rc-details-cell"><strong>Class:</strong> ${escapeHtml(className)}</div>
+      <div class="rc-details-cell"><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
+      <div class="rc-details-cell"><strong>Session:</strong> ${session}</div>
+      <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
     </div>`;
 
   // ── Comments ─────────────────────────────────────────────────────────────────
@@ -277,9 +279,6 @@ export function renderReportCardUI({
     </div>`;
 
   // ── STYLES ───────────────────────────────────────────────────────────────────
-  // All sizing uses relative / clamp() units so the layout scales at any zoom.
-  // Two-column row uses CSS Grid (62fr 35fr) – columns grow/shrink together,
-  // never overflow. Below 600 px the grid collapses to a single column.
   const styles = `
     <style>
       /* Force colours for print engines */
@@ -290,12 +289,12 @@ export function renderReportCardUI({
         color: #000 !important;
       }
 
-      /* ── Wrapper ── */
+      /* ── Wrapper — warm cream paper background ── */
       .rc-wrapper {
         width: 100%;
         max-width: 210mm;
         margin: 0 auto;
-        background: #fff !important;
+        background: #fdf8f2 !important;
         border: 2px solid #000;
         padding: clamp(8px, 2%, 20px);
         box-sizing: border-box;
@@ -312,36 +311,58 @@ export function renderReportCardUI({
         gap: 8px;
         margin-bottom: 10px;
       }
-      .rc-header-logo img,
-      .rc-header-passport img {
+      .rc-header-logo img {
         max-width: clamp(60px, 8vw, 100px);
         max-height: clamp(60px, 8vw, 100px);
-        object-fit: cover;
+        object-fit: contain;
         border-radius: 4px;
+      }
+      /* ── Passport — slightly bigger + framed ── */
+      .rc-header-passport img {
+        width:  clamp(80px, 11vw, 125px);
+        height: clamp(80px, 11vw, 125px);
+        object-fit: cover;
+        border-radius: 6px;
+        border: 2px solid #1a3a5c;
       }
       .rc-header-text {
         flex: 1;
         text-align: center;
       }
-      .rc-header-text h1 {
-        margin: 0;
-        font-size: clamp(14px, 2vw, 22px);
+      /* ── School name — notably larger and bold ── */
+      .rc-school-name {
+        margin: 0 0 4px 0;
+        font-size: clamp(22px, 4vw, 42px) !important;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1.15;
+        text-transform: uppercase;
       }
-      .rc-school-address { font-size: 0.85em; color: #444; }
+      .rc-school-address { font-size: 0.88em; margin-top: 2px; }
+      .rc-school-contact { font-size: 0.82em; color: #333; margin-top: 1px; }
 
-      /* ── Details band ── */
+      /* ── Details band — deep navy, white text, clean cell dividers ── */
       .rc-details-band {
-        background: #D2B48C !important;
-        padding: clamp(6px, 1.5%, 12px);
+        background: #1a3a5c !important;
+        padding: 0;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
-        gap: 4px 8px;
+        gap: 0;
         font-weight: bold;
-        font-size: 0.95em;
-        border-radius: 4px;
+        font-size: 0.92em;
+        border-radius: 6px;
         margin-bottom: 12px;
+        overflow: hidden;
+        border: 1px solid #0f2740;
       }
-      .rc-student-name { font-size: 1.1em; font-weight: 700; }
+      .rc-details-cell {
+        padding: clamp(5px, 1.2%, 10px) clamp(6px, 1.5%, 12px);
+        border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: #fff !important;
+      }
+      .rc-details-cell strong { color: #a8d8f0 !important; margin-right: 3px; }
+      .rc-student-name { font-size: 1.05em; font-weight: 700; color: #fff !important; }
 
       /* ── Summary + Attendance row (top) ── */
       .rc-top-row {
@@ -352,16 +373,10 @@ export function renderReportCardUI({
         justify-content: center;
         align-items: flex-start;
       }
-      .rc-top-row > div {
-        flex: 1 1 clamp(160px, 38%, 300px);
-      }
+      .rc-top-row > div { flex: 1 1 clamp(160px, 38%, 300px); }
 
       /* ── Section title ── */
-      .rc-section-title {
-        font-weight: bold;
-        margin-bottom: 5px;
-        font-size: 0.95em;
-      }
+      .rc-section-title { font-weight: bold; margin-bottom: 5px; font-size: 0.95em; }
 
       /* ── Shared table base ── */
       .rc-subject-table,
@@ -387,16 +402,12 @@ export function renderReportCardUI({
       .rc-subject-table th,
       .rc-summary-table th,
       .rc-attendance-table th,
-      .rc-skills-table th {
-        background: #ADD8E6 !important;
-      }
+      .rc-skills-table th { background: #ADD8E6 !important; }
       .rc-grade-scale th { background: #FFD700 !important; }
 
-      /* Left-align subject name and attendance label */
       .rc-subj-name,
       .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
 
-      /* Skills name cell – always horizontal, never rotated */
       .rc-skill-name {
         text-align: left !important;
         writing-mode: horizontal-tb !important;
@@ -405,11 +416,7 @@ export function renderReportCardUI({
         word-break: break-word;
       }
 
-      /* ── MAIN TWO-COLUMN GRID ──────────────────────────────────────────────
-         subjects (left) 62 parts  |  gap  |  skills (right) 35 parts
-         Uses fr units so both columns scale proportionally at any zoom level.
-         min-width:0 on each column prevents grid blow-out.
-      ── */
+      /* ── MAIN TWO-COLUMN GRID ── */
       .rc-main-row {
         display: grid;
         grid-template-columns: 62fr 35fr;
@@ -426,19 +433,10 @@ export function renderReportCardUI({
         gap: clamp(6px, 1.5%, 14px);
       }
 
-      .rc-rating-guide {
-        font-size: 0.78em;
-        color: #444;
-        margin-top: 2px;
-      }
+      .rc-rating-guide { font-size: 0.78em; color: #444; margin-top: 2px; }
 
       /* ── Rating ticks ── */
-      .rc-tick-row {
-        display: flex;
-        gap: 3px;
-        justify-content: center;
-        flex-wrap: wrap;
-      }
+      .rc-tick-row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
       .rc-tick {
         width: clamp(14px, 2vw, 20px);
         height: clamp(14px, 2vw, 20px);
@@ -454,13 +452,7 @@ export function renderReportCardUI({
       .rc-tick.selected { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6; }
 
       /* ── Attendance input ── */
-      .rc-att-input {
-        width: 100%;
-        max-width: 80px;
-        padding: 2px 4px;
-        box-sizing: border-box;
-        font-size: inherit;
-      }
+      .rc-att-input { width: 100%; max-width: 80px; padding: 2px 4px; box-sizing: border-box; font-size: inherit; }
 
       /* ── Comments ── */
       .rc-comments {
@@ -471,69 +463,39 @@ export function renderReportCardUI({
         margin-top: 10px;
         font-size: 0.9em;
       }
-      .rc-comment-row {
-        margin-top: 6px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
+      .rc-comment-row { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
       .rc-comment-controls { display: flex; flex-direction: column; gap: 2px; }
       .rc-comment-controls select,
-      .rc-comment-controls textarea {
-        width: 100%;
-        box-sizing: border-box;
-        font-size: inherit;
-        background: #fff !important;
-      }
+      .rc-comment-controls textarea { width: 100%; box-sizing: border-box; font-size: inherit; background: #fff !important; }
 
-      /* Print-only values hidden on screen */
       .rc-print-val,
       .rc-print-comment { display: none; }
 
-      /* ── Mobile: stack columns ── */
+      /* ── Mobile ── */
       @media (max-width: 600px) {
-        .rc-wrapper   { padding: 8px; font-size: 11px; }
-        .rc-main-row  { grid-template-columns: 1fr; gap: 16px; }
-        .rc-top-row   { flex-direction: column; }
+        .rc-wrapper { padding: 8px; font-size: 11px; }
+        .rc-school-name { font-size: clamp(18px, 6vw, 26px) !important; }
+        .rc-main-row { grid-template-columns: 1fr; gap: 16px; }
+        .rc-top-row { flex-direction: column; }
         .rc-details-band { grid-template-columns: 1fr 1fr; }
-        .rc-header-logo img,
-        .rc-header-passport img { max-width: 55px; max-height: 55px; }
+        .rc-header-logo img { max-width: 55px; max-height: 55px; }
+        .rc-header-passport img { width: 65px; height: 65px; }
       }
 
       /* ── Print ── */
       @media print {
-        .rc-wrapper {
-          max-width: 100%;
-          border: none;
-          padding: 0;
-          font-size: 8pt;
-        }
-        /* Keep the two-column layout on print */
+        .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
+        .rc-school-name { font-size: 22pt !important; }
         .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
-
-        /* Hide interactive elements */
-        .rc-att-input,
-        .rc-tick-row,
-        .rc-comment-controls,
-        select, textarea, button { display: none !important; }
-
-        /* Show print-only values */
+        .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
         .rc-print-val    { display: inline !important; }
         .rc-print-comment { display: block !important; }
-
-        /* Tables stay on one page if possible */
-        .rc-subject-table,
-        .rc-summary-table,
-        .rc-attendance-table,
-        .rc-skills-table,
-        .rc-grade-scale {
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
+        .rc-details-band { background: #1a3a5c !important; }
+        .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+        .rc-details-cell strong { color: #a8d8f0 !important; }
+        .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale { break-inside: avoid; page-break-inside: avoid; }
         html, body { height: auto !important; overflow: visible !important; }
         .rc-scroll-outer { overflow: visible !important; }
-
         @page { size: A4; margin: 8mm; }
       }
     </style>`;
@@ -544,26 +506,19 @@ export function renderReportCardUI({
     <div class="rc-wrapper">
       ${headerHtml}
       ${detailsBand}
-
-      <!-- Summary & Attendance: top row -->
       <div class="rc-top-row">
         <div>${summaryHtml}</div>
         <div>${attendanceHtml}</div>
       </div>
-
-      <!-- Main content: subjects LEFT  |  skills RIGHT -->
       <div class="rc-main-row">
-        <!-- LEFT: subjects table + grade scale -->
         <div class="rc-col-left">
           ${subjectTableHtml}
           ${getGradeScaleHtml()}
         </div>
-        <!-- RIGHT: psychomotor + affective tables -->
         <div class="rc-col-right">
           ${skillsStack}
         </div>
       </div>
-
       ${commentsHtml}
     </div>`;
 

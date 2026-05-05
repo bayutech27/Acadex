@@ -2,7 +2,7 @@
 // DIRECT subscription check from Firestore – no listener, no bypass chance
 // Dynamic session dropdown – shows only sessions with existing scores for the school
 // Side‑by‑side report card renderer (subjects left, skills right)
-// Summary and Attendance moved to top, widths reduced by 30% without overlapping
+// Summary and Attendance moved to top
 // Subjects table extreme left, skills tables extreme right – clear gap between them
 // Fully responsive: scales with zoom, stacks on mobile
 
@@ -19,11 +19,11 @@ let teacherData = null;
 let classId = null;
 let classNameCache = '';
 let currentGrading = { ca: 40, exam: 60 };
-let classesMap = new Map();          // id -> { name, level }
-let subjectsMap = new Map();          // subjectId -> name
-let allSubjectsList = [];              // Array of { id, name, level }
+let classesMap = new Map();
+let subjectsMap = new Map();
+let allSubjectsList = [];
 let studentsList = [];
-let isSubscriptionActive = false;     // will be set by checkSubscription()
+let isSubscriptionActive = false;
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
@@ -69,7 +69,6 @@ async function checkSubscription() {
   }
 }
 
-// UI helpers (unchanged)
 function disableSubscriptionFeatures() {
   const saveBtn = document.getElementById('saveReportBtn');
   const printBtn = document.getElementById('printReportBtn');
@@ -85,7 +84,7 @@ function disableSubscriptionFeatures() {
   if (!warningDiv) {
     const div = document.createElement('div');
     div.className = 'subscription-warning';
-    div.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; margin-bottom: 16px; border-radius: 8px;';
+    div.style.cssText = 'background:#fee2e2;color:#991b1b;padding:12px;margin-bottom:16px;border-radius:8px;';
     div.innerHTML = '⚠️ Subscription inactive. Report card and broadsheet features are disabled. Please contact your administrator to renew.';
     const container = document.querySelector('.class-report-container');
     if (container) container.prepend(div);
@@ -134,7 +133,6 @@ function getTermSuffix(t) {
   return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd';
 }
 
-// ---------- calculateAge helper ----------
 function calculateAge(dobString) {
   if (!dobString) return null;
   const birthDate = new Date(dobString);
@@ -148,29 +146,18 @@ function calculateAge(dobString) {
 // ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
   try {
-    const scoresQuery = query(
-      collection(db, 'scores'),
-      where('schoolId', '==', schoolId)
-    );
+    const scoresQuery = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
     const snapshot = await getDocs(scoresQuery);
-
     const sessionsSet = new Set();
-    snapshot.forEach(doc => {
-      const session = doc.data().session;
-      if (session) sessionsSet.add(session);
-    });
-
-    // Sort descending (newest first)
+    snapshot.forEach(doc => { const session = doc.data().session; if (session) sessionsSet.add(session); });
     const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
       const [yearA] = a.split('/');
       const [yearB] = b.split('/');
       return parseInt(yearB) - parseInt(yearA);
     });
-
     return sortedSessions;
   } catch (err) {
     console.error('Failed to load session options:', err);
-    // Fallback to a fixed 10‑year list if the query fails
     const year = new Date().getFullYear();
     const fallback = [];
     for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
@@ -178,18 +165,11 @@ async function loadSessionOptions(schoolId) {
   }
 }
 
-// ------------------- Grading loading (unchanged) -------------------
+// ------------------- Grading loading -------------------
 async function loadGradingSettingByLevel(level, session, term) {
-  if (!level) {
-    currentGrading = { ca: 40, exam: 60 };
-    return;
-  }
+  if (!level) { currentGrading = { ca: 40, exam: 60 }; return; }
   try {
-    const q = query(
-      collection(db, 'scoring'),
-      where('schoolId', '==', currentSchoolId),
-      where('level', '==', level)
-    );
+    const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
     const snap = await getDocs(q);
     let grading = null;
     if (!snap.empty) {
@@ -238,7 +218,7 @@ async function loadGradingSetting(session, term, classLevel = null) {
   }
 }
 
-// ------------------- Data Loading (unchanged) -------------------
+// ------------------- Data Loading -------------------
 async function fetchClassName() {
   try {
     const classRef = doc(db, 'classes', classId);
@@ -265,9 +245,7 @@ async function loadSubjectsAndClasses() {
     });
     const classSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
     classesMap.clear();
-    classSnap.forEach(doc => {
-      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
-    });
+    classSnap.forEach(doc => { classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level }); });
   } catch (err) {
     handleError(err, "Failed to load subjects and classes.");
   }
@@ -375,8 +353,9 @@ async function getRelevantSubjectsForClass(classId, term, session) {
 }
 
 // ==================== LOCAL REPORT CARD RENDERER ====================
-// Layout: Summary/Attendance on top, then subjects (extreme left) + skills (extreme right)
-// Fully fluid – scales with zoom, stacks gracefully on mobile
+// Visual updates: bigger school name, email+phone under address, bigger passport,
+// navy details band with clean cell dividers, cream paper background on wrapper.
+// Layout, functions and behaviours are unchanged.
 function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
@@ -385,7 +364,6 @@ function renderReportCardUI({
 }) {
   if (!container) return;
 
-  // Primary / Secondary grading helpers
   const calcGrade = (total) => isPrimary
     ? (total>=90?'A+':total>=80?'A':total>=70?'B+':total>=60?'B':total>=50?'C':total>=40?'D':'F')
     : (total>=85?'A1':total>=75?'B2':total>=70?'B3':total>=65?'C4':total>=60?'C5':total>=50?'C6':total>=45?'D7':total>=40?'E8':'F9');
@@ -394,8 +372,7 @@ function renderReportCardUI({
     : ({A1:'Excellent',B2:'Very Good',B3:'Good',C4:'Credit',C5:'Credit',C6:'Credit',D7:'Pass',E8:'Pass',F9:'Fail'}[g]||'');
 
   // Subject table rows
-  let totalScore = 0, subjectCount = 0;
-  let rows = '';
+  let totalScore = 0, subjectCount = 0, rows = '';
   if (scores && scores.length) {
     for (const s of scores) {
       const subj = s.subjectName || s.subjectId;
@@ -433,7 +410,7 @@ function renderReportCardUI({
     return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
   })();
 
-  // Summary table
+  // Summary
   const summaryHtml = `
     <div class="rc-section-title">📊 SUMMARY OF PERFORMANCE</div>
     <table class="rc-summary-table">
@@ -478,29 +455,31 @@ function renderReportCardUI({
     </table>
     <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
 
-  // Header
+  // ── Header — school name enlarged; email + phone (from Firestore) shown under address ──
   const headerHtml = `
     <div class="rc-header">
       <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="School Logo">` : ''}</div>
       <div class="rc-header-text">
-        <h1>${escapeHtml(school.name)}</h1>
+        <h1 class="rc-school-name">${escapeHtml(school.name)}</h1>
         ${school.address ? `<div class="rc-school-address">${escapeHtml(school.address)}</div>` : ''}
+        ${school.phone   ? `<div class="rc-school-contact">📞 ${escapeHtml(school.phone)}</div>`   : ''}
+        ${school.email   ? `<div class="rc-school-contact">✉️ ${escapeHtml(school.email)}</div>`   : ''}
       </div>
       <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
     </div>`;
 
-  // Student details band
+  // ── Student details band — navy background with clean cell dividers ──
   const studentAge = student.dob ? calculateAge(student.dob) : '—';
   const detailsBand = `
     <div class="rc-details-band">
-      <div><strong>Name:</strong> ${escapeHtml(student.name).toUpperCase()}</div>
-      <div><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber||'—')}</div>
-      <div><strong>Gender:</strong> ${escapeHtml(student.gender||'—')}</div>
-      <div><strong>DOB:</strong> ${student.dob||'—'} (Age ${studentAge})</div>
-      <div><strong>Class:</strong> ${escapeHtml(className)}</div>
-      <div><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
-      <div><strong>Session:</strong> ${session}</div>
-      <div><strong>Club:</strong> ${escapeHtml(student.club||'—')}</div>
+      <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
+      <div class="rc-details-cell"><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber||'—')}</div>
+      <div class="rc-details-cell"><strong>Gender:</strong> ${escapeHtml(student.gender||'—')}</div>
+      <div class="rc-details-cell"><strong>DOB:</strong> ${student.dob||'—'} (Age ${studentAge})</div>
+      <div class="rc-details-cell"><strong>Class:</strong> ${escapeHtml(className)}</div>
+      <div class="rc-details-cell"><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
+      <div class="rc-details-cell"><strong>Session:</strong> ${session}</div>
+      <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(student.club||'—')}</div>
     </div>`;
 
   // Comments
@@ -508,7 +487,7 @@ function renderReportCardUI({
     'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
     'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
   ];
-  const teacherEff = comments.teacherComment || commentBank[0];
+  const teacherEff   = comments.teacherComment   || commentBank[0];
   const principalEff = comments.principalComment || commentBank[0];
   const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
   const commentsHtml = `
@@ -529,23 +508,19 @@ function renderReportCardUI({
     </div>`;
 
   // ── STYLES ──────────────────────────────────────────────────────────────────
-  // All sizing uses relative units (%, em, clamp) so the layout scales
-  // proportionally at any zoom level.  The two-column row uses CSS Grid
-  // with fr units so each column grows/shrinks together and never overflows.
-  // Below ~600 px (mobile) the grid switches to a single column.
   const styles = `
     <style>
-      /* ── Wrapper ── */
+      /* ── Wrapper — cream paper background ── */
       .rc-wrapper {
         width: 100%;
-        max-width: 210mm;       /* A4 width – centre on desktop */
+        max-width: 210mm;
         margin: 0 auto;
-        background: #fff;
+        background: #fdf8f2 !important;
         border: 2px solid #000;
         padding: clamp(8px, 2%, 20px);
         box-sizing: border-box;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: clamp(9px, 1.2vw, 13px); /* fluid base font */
+        font-size: clamp(9px, 1.2vw, 13px);
       }
 
       /* ── Header ── */
@@ -555,38 +530,58 @@ function renderReportCardUI({
         justify-content: space-between;
         flex-wrap: wrap;
         gap: 8px;
-        margin-bottom: 8px;
-      }
-      .rc-header-logo img,
-      .rc-header-passport img {
-        max-width: clamp(60px, 8vw, 100px);
-        max-height: clamp(60px, 8vw, 100px);
-        object-fit: cover;
-      }
-      .rc-header-text {
-        flex: 1;
-        text-align: center;
-      }
-      .rc-header-text h1 {
-        margin: 0;
-        font-size: clamp(13px, 2vw, 20px);
-      }
-      .rc-school-address {
-        font-size: 0.85em;
-        color: #444;
-      }
-
-      /* ── Details band ── */
-      .rc-details-band {
-        background: #D2B48C;
-        padding: clamp(6px, 1.5%, 12px);
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
-        gap: 4px 8px;
-        font-weight: bold;
-        font-size: 0.9em;
         margin-bottom: 10px;
       }
+      .rc-header-logo img {
+        max-width: clamp(60px, 8vw, 100px);
+        max-height: clamp(60px, 8vw, 100px);
+        object-fit: contain;
+        border-radius: 4px;
+      }
+      /* ── Passport — slightly bigger + framed ── */
+      .rc-header-passport img {
+        width:  clamp(80px, 11vw, 125px);
+        height: clamp(80px, 11vw, 125px);
+        object-fit: cover;
+        border-radius: 6px;
+        border: 2px solid #1a3a5c;
+      }
+      .rc-header-text { flex: 1; text-align: center; }
+
+      /* ── School name — notably larger ── */
+      .rc-school-name {
+        margin: 0 0 4px 0;
+        font-size: clamp(22px, 4vw, 42px) !important;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        line-height: 1.15;
+        text-transform: uppercase;
+      }
+      .rc-school-address { font-size: 0.88em; margin-top: 2px; }
+      .rc-school-contact { font-size: 0.82em; color: #333; margin-top: 1px; }
+
+      /* ── Details band — deep navy, white text, clean cell dividers ── */
+      .rc-details-band {
+        background: #1a3a5c !important;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
+        gap: 0;
+        font-weight: bold;
+        font-size: 0.92em;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        border: 1px solid #0f2740;
+      }
+      .rc-details-cell {
+        padding: clamp(5px, 1.2%, 10px) clamp(6px, 1.5%, 12px);
+        border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: #fff !important;
+      }
+      .rc-details-cell strong { color: #a8d8f0 !important; margin-right: 3px; }
+      .rc-student-name { font-size: 1.05em; font-weight: 700; color: #fff !important; }
 
       /* ── Summary + Attendance row (top) ── */
       .rc-top-row {
@@ -595,16 +590,10 @@ function renderReportCardUI({
         gap: clamp(8px, 2%, 20px);
         margin-bottom: clamp(10px, 2%, 18px);
       }
-      .rc-top-row > div {
-        flex: 1 1 clamp(160px, 40%, 300px);
-      }
+      .rc-top-row > div { flex: 1 1 clamp(160px, 40%, 300px); }
 
       /* ── Section title ── */
-      .rc-section-title {
-        font-weight: bold;
-        margin-bottom: 4px;
-        font-size: 0.95em;
-      }
+      .rc-section-title { font-weight: bold; margin-bottom: 4px; font-size: 0.95em; }
 
       /* ── Shared table base ── */
       .rc-subject-table,
@@ -615,18 +604,13 @@ function renderReportCardUI({
         width: 100%;
         border-collapse: collapse;
         border: 2px solid #000;
-        background: #fff;
+        background: #fff !important;
       }
-      .rc-subject-table th,
-      .rc-subject-table td,
-      .rc-summary-table th,
-      .rc-summary-table td,
-      .rc-attendance-table th,
-      .rc-attendance-table td,
-      .rc-skills-table th,
-      .rc-skills-table td,
-      .rc-grade-scale th,
-      .rc-grade-scale td {
+      .rc-subject-table th, .rc-subject-table td,
+      .rc-summary-table th, .rc-summary-table td,
+      .rc-attendance-table th, .rc-attendance-table td,
+      .rc-skills-table th, .rc-skills-table td,
+      .rc-grade-scale th, .rc-grade-scale td {
         border: 1px solid #000;
         padding: clamp(2px, 0.6%, 6px);
         text-align: center;
@@ -635,22 +619,12 @@ function renderReportCardUI({
       .rc-subject-table th,
       .rc-summary-table th,
       .rc-attendance-table th,
-      .rc-skills-table th {
-        background: #ADD8E6;
-      }
-      .rc-grade-scale th {
-        background: #FFD700;
-      }
+      .rc-skills-table th { background: #ADD8E6 !important; }
+      .rc-grade-scale th  { background: #FFD700 !important; }
 
-      /* Subject name cell – left-align */
       .rc-subj-name,
-      .rc-att-label {
-        text-align: left !important;
-        white-space: normal;
-        word-break: break-word;
-      }
+      .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
 
-      /* Skills name cell – always horizontal, never rotated */
       .rc-skill-name {
         text-align: left !important;
         writing-mode: horizontal-tb !important;
@@ -659,8 +633,7 @@ function renderReportCardUI({
         word-break: break-word;
       }
 
-      /* ── Main content two-column grid ── */
-      /* subjects (left) get ~62% of space, skills (right) ~35%, gap is the rest */
+      /* ── Main two-column grid ── */
       .rc-main-row {
         display: grid;
         grid-template-columns: 62fr 35fr;
@@ -669,40 +642,18 @@ function renderReportCardUI({
         width: 100%;
         box-sizing: border-box;
       }
-
-      /* Left column: subject table + grade scale stacked */
-      .rc-col-left {
-        min-width: 0;           /* prevent grid blowout */
+      .rc-col-left,
+      .rc-col-right {
+        min-width: 0;
         display: flex;
         flex-direction: column;
         gap: clamp(6px, 1.5%, 14px);
       }
 
-      /* Right column: skills tables stacked */
-      .rc-col-right {
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(4px, 1%, 10px);
-      }
-
-      .rc-skills-table--lower {
-        /* already handled by gap on rc-col-right */
-      }
-
-      .rc-rating-guide {
-        font-size: 0.78em;
-        color: #444;
-        margin-top: 2px;
-      }
+      .rc-rating-guide { font-size: 0.78em; color: #444; margin-top: 2px; }
 
       /* Rating ticks */
-      .rc-tick-row {
-        display: flex;
-        gap: 3px;
-        justify-content: center;
-        flex-wrap: wrap;
-      }
+      .rc-tick-row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
       .rc-tick {
         width: clamp(14px, 2vw, 20px);
         height: clamp(14px, 2vw, 20px);
@@ -715,20 +666,10 @@ function renderReportCardUI({
         font-size: 0.75em;
         user-select: none;
       }
-      .rc-tick.selected {
-        background: #3b82f6;
-        color: #fff;
-        border-color: #3b82f6;
-      }
+      .rc-tick.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 
       /* Attendance input */
-      .rc-att-input {
-        width: 100%;
-        max-width: 80px;
-        padding: 2px 4px;
-        box-sizing: border-box;
-        font-size: inherit;
-      }
+      .rc-att-input { width: 100%; max-width: 80px; padding: 2px 4px; box-sizing: border-box; font-size: inherit; }
 
       /* Comments */
       .rc-comments {
@@ -736,82 +677,42 @@ function renderReportCardUI({
         padding: clamp(4px, 1%, 10px);
         margin-top: 10px;
         font-size: 0.9em;
+        background: #f9f9f9 !important;
       }
-      .rc-comment-row {
-        margin-top: 6px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
+      .rc-comment-row { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
       .rc-comment-row select,
-      .rc-comment-row textarea {
-        width: 100%;
-        box-sizing: border-box;
-        font-size: inherit;
-      }
-      .rc-comment-row textarea {
-        display: none;
-      }
+      .rc-comment-row textarea { width: 100%; box-sizing: border-box; font-size: inherit; }
+      .rc-comment-row textarea { display: none; }
 
-      /* Print-only values hidden on screen */
       .rc-print-val,
-      .rc-print-comment {
-        display: none;
-      }
+      .rc-print-comment { display: none; }
 
-      /* ── Mobile: stack columns ── */
+      /* ── Mobile ── */
       @media (max-width: 600px) {
-        .rc-wrapper {
-          padding: 8px;
-          font-size: 11px;
-        }
-        .rc-main-row {
-          grid-template-columns: 1fr;
-          gap: 16px;
-        }
-        .rc-top-row {
-          flex-direction: column;
-        }
-        .rc-details-band {
-          grid-template-columns: 1fr 1fr;
-        }
-        .rc-header-logo img,
-        .rc-header-passport img {
-          max-width: 55px;
-          max-height: 55px;
-        }
+        .rc-wrapper   { padding: 8px; font-size: 11px; }
+        .rc-school-name { font-size: clamp(18px, 6vw, 26px) !important; }
+        .rc-main-row  { grid-template-columns: 1fr; gap: 16px; }
+        .rc-top-row   { flex-direction: column; }
+        .rc-details-band { grid-template-columns: 1fr 1fr; }
+        .rc-header-logo img { max-width: 55px; max-height: 55px; }
+        .rc-header-passport img { width: 65px; height: 65px; }
       }
 
       /* ── Print ── */
       @media print {
-        .rc-wrapper {
-          max-width: 100%;
-          border: none;
-          padding: 0;
-          font-size: 8.5pt;
-        }
-        .rc-main-row {
-          grid-template-columns: 62fr 35fr;
-          gap: 14px;
-        }
-        .rc-att-input,
-        .rc-tick-row,
-        select,
-        textarea,
-        button {
-          display: none !important;
-        }
-        .rc-print-val,
-        .rc-print-comment {
-          display: block !important;
-        }
-        .rc-rating-cell .rc-print-val {
-          display: inline !important;
-        }
-        @page {
-          size: A4;
-          margin: 8mm;
-        }
+        .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8.5pt; background: #fdf8f2 !important; }
+        .rc-school-name { font-size: 22pt !important; }
+        .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
+        .rc-att-input, .rc-tick-row, select, textarea, button { display: none !important; }
+        .rc-print-val    { display: block !important; }
+        .rc-print-comment { display: block !important; }
+        .rc-rating-cell .rc-print-val { display: inline !important; }
+        .rc-details-band { background: #1a3a5c !important; }
+        .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+        .rc-details-cell strong { color: #a8d8f0 !important; }
+        .rc-scroll-outer { overflow: visible !important; }
+        *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+        @page { size: A4; margin: 8mm; }
       }
     </style>`;
 
@@ -821,26 +722,19 @@ function renderReportCardUI({
     <div class="rc-wrapper">
       ${headerHtml}
       ${detailsBand}
-
-      <!-- Summary & Attendance: top row -->
       <div class="rc-top-row">
         <div>${summaryHtml}</div>
         <div>${attendanceHtml}</div>
       </div>
-
-      <!-- Main content: subjects LEFT  |  skills RIGHT -->
       <div class="rc-main-row">
-        <!-- LEFT: subjects table + grade scale -->
         <div class="rc-col-left">
           ${subjectTable}
           ${gradeScaleHtml}
         </div>
-        <!-- RIGHT: psychomotor + affective tables -->
         <div class="rc-col-right">
           ${skillsStack}
         </div>
       </div>
-
       ${commentsHtml}
     </div>`;
 
@@ -873,7 +767,6 @@ function renderReportCardUI({
   // ── Attendance live sync ─────────────────────────────────────────────────────
   container.querySelectorAll('.rc-att-input').forEach(inp => {
     inp.addEventListener('input', () => {
-      // classList[1] is the semantic class (school-opened / present / absent)
       const spanClass = '.' + inp.classList[1] + '-value';
       const span = container.querySelector(spanClass);
       if (span) span.textContent = inp.value;
@@ -895,7 +788,7 @@ function renderReportCardUI({
   if (pText)   pText.oninput   = () => { if (pPrint) pPrint.textContent = pText.value; onPrincipalCommentChange?.(pText.value); };
 }
 
-// ------------------- Report Card Helpers (unchanged) -------------------
+// ------------------- Report Card Helpers -------------------
 async function loadExistingReport(studentId) {
   try {
     const q = query(
@@ -909,12 +802,12 @@ async function loadExistingReport(studentId) {
     if (!snap.empty) {
       const data = snap.docs[0].data();
       if (data.psychomotor) Object.assign(reportState.psychomotor, data.psychomotor);
-      reportState.teacherComment = data.teacherComment || '';
+      reportState.teacherComment   = data.teacherComment   || '';
       reportState.principalComment = data.principalComment || '';
-      reportState.attendance = data.attendance || { schoolOpened: 0, present: 0, absent: 0 };
-      reportState.savedReportId = snap.docs[0].id;
+      reportState.attendance       = data.attendance       || { schoolOpened: 0, present: 0, absent: 0 };
+      reportState.savedReportId    = snap.docs[0].id;
     } else {
-      reportState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
+      reportState.attendance    = { schoolOpened: 0, present: 0, absent: 0 };
       reportState.savedReportId = null;
     }
   } catch (err) {
@@ -924,44 +817,30 @@ async function loadExistingReport(studentId) {
 
 async function saveReportCard() {
   const active = await checkSubscription();
-  if (!active) {
-    showNotification("Cannot save report – subscription inactive.", "error");
-    return;
-  }
-  if (!reportState.selectedStudent) {
-    showNotification("Select a student first.", "error");
-    return;
-  }
+  if (!active) { showNotification("Cannot save report – subscription inactive.", "error"); return; }
+  if (!reportState.selectedStudent) { showNotification("Select a student first.", "error"); return; }
 
   const schoolOpenedInput = document.querySelector('.rc-att-input.school-opened');
-  const presentInput = document.querySelector('.rc-att-input.present');
-  const absentInput = document.querySelector('.rc-att-input.absent');
+  const presentInput      = document.querySelector('.rc-att-input.present');
+  const absentInput       = document.querySelector('.rc-att-input.absent');
 
   const schoolOpened = schoolOpenedInput ? parseInt(schoolOpenedInput.value) || 0 : reportState.attendance.schoolOpened;
-  const present = presentInput ? parseInt(presentInput.value) || 0 : reportState.attendance.present;
-  const absent = absentInput ? parseInt(absentInput.value) || 0 : reportState.attendance.absent;
-  const attendance = { schoolOpened, present, absent };
+  const present      = presentInput      ? parseInt(presentInput.value)      || 0 : reportState.attendance.present;
+  const absent       = absentInput       ? parseInt(absentInput.value)       || 0 : reportState.attendance.absent;
+  const attendance   = { schoolOpened, present, absent };
 
-  const totalScore = parseInt(document.querySelector('.rc-summary-table tr:nth-child(1) td')?.textContent) || 0;
+  const totalScore      = parseInt(document.querySelector('.rc-summary-table tr:nth-child(1) td')?.textContent) || 0;
   const totalObtainable = parseInt(document.querySelector('.rc-summary-table tr:nth-child(2) td')?.textContent) || 0;
-  const average = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
-  const overallGrade = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
+  const average         = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
+  const overallGrade    = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
 
   const reportData = {
-    studentId: reportState.selectedStudent.id,
-    classId,
-    schoolId: currentSchoolId,
-    term: reportState.term,
-    session: reportState.session,
-    totalScore,
-    maxTotal: totalObtainable,
-    average,
-    overallGrade,
+    studentId: reportState.selectedStudent.id, classId, schoolId: currentSchoolId,
+    term: reportState.term, session: reportState.session,
+    totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: reportState.psychomotor,
-    teacherComment: reportState.teacherComment,
-    principalComment: reportState.principalComment,
-    attendance,
-    updatedAt: new Date()
+    teacherComment: reportState.teacherComment, principalComment: reportState.principalComment,
+    attendance, updatedAt: new Date()
   };
 
   showLoader();
@@ -985,44 +864,35 @@ async function saveReportCard() {
   }
 }
 
-// ========== IMPROVED PRINT HANDLER (unchanged) ==========
+// ========== PRINT HANDLER ==========
 function printReportCard() {
-  const teacherText = document.getElementById('teacherCommentText');
-  const printTeacher = document.getElementById('printTeacherComment');
-  if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
-
-  const principalText = document.getElementById('principalCommentText');
-  const printPrincipal = document.getElementById('printPrincipalComment');
-  if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
-
   const reportContent = document.getElementById('reportCardContent');
   if (!reportContent || reportContent.children.length === 0) {
     showNotification("Report not ready.", "error");
     return;
   }
-
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    showNotification("Please allow popups to print.", "error");
-    return;
-  }
+  if (!printWindow) { showNotification("Please allow popups to print.", "error"); return; }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style'))
-    .map(style => style.innerHTML)
-    .join('\n');
+  const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
     body, .print-container { margin: 0; padding: 0; background: white; }
     .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
-    .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; }
+    .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8.5pt; background: #fdf8f2 !important; }
+    .rc-school-name { font-size: 22pt !important; }
     .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
     .rc-att-input, .rc-tick-row, select, textarea, button { display: none !important; }
     .rc-print-val, .rc-print-comment { display: block !important; }
     .rc-rating-cell .rc-print-val { display: inline !important; }
+    .rc-details-band { background: #1a3a5c !important; }
+    .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+    .rc-details-cell strong { color: #a8d8f0 !important; }
     .rc-scroll-outer { overflow: visible !important; }
+    *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
   `;
 
   printWindow.document.write(`
@@ -1046,10 +916,7 @@ function printReportCard() {
     </html>
   `);
   printWindow.document.close();
-  setTimeout(() => {
-    printWindow.focus();
-    printWindow.print();
-  }, 300);
+  setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
 async function loadReportCard(studentId, studentName) {
@@ -1069,10 +936,10 @@ async function loadReportCard(studentId, studentName) {
   }
 
   reportState.selectedStudent = { id: studentId, name: studentName };
-  reportState.term = document.getElementById('termSelect').value;
+  reportState.term    = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
 
-  const student = studentsList.find(s => s.id === studentId);
+  const student       = studentsList.find(s => s.id === studentId);
   const studentClassId = student ? student.classId : classId;
   let classLevel = null;
   if (studentClassId && classesMap.has(studentClassId)) {
@@ -1087,16 +954,20 @@ async function loadReportCard(studentId, studentName) {
   showLoader();
   try {
     const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
+    // ── email and phone fetched from Firestore school document ──
     const school = {
-      name: schoolDoc.exists() ? schoolDoc.data().name : 'School Name',
+      name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
       address: schoolDoc.exists() ? schoolDoc.data().address : '',
-      logo: schoolDoc.exists() ? schoolDoc.data().logo : null
+      logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
+      email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
+      phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : ''
     };
+
     const rawScores = await fetchScores(studentId, reportState.term, reportState.session);
     const scoresWithNames = rawScores.map(score => ({
-      subjectId: score.subjectId,
+      subjectId:   score.subjectId,
       subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
-      ca: score.ca,
+      ca:   score.ca,
       exam: score.exam
     }));
 
@@ -1104,32 +975,23 @@ async function loadReportCard(studentId, studentName) {
     await loadExistingReport(studentId);
 
     const studentData = {
-      id: studentId,
-      name: studentName,
+      id: studentId, name: studentName,
       admissionNumber: student.admissionNumber || '—',
-      gender: student.gender || '—',
-      dob: student.dob || '',
-      club: student.club || '—',
+      gender:   student.gender   || '—',
+      dob:      student.dob      || '',
+      club:     student.club     || '—',
       passport: student.passport || null
     };
 
     renderReportCardUI({
-      student: studentData,
-      scores: scoresWithNames,
-      className: classNameCache,
-      school,
-      grading: currentGrading,
-      psychomotor: reportState.psychomotor,
+      student: studentData, scores: scoresWithNames, className: classNameCache,
+      school, grading: currentGrading, psychomotor: reportState.psychomotor,
       comments: { teacherComment: reportState.teacherComment, principalComment: reportState.principalComment },
-      attendance: reportState.attendance,
-      term: reportState.term,
-      session: reportState.session,
-      subjectStats,
-      container: document.getElementById('reportCardContent'),
-      isPrimary,
-      onRatingChange: (skillKey, newValue) => { reportState.psychomotor[skillKey] = newValue; },
-      onTeacherCommentChange: (newComment) => { reportState.teacherComment = newComment; },
-      onPrincipalCommentChange: (newComment) => { reportState.principalComment = newComment; }
+      attendance: reportState.attendance, term: reportState.term, session: reportState.session,
+      subjectStats, container: document.getElementById('reportCardContent'), isPrimary,
+      onRatingChange:          (skillKey, newValue) => { reportState.psychomotor[skillKey] = newValue; },
+      onTeacherCommentChange:  (newComment)          => { reportState.teacherComment   = newComment; },
+      onPrincipalCommentChange:(newComment)          => { reportState.principalComment = newComment; }
     });
 
     const actions = document.getElementById('reportActions');
@@ -1142,7 +1004,7 @@ async function loadReportCard(studentId, studentName) {
 }
 
 async function loadClassStudents() {
-  reportState.term = document.getElementById('termSelect').value;
+  reportState.term    = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
   await loadGradingSetting(reportState.session, reportState.term);
   const classStudents = studentsList.filter(s => s.classId === classId);
@@ -1211,10 +1073,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
   const scores = await fetchScores(studentId, term, session);
   if (!scores.length) return null;
   let total = 0, count = 0;
-  for (const score of scores) {
-    total += (score.ca || 0) + (score.exam || 0);
-    count++;
-  }
+  for (const score of scores) { total += (score.ca || 0) + (score.exam || 0); count++; }
   if (count === 0) return null;
   return ((total / (count * 100)) * 100).toFixed(1);
 }
@@ -1290,10 +1149,8 @@ async function generateBroadsheet() {
       const average  = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
       const grade    = calculateGrade(average);
       const remark   = getGradeRemark(grade);
-
       const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
       const combinedAvg = termValues.length ? (termValues.reduce((a,b)=>a+b,0)/termValues.length).toFixed(1) : null;
-
       studentResults.push({
         studentId: student.id, studentName: student.name,
         totalScore, average, grade, remark, subjectDetails,
@@ -1319,7 +1176,6 @@ async function generateBroadsheet() {
     html += `<tr><th></th><th></th>`;
     for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
-
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
       html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
@@ -1343,7 +1199,6 @@ async function saveBroadsheetToFirestore() {
   const active = await checkSubscription();
   if (!active) { showNotification("Cannot save broadsheet – subscription inactive.", "error"); return; }
   if (!window.currentBroadsheetData) { showNotification("No broadsheet data to save. Generate first.", "error"); return; }
-
   const { classId: classIdSel, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classIdSel}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
@@ -1429,13 +1284,12 @@ export async function initClassReportPage() {
     broadsheetClassSelect.value = classId;
   }
 
-  // Dynamic session options
   const distinctSessions = await loadSessionOptions(currentSchoolId);
   const currentSession   = getCurrentSession();
   if (!distinctSessions.includes(currentSession)) distinctSessions.unshift(currentSession);
 
   const currentTermNum = getCurrentTerm();
-  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const termMap        = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum = termMap[currentTermNum] || '1';
 
   const sessionSelect = document.getElementById('sessionSelect');
@@ -1444,7 +1298,6 @@ export async function initClassReportPage() {
       `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
     ).join('');
   }
-
   const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
   if (broadsheetSessionSelect) {
     broadsheetSessionSelect.innerHTML = distinctSessions.map(s =>
@@ -1454,14 +1307,12 @@ export async function initClassReportPage() {
 
   const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
   if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTermNum;
-
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;
 
   await loadGradingSetting(currentSession, defaultTermNum);
   await loadClassStudents();
 
-  // Event listeners
   document.getElementById('termSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('sessionSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('refreshStudentsBtn')?.addEventListener('click', () => loadClassStudents());
