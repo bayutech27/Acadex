@@ -1,5 +1,5 @@
 // teachers.js - Manage teachers (primary exemption + Auth deletion via Cloud Function)
-import { db, auth, functions } from './firebase-config.js';   // ✅ exports getFunctions() instance
+import { db, auth, functions } from './firebase-config.js';
 import {
   collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
@@ -11,15 +11,14 @@ import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
-let subjectsMap = new Map();      // full map for display (not filtered)
-let classesMap = new Map();       // full map for display (not filtered)
+let subjectsMap = new Map();
+let classesMap = new Map();
 let editingTeacherId = null;
 let unsubscribeSub = null;
 
 let teacherForm, modal, nameInput, emailInput, levelSelect, subjectsSelect, classesSelect, classTeacherSelect;
-let currentTeacherLevel = null;   // store level while editing/adding to enable dependent fields
+let currentTeacherLevel = null;
 
-// Secondary Firebase app for teacher creation (prevents admin logout)
 let secondaryAuth = null;
 function initSecondaryAuth() {
   if (!secondaryAuth) {
@@ -118,7 +117,9 @@ async function loadSubjectsByLevel(level) {
   try {
     const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
     const snapshot = await getDocs(q);
-    const subjects = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    let subjects = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    // ✅ Sort subjects by name
+    subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     subjectsSelect.innerHTML = '';
     if (subjects.length === 0) {
@@ -156,7 +157,9 @@ async function loadClassesByLevel(level) {
   try {
     const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
     const snapshot = await getDocs(q);
-    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    let classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    // ✅ Sort classes by name
+    classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classesSelect.innerHTML = '';
     if (classes.length === 0) {
@@ -193,7 +196,9 @@ async function loadClassTeacherOptions(level) {
   try {
     const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
     const snapshot = await getDocs(q);
-    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    let classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    // ✅ Sort classes by name
+    classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classTeacherSelect.innerHTML = '<option value="">None</option>';
     for (const cls of classes) {
@@ -215,7 +220,9 @@ async function loadTeachers() {
     const teachersRef = collection(db, 'teachers');
     const q = query(teachersRef, where('schoolId', '==', currentSchoolId));
     const snapshot = await getDocs(q);
-    const teachers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let teachers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // ✅ Sort teachers alphabetically by name
+    teachers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     const container = document.getElementById('teachersList');
     if (!container) return;
@@ -269,7 +276,7 @@ async function loadTeachers() {
                   <td>
                     <button class="btn-secondary" onclick="window.editTeacher('${teacher.id}')">Edit</button>
                     <button class="btn-danger" onclick="window.deleteTeacher('${teacher.id}')">Delete</button>
-                  </td>
+                   </td>
                 </tr>
               `;
             }).join('')}
@@ -281,20 +288,16 @@ async function loadTeachers() {
     
     window.editTeacher = (id) => openModal(id);
 
-    // ✅ CORRECTED: Delete teacher with Auth removal via Cloud Function
     window.deleteTeacher = async (id) => {
       if (confirm('Delete this teacher? This action cannot be undone.')) {
         showLoader();
         try {
-          // 1. Delete Firestore teacher document
           await deleteDoc(doc(db, 'teachers', id));
-          // 2. Delete Firestore user document (if exists)
           try {
             await deleteDoc(doc(db, 'users', id));
           } catch (e) {
             console.warn('User document may not exist:', e);
           }
-          // 3. Call Cloud Function to delete Auth account
           const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
           await deleteTeacherAccount({ teacherUid: id });
 
@@ -303,7 +306,7 @@ async function loadTeachers() {
           handleError(err, "Failed to delete teacher. Firestore data removed, but authentication may still exist.");
         } finally {
           hideLoader();
-          await loadTeachers();   // refresh list regardless
+          await loadTeachers();
         }
       }
     };
@@ -451,7 +454,6 @@ async function handleTeacherSubmit(e) {
     return;
   }
 
-  // ✅ PRIMARY‑LEVEL EXEMPTION: skip subject conflict check
   if (level !== 'primary') {
     const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
     if (subjectConflictMsg) {
@@ -549,7 +551,6 @@ function escapeHtml(str) {
   });
 }
 
-// ========== SUBSCRIPTION PAYMENT BANNER ==========
 function injectSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');

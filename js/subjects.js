@@ -2,7 +2,7 @@
 // MODIFIED: Subjects table now wrapped in .table-responsive-wrapper for horizontal scrolling on mobile
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './admin.js';  // ✅ FIXED: import from admin.js (not app.js)
+import { getCurrentSchoolId } from './admin.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
@@ -35,18 +35,18 @@ async function loadSubjects() {
   try {
     const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
     const snapshot = await getDocs(q);
-    const subjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let subjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // ✅ Sort subjects alphabetically by name
+    subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     if (subjects.length === 0) {
       container.innerHTML = '<h3>Existing Subjects</h3><p>No subjects yet. Add one above.</p>';
       return;
     }
     
-    // Build table HTML
     let tableHtml = `<table class="data-table">
       <thead>
-        <tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th></tr>
-      </thead>
+        <tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th> </thead>
       <tbody>`;
     for (const sub of subjects) {
       const levelDisplay = sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—');
@@ -59,7 +59,6 @@ async function loadSubjects() {
     }
     tableHtml += `</tbody>${'赶'}`;
     
-    // Wrap table in responsive horizontal scroll container
     const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
     container.innerHTML = wrapperHtml;
     
@@ -82,16 +81,12 @@ async function loadSubjects() {
   }
 }
 
-// Helper: capitalize first letter of each word, trim extra spaces
 function formatSubjectName(rawName) {
   if (!rawName) return '';
-  // Trim and collapse multiple spaces
   let trimmed = rawName.trim().replace(/\s+/g, ' ');
-  // Capitalize first letter of each word
   return trimmed.replace(/\b\w/g, char => char.toUpperCase());
 }
 
-// Helper: check for duplicate subject (same name, same level, same school)
 async function isDuplicateSubject(name, level) {
   const normalizedName = formatSubjectName(name);
   const q = query(
@@ -104,7 +99,6 @@ async function isDuplicateSubject(name, level) {
   return !snapshot.empty;
 }
 
-// Helper: add subject to Firestore
 async function addSubjectToFirestore(name, code, level) {
   const formattedName = formatSubjectName(name);
   const duplicate = await isDuplicateSubject(formattedName, level);
@@ -120,7 +114,6 @@ async function addSubjectToFirestore(name, code, level) {
   });
 }
 
-// SECONDARY SUBJECT FORM (dropdown + manual entry)
 function setupSecondaryForm() {
   const form = document.getElementById('secondarySubjectForm');
   if (!form) return;
@@ -162,7 +155,6 @@ function setupSecondaryForm() {
   });
 }
 
-// PRIMARY SUBJECT FORM (manual only)
 function setupPrimaryForm() {
   const form = document.getElementById('primarySubjectForm');
   if (!form) return;

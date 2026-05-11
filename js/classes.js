@@ -1,7 +1,7 @@
 // classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
 import { db } from './firebase-config.js';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './admin.js';  // ✅ FIXED: import from admin.js (not app.js)
+import { getCurrentSchoolId } from './admin.js';
 import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -19,7 +19,6 @@ export async function initClasses() {
       loadClassesAndSetupForm();
     }
     
-    // Setup subscription UI and listener
     setupSubscriptionUI();
     initSubscriptionListener();
   } catch (error) {
@@ -32,19 +31,15 @@ async function loadClassesAndSetupForm() {
   setupClassForm();
 }
 
-// Determine class level based on name
 function getClassLevel(className) {
-  if (!className) return 'secondary'; // default
+  if (!className) return 'secondary';
   const lowerName = className.toLowerCase();
-  // Primary: Nursery, Kindergarten, Primary
   if (lowerName.includes('nursery') || lowerName.includes('kindergarten') || lowerName.includes('primary')) {
     return 'primary';
   }
-  // Secondary: JSS, SSS
   if (lowerName.includes('jss') || lowerName.includes('sss')) {
     return 'secondary';
   }
-  // Default to secondary for any other (e.g., custom classes)
   return 'secondary';
 }
 
@@ -55,14 +50,15 @@ async function loadClasses() {
     const classesRef = collection(db, 'classes');
     const q = query(classesRef, where('schoolId', '==', currentSchoolId));
     const snapshot = await getDocs(q);
-    const classes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let classes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // ✅ Sort classes alphabetically by name
+    classes.sort((a, b) => a.name.localeCompare(b.name));
 
     if (classes.length === 0) {
       container.innerHTML = '<h3>Existing Classes</h3><p>No classes yet. Add one above.</p>';
       return;
     }
 
-    // Responsive: wrap table in scrollable container
     container.innerHTML = `
       <div class="table-responsive-wrapper">
         <table class="data-table">
@@ -120,7 +116,6 @@ function setupClassForm() {
     }
     showLoader();
     try {
-      // Check for duplicate class name
       const q = query(
         collection(db, 'classes'),
         where('schoolId', '==', currentSchoolId),
@@ -132,9 +127,7 @@ function setupClassForm() {
         return;
       }
       
-      // Determine level based on class name
       const level = getClassLevel(selectedValue);
-      
       await addClass(selectedValue, level);
       classForm.reset();
       showNotification("Class added successfully.", "success");
@@ -166,7 +159,6 @@ function escapeHtml(str) {
   });
 }
 
-// ========== SUBSCRIPTION PAYMENT BANNER ==========
 function injectSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');

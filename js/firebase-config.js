@@ -31,4 +31,4 @@
   const analytics = getAnalytics(app);
 
 // Export ONLY the initialized services
-export { auth, db, analytics, functions };
+export { auth, db, analytics, functions, firebaseConfig };

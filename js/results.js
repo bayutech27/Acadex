@@ -1,12 +1,13 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
 // FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
 // DYNAMIC SESSION DROPDOWN – shows only sessions with existing scores for the school
+// ADDED: Alphabetical sorting of students, class options, and subject options.
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { onSubscriptionChange } from './plan.js';   // raw subscription listener
+import { onSubscriptionChange } from './plan.js';
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -98,7 +99,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -129,7 +130,6 @@ function getScoringDocId(session, term, level) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
 
-// ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
   try {
     const scoresQuery = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
@@ -181,6 +181,8 @@ async function loadAllStudents() {
       dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
       subjects: doc.data().subjects || []
     }));
+    // ✅ Sort students alphabetically by name
+    studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     console.error('Failed to load students:', err);
     alert('Unable to load students. Check your permissions.');
@@ -220,7 +222,6 @@ async function fetchStudentScores(studentId, term, session) {
   return snap.docs.map(doc => ({ subjectId: doc.data().subjectId, ca: doc.data().ca, exam: doc.data().exam }));
 }
 
-// ------------------- Grading Settings (level-aware) -------------------
 async function loadGradingSetting(session, term, level = 'secondary') {
   try {
     const docId = getScoringDocId(session, term, level);
@@ -263,7 +264,6 @@ async function saveGradingSetting(level = 'secondary') {
   }
 }
 
-// ------------------- Compute Subject Stats -------------------
 async function computeSubjectStats(classId, term, session, subjectIdsToInclude = null) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
@@ -292,7 +292,6 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
   return subjectMap;
 }
 
-// ------------------- Helper: Get relevant subjects -------------------
 async function getRelevantSubjectsForClass(classId, session) {
   const classInfo = classesMap.get(classId);
   if (!classInfo) return [];
@@ -329,7 +328,6 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// ------------------- Report Card Rendering -------------------
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -349,7 +347,6 @@ async function renderReportCard(studentId, studentName) {
   await loadGradingSetting(editorState.session, editorState.term, classLevel);
 
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-  // ── email and phone queried from Firestore school document ──
   const school = {
     name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
     address: schoolDoc.exists() ? schoolDoc.data().address : '',
@@ -454,7 +451,6 @@ async function saveEditorReport() {
   }
 }
 
-// ========== PRINT HANDLER ==========
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -524,7 +520,6 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ------------------- BROADSHEET ENGINE -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -704,7 +699,6 @@ function printBroadsheet() {
   printWindow.print();
 }
 
-// ------------------- Editor Filter Handlers -------------------
 async function onEditorClassChange() {
   const classId = document.getElementById('editorClassSelect')?.value;
   const studentContainer = document.getElementById('studentListContainer');
@@ -746,7 +740,6 @@ async function onEditorFilterChange() {
   if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
 }
 
-// ---------- Unified subscription UI update ----------
 function updateSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
     const contentDiv = document.querySelector('.content');
@@ -809,7 +802,6 @@ function updateSubscriptionUI() {
   }
 }
 
-// ------------------- Initialisation (EXPORTED) -------------------
 export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
@@ -839,8 +831,10 @@ export async function initResultsPage() {
   classSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
+      // ✅ Sort classes alphabetically before populating options
+      const sortedClasses = Array.from(classesMap.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
       select.innerHTML = '<option value="">-- Select Class --</option>' +
-        Array.from(classesMap.entries()).map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
+        sortedClasses.map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
     }
   });
 

@@ -1,15 +1,15 @@
 // admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
 // FULLY INTEGRATED with Central Academic Calendar Engine
-// FIX 3: Removed autoLockExpiredSubscriptions() from protectAdminPage() —
-//         the dashboard only reads/displays subscription state, never mass-expires.
-// FIX 9: Automatically aligns subscription endDate to the current term’s end date
-//         (from the central academic calendar) whenever the subscription is active.
+// REMOVED: createStudentAccount(), createParentAccount() and all secondary Firebase auth code.
+// Only Firestore operations remain.
 
 import { auth, db } from './firebase-config.js';
-import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import {
+  onAuthStateChanged,
+} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import {
   doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs,
-  onSnapshot
+  onSnapshot, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser } from './auth.js';
 import {
@@ -18,9 +18,8 @@ import {
   handleNewStudentAddition,
   getSubscriptionStatus,
   approveExtraStudents,
-  getSubscriptionDisplayStatus
+  getSubscriptionDisplayStatus,
 } from './plan.js';
-// FIX 3: autoLockExpiredSubscriptions intentionally NOT imported here.
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
 
@@ -33,16 +32,18 @@ import {
   subscribeToCalendar,
   adminOverrideCalendar,
   adminResetToAuto,
-  getAcademicCalendar
+  getAcademicCalendar,
 } from './academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from './calendar-sync.js';
 
-// ------------------- Auth State -------------------
-let currentUser = null;
+// ───────────────────────────────────────────────────────────────────────────────
+// AUTH STATE
+// ───────────────────────────────────────────────────────────────────────────────
+let currentUser     = null;
 let currentUserData = null;
 let unsubscribeAuth = null;
 let authInitialised = false;
-let authResolve = null;
+let authResolve     = null;
 const authReadyPromise = new Promise((resolve) => { authResolve = resolve; });
 
 function initAuthListener() {
@@ -54,7 +55,7 @@ function initAuthListener() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         currentUserData = userDoc.exists() ? userDoc.data() : null;
       } catch (err) {
-        handleError(err, "Failed to load user data. Please refresh the page.");
+        handleError(err, 'Failed to load user data. Please refresh the page.');
         currentUserData = null;
       }
     } else {
@@ -73,60 +74,58 @@ async function waitForAuth() {
   await authReadyPromise;
 }
 
-export function getCurrentUser() { return currentUser; }
+export function getCurrentUser()     { return currentUser; }
 export function getCurrentUserData() { return currentUserData; }
 
 export async function getCurrentSchoolId() {
   await waitForAuth();
-  if (!currentUserData) return null;
-  return currentUserData.schoolId || null;
+  return currentUserData?.schoolId ?? null;
 }
 
-// Calendar sync periodic timer
+// Calendar sync periodic timer handle
 let calendarStopPeriodicSync = null;
 
-// ------------------- Admin Page Protection -------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// ADMIN PAGE PROTECTION (unchanged)
+// ───────────────────────────────────────────────────────────────────────────────
 export async function protectAdminPage() {
   await waitForAuth();
 
   if (!currentUser) {
-    showNotification("You must be logged in to access this page.", "error");
+    showNotification('You must be logged in to access this page.', 'error');
     window.location.href = '/';
     return null;
   }
   if (!currentUserData || currentUserData.role !== 'admin') {
-    showNotification("Access denied. Admin only.", "error");
+    showNotification('Access denied. Admin only.', 'error');
     window.location.href = '/';
     return null;
   }
 
   const schoolId = currentUserData.schoolId;
   if (!schoolId) {
-    handleError(new Error("Admin user has no schoolId"), "Invalid school configuration. Please contact support.");
+    handleError(new Error('Admin user has no schoolId'), 'Invalid school configuration. Please contact support.');
     window.location.href = '/';
     return null;
   }
 
   showPageLoader();
-
   try {
     await initCentralCalendar();
     await syncAcademicCalendar();
     if (calendarStopPeriodicSync) calendarStopPeriodicSync();
     calendarStopPeriodicSync = startPeriodicSync(30);
   } catch (err) {
-    handleError(err, "Failed to initialize academic calendar.");
+    handleError(err, 'Failed to initialize academic calendar.');
   } finally {
     hidePageLoader();
   }
-
-  // FIX 3: No autoLockExpiredSubscriptions() call here.
 
   let access;
   try {
     access = await enforceAccessGuard(currentUserData, schoolId);
   } catch (err) {
-    handleError(err, "Failed to verify access rights.");
+    handleError(err, 'Failed to verify access rights.');
     window.__subscriptionExpired = true;
     showSubscriptionExpiredBanner();
     access = { allowed: false, onboardingOnly: true };
@@ -140,13 +139,14 @@ export async function protectAdminPage() {
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
-
   setupLogout();
 
   return { user: currentUser, userData: currentUserData };
 }
 
-// ------------------- LOGOUT -------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// LOGOUT (unchanged)
+// ───────────────────────────────────────────────────────────────────────────────
 let logoutHandlersAttached = false;
 
 export function setupLogout() {
@@ -163,7 +163,7 @@ export function setupLogout() {
       }
       await logoutUser();
     } catch (err) {
-      handleError(err, "Logout failed. Please try again.");
+      handleError(err, 'Logout failed. Please try again.');
       hideLoader();
     }
   };
@@ -186,7 +186,9 @@ export function setupLogout() {
   });
 }
 
-// ------------------- Subscription Banners -------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTION BANNERS (unchanged)
+// ───────────────────────────────────────────────────────────────────────────────
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
   if (existingBanner) existingBanner.remove();
@@ -194,31 +196,22 @@ function showSubscriptionExpiredBanner() {
   const banner = document.createElement('div');
   banner.id = 'subscriptionExpiredBanner';
   banner.style.cssText = `
-    background: #fef3c7;
-    color: #92400e;
-    padding: 12px 20px;
-    text-align: center;
-    font-weight: 500;
-    border-bottom: 1px solid #fbbf24;
-    position: sticky;
-    top: 0;
-    z-index: 1000;
+    background: #fef3c7; color: #92400e; padding: 12px 20px;
+    text-align: center; font-weight: 500; border-bottom: 1px solid #fbbf24;
+    position: sticky; top: 0; z-index: 1000;
   `;
   banner.innerHTML = `⚠️ You have not subscribed for this term. You can still manage students and teachers onboarding, but other features are restricted. Subscribe now to unlock all Features.`;
-  const body = document.body;
-  if (body) body.prepend(banner);
+  document.body?.prepend(banner);
 }
 
 function hideSubscriptionExpiredBanner() {
-  const banner = document.getElementById('subscriptionExpiredBanner');
-  if (banner) banner.remove();
+  document.getElementById('subscriptionExpiredBanner')?.remove();
 }
 
 function showPaymentBanner() {
   const container = document.getElementById('paymentBannerContainer');
   if (!container) return;
-  const existing = document.getElementById('paymentBanner');
-  if (existing) existing.remove();
+  document.getElementById('paymentBanner')?.remove();
 
   const banner = document.createElement('div');
   banner.id = 'paymentBanner';
@@ -240,17 +233,13 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  const payBtn = document.getElementById('paystackPaymentBtn');
-  if (payBtn) {
-    payBtn.addEventListener('click', () => {
-      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
-    });
-  }
+  document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => {
+    window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+  });
 }
 
 function hidePaymentBanner() {
-  const banner = document.getElementById('paymentBanner');
-  if (banner) banner.remove();
+  document.getElementById('paymentBanner')?.remove();
 }
 
 function injectSubscriptionUI() {
@@ -259,11 +248,7 @@ function injectSubscriptionUI() {
     if (headerRight) {
       const badge = document.createElement('div');
       badge.id = 'subscriptionBadge';
-      badge.style.marginLeft = 'auto';
-      badge.style.fontWeight = 'bold';
-      badge.style.padding = '4px 12px';
-      badge.style.borderRadius = '20px';
-      badge.style.background = '#f1f5f9';
+      badge.style.cssText = 'margin-left:auto;font-weight:bold;padding:4px 12px;border-radius:20px;background:#f1f5f9;';
       headerRight.appendChild(badge);
     }
   }
@@ -283,7 +268,7 @@ function injectSubscriptionUI() {
       pendingDiv.id = 'pendingExtraContainer';
       pendingDiv.style.margin = '16px 0';
       const feeDiv = document.getElementById('subscriptionFeeContainer');
-      if (feeDiv && feeDiv.nextSibling) contentDiv.insertBefore(pendingDiv, feeDiv.nextSibling);
+      if (feeDiv?.nextSibling) contentDiv.insertBefore(pendingDiv, feeDiv.nextSibling);
       else contentDiv.appendChild(pendingDiv);
     }
   }
@@ -300,16 +285,12 @@ function injectSubscriptionUI() {
 
 export function setupSidebar() {
   const currentPage = window.location.pathname.split('/').pop();
-  const links = document.querySelectorAll('.sidebar-nav a');
-  if (links.length === 0) return;
-  links.forEach(link => {
+  document.querySelectorAll('.sidebar-nav a').forEach(link => {
     const href = link.getAttribute('href');
-    if (href === currentPage) link.classList.add('active');
-    else link.classList.remove('active');
+    link.classList.toggle('active', href === currentPage);
   });
 }
 
-// FIX 6: Badge uses raw display status — reads Firestore only, no destructive writes.
 async function updateSubscriptionBadge(schoolId) {
   try {
     const displayStatus = await getSubscriptionDisplayStatus(schoolId);
@@ -328,53 +309,40 @@ async function updateSubscriptionBadge(schoolId) {
       }
     }
   } catch (err) {
-    handleError(err, "Failed to update subscription badge.");
+    handleError(err, 'Failed to update subscription badge.');
   }
 }
 
 let subscriptionListenerUnsubscribe = null;
 
-// ------------------- FIX 9: Align subscription endDate to academic term end -------------------
 async function alignSubscriptionEndDate(schoolId, currentSubData) {
-  // Only align for active, unlocked subscriptions
   if (!currentSubData || currentSubData.status !== 'active' || currentSubData.locked === true) {
     return;
   }
-
   try {
-    // Get the current term's end date from the academic calendar
-    const termDates = getTermDates();   // returns { start, end } strings like "YYYY-MM-DD"
+    const termDates  = getTermDates();
     const termEndStr = termDates.end;
     if (!termEndStr) return;
 
-    // Convert term end string to a Date at the very end of that day (23:59:59.999 UTC)
     const termEndDate = new Date(termEndStr + 'T23:59:59.999Z');
     if (isNaN(termEndDate.getTime())) return;
 
-    // Convert the stored endDate (Firestore Timestamp or Date) to a comparable Date
     let storedEnd = null;
     if (currentSubData.endDate) {
-      storedEnd = currentSubData.endDate.toDate ? currentSubData.endDate.toDate() : new Date(currentSubData.endDate);
+      storedEnd = currentSubData.endDate.toDate
+        ? currentSubData.endDate.toDate()
+        : new Date(currentSubData.endDate);
     }
 
-    // If the stored endDate is already exactly the term end date, do nothing
-    if (storedEnd && storedEnd.getTime() === termEndDate.getTime()) {
-      return;
-    }
+    if (storedEnd && storedEnd.getTime() === termEndDate.getTime()) return;
 
-    // Update the subscription document with the correct term‑end date
     const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-    await updateDoc(subRef, {
-      endDate: termEndDate,
-      lastUpdated: new Date()
-    });
+    await updateDoc(subRef, { endDate: termEndDate, lastUpdated: new Date() });
   } catch (err) {
-    // Silently ignore alignment errors – they should not block the UI
     console.warn('Failed to align subscription endDate:', err);
   }
 }
 
-// FIX 6: Real-time listener reads and displays — no writes triggered by UI.
 export function initSubscriptionUI(schoolId) {
   if (!schoolId) return;
   if (subscriptionListenerUnsubscribe) subscriptionListenerUnsubscribe();
@@ -384,9 +352,7 @@ export function initSubscriptionUI(schoolId) {
     if (!snap.exists()) return;
     const sub = snap.data();
 
-    // ---- FIX 9: Align endDate to term end whenever the subscription is active ----
     await alignSubscriptionEndDate(schoolId, sub);
-
     await updateFeeDisplay(schoolId, sub);
     await updatePendingExtraDisplay(schoolId, sub);
 
@@ -399,42 +365,41 @@ export function initSubscriptionUI(schoolId) {
       showPaymentBanner();
     }
     await updateSubscriptionBadge(schoolId);
-  }, (err) => handleError(err, "Subscription listener error."));
+  }, (err) => handleError(err, 'Subscription listener error.'));
 }
 
 async function updateFeeDisplay(schoolId, sub) {
   const feeContainer = document.getElementById('subscriptionFeeContainer');
   if (!feeContainer) return;
 
-  const isActive = sub.status === 'active' && sub.locked === false;
-  const plan = sub.plan || 'Basic';
+  const isActive      = sub.status === 'active' && sub.locked === false;
+  const plan          = sub.plan || 'Basic';
+  const costPerStudent = sub.costPerStudent || 1000;
 
   if (!isActive) {
-    const costPerStudent = sub.costPerStudent || 1000;
     let totalActiveStudents = 0;
     try {
-      const studentsQuery = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'));
-      const studentsSnap = await getDocs(studentsQuery);
-      totalActiveStudents = studentsSnap.size;
+      const snap = await getDocs(
+        query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'))
+      );
+      totalActiveStudents = snap.size;
     } catch (err) {
-      handleError(err, "Failed to count active students.");
+      handleError(err, 'Failed to count active students.');
     }
     const totalFee = totalActiveStudents * costPerStudent;
     feeContainer.innerHTML = `
-      <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:8px;margin:16px 0;">
         <strong>💰 Subscription Fee Due</strong><br>
         Active students: ${totalActiveStudents} × ₦${costPerStudent} = <strong>₦${totalFee.toLocaleString()}</strong><br>
         <small>Your subscription is currently ${sub.status}. Please renew to unlock all features.</small>
-      </div>
-    `;
+      </div>`;
   } else {
     feeContainer.innerHTML = `
-      <div style="background: #dcfce7; border-left: 4px solid #10b981; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+      <div style="background:#dcfce7;border-left:4px solid #10b981;padding:12px 16px;border-radius:8px;margin:16px 0;">
         <strong>✅ Subscription Active</strong><br>
         Plan: ${plan}<br>
         <small>Your subscription is active and all features are unlocked.</small>
-      </div>
-    `;
+      </div>`;
   }
 }
 
@@ -444,77 +409,60 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
 
   let lockedCount = 0;
   try {
-    const lockedQuery = query(
-      collection(db, 'students'),
-      where('schoolId', '==', schoolId),
-      where('locked', '==', true)
+    const lockedSnap = await getDocs(
+      query(collection(db, 'students'), where('schoolId', '==', schoolId), where('locked', '==', true))
     );
-    const lockedSnap = await getDocs(lockedQuery);
     lockedCount = lockedSnap.size;
   } catch (err) {
-    handleError(err, "Failed to count locked students.");
+    handleError(err, 'Failed to count locked students.');
   }
 
-  if (lockedCount === 0) {
-    pendingContainer.innerHTML = '';
-    return;
-  }
+  if (lockedCount === 0) { pendingContainer.innerHTML = ''; return; }
 
-  let costPerStudent = 1000;
-  if (sub && sub.costPerStudent) {
-    costPerStudent = sub.costPerStudent;
-  } else {
+  let costPerStudent = sub?.costPerStudent ?? 1000;
+  if (!sub) {
     try {
-      const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-      const subSnap = await getDoc(subRef);
+      const subSnap = await getDoc(doc(db, 'schools', schoolId, 'subscription', 'current'));
       if (subSnap.exists()) costPerStudent = subSnap.data().costPerStudent || 1000;
     } catch (err) {
-      handleError(err, "Failed to fetch subscription cost.");
+      handleError(err, 'Failed to fetch subscription cost.');
     }
   }
 
   const totalExtraFee = lockedCount * costPerStudent;
   pendingContainer.innerHTML = `
-    <div style="background: #e0f2fe; border-left: 4px solid #0284c7; border-radius: 12px; padding: 16px 20px; margin: 16px 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
+    <div style="background:#e0f2fe;border-left:4px solid #0284c7;border-radius:12px;padding:16px 20px;margin:16px 0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;">
       <div>
-        <strong style="font-size: 1rem;">⏳ Pending Extra Students</strong><br>
+        <strong style="font-size:1rem;">⏳ Pending Extra Students</strong><br>
         ${lockedCount} student(s) awaiting super-admin approval.<br>
         <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong>
       </div>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <button id="payNowPendingBtn" class="paystack-btn" style="background: #00b3f0;">💳 Pay Now</button>
-        <a href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20pay%20for%20extra%20students" target="_blank" class="whatsapp-btn" style="background: #25D366;">📱 WhatsApp Support</a>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button id="payNowPendingBtn" class="paystack-btn" style="background:#00b3f0;">💳 Pay Now</button>
+        <a href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20pay%20for%20extra%20students" target="_blank" class="whatsapp-btn" style="background:#25D366;">📱 WhatsApp Support</a>
       </div>
-    </div>
-  `;
+    </div>`;
 
-  const payNowBtn = document.getElementById('payNowPendingBtn');
-  if (payNowBtn) {
-    payNowBtn.addEventListener('click', () => {
-      window.open('https://paystack.shop/pay/fmj267paou', '_blank');
-    });
-  }
+  document.getElementById('payNowPendingBtn')?.addEventListener('click', () => {
+    window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+  });
 }
 
-// ------------------- Academic Calendar (Central) -------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// ACADEMIC CALENDAR (unchanged)
+// ───────────────────────────────────────────────────────────────────────────────
 export async function initAcademicCalendar(schoolId) {
   await initCentralCalendar();
   await syncAcademicCalendar();
 }
 
 export function getCurrentAcademicSessionAndTerm() {
-  return {
-    session: getCurrentSession(),
-    term: getCurrentTerm()
-  };
+  return { session: getCurrentSession(), term: getCurrentTerm() };
 }
 
 export async function getAcademicContext(schoolId) {
   await initCentralCalendar();
-  return {
-    currentSession: getCurrentSession(),
-    currentTerm: getCurrentTerm()
-  };
+  return { currentSession: getCurrentSession(), currentTerm: getCurrentTerm() };
 }
 
 export async function loadAcademicInfo() {
@@ -522,8 +470,8 @@ export async function loadAcademicInfo() {
   if (!schoolId) return;
   try {
     await initCentralCalendar();
-    const session = getCurrentSession();
-    const term = getCurrentTerm();
+    const session   = getCurrentSession();
+    const term      = getCurrentTerm();
     const termNames = { 'First Term': 'First Term', 'Second Term': 'Second Term', 'Third Term': 'Third Term' };
     const academicDiv = document.getElementById('academicInfo');
     if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
@@ -534,7 +482,9 @@ export async function loadAcademicInfo() {
 
 export { adminOverrideCalendar, adminResetToAuto };
 
-// ------------------- Logo Upload -------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// LOGO UPLOAD (unchanged)
+// ───────────────────────────────────────────────────────────────────────────────
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -542,13 +492,9 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
       const img = new Image();
       img.onload = () => {
         let width = img.width, height = img.height;
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width;
-          width = maxWidth;
-        }
+        if (width > maxWidth) { height = (height * maxWidth) / width; width = maxWidth; }
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         let quality = 0.9;
@@ -559,22 +505,22 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
         }
         resolve(dataUrl);
       };
-      img.onerror = () => reject(new Error("Image loading failed"));
+      img.onerror = () => reject(new Error('Image loading failed'));
       img.src = e.target.result;
     };
-    reader.onerror = () => reject(new Error("File reading failed"));
+    reader.onerror = () => reject(new Error('File reading failed'));
     reader.readAsDataURL(file);
   });
 }
 
 async function uploadSchoolLogo(schoolId, file) {
   try {
-    let compressed = await compressImage(file, 500, 500);
+    const compressed = await compressImage(file, 500, 500);
     await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
-    showNotification("Logo uploaded successfully", "success");
+    showNotification('Logo uploaded successfully', 'success');
     return compressed;
   } catch (error) {
-    handleError(error, "Failed to upload logo. Please try again with a smaller image.");
+    handleError(error, 'Failed to upload logo. Please try again with a smaller image.');
     return null;
   }
 }
@@ -584,23 +530,25 @@ export async function loadSchoolInfo() {
   if (!userData) return;
   try {
     const school = await getSchoolById(userData.schoolId);
-    const schoolNameEl = document.getElementById('schoolName');
+    const schoolNameEl    = document.getElementById('schoolName');
     const schoolAddressEl = document.getElementById('schoolAddress');
-    if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
+    if (schoolNameEl)    schoolNameEl.textContent    = school ? school.name : 'Unknown School';
     if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
 
     const logoImg = document.getElementById('schoolLogoImg');
-    if (logoImg && school && school.logo) logoImg.src = school.logo;
-    else if (logoImg) logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
+    if (logoImg && school?.logo) {
+      logoImg.src = school.logo;
+    } else if (logoImg) {
+      logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
+    }
 
     await loadAcademicInfo();
-    const schoolId = userData.schoolId;
-    if (schoolId) {
-      updateSubscriptionBadge(schoolId);
-      initSubscriptionUI(schoolId);
+    if (userData.schoolId) {
+      updateSubscriptionBadge(userData.schoolId);
+      initSubscriptionUI(userData.schoolId);
     }
   } catch (err) {
-    handleError(err, "Failed to load school information.");
+    handleError(err, 'Failed to load school information.');
   }
 }
 
@@ -609,31 +557,28 @@ async function getSchoolById(schoolId) {
     const snap = await getDoc(doc(db, 'schools', schoolId));
     return snap.exists() ? snap.data() : null;
   } catch (err) {
-    handleError(err, "Failed to fetch school data.");
+    handleError(err, 'Failed to fetch school data.');
     return null;
   }
 }
 
 export function setupLogoUpload() {
   const cameraIcon = document.getElementById('cameraIcon');
-  const fileInput = document.getElementById('logoUploadInput');
+  const fileInput  = document.getElementById('logoUploadInput');
   if (cameraIcon && fileInput) {
     cameraIcon.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (file && file.type.startsWith('image/')) {
         const schoolId = await getCurrentSchoolId();
-        if (!schoolId) {
-          showNotification("School ID not found.", "error");
-          return;
-        }
+        if (!schoolId) { showNotification('School ID not found.', 'error'); return; }
         const newLogo = await uploadSchoolLogo(schoolId, file);
         if (newLogo) {
           const logoImg = document.getElementById('schoolLogoImg');
           if (logoImg) logoImg.src = newLogo;
         }
       } else if (file) {
-        showNotification("Please select a valid image file.", "error");
+        showNotification('Please select a valid image file.', 'error');
       }
       if (fileInput) fileInput.value = '';
     });
@@ -648,20 +593,22 @@ export async function loadDashboardCounts() {
     const snap = await getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalTeachers');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, "Failed to load teacher count."); }
+  } catch (err) { handleError(err, 'Failed to load teacher count.'); }
 
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalStudents');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, "Failed to load total students."); }
+  } catch (err) { handleError(err, 'Failed to load total students.'); }
 
   try {
-    const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active')));
+    const snap = await getDocs(
+      query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'))
+    );
     const el = document.getElementById('activeStudents');
     if (el) el.textContent = snap.size;
   } catch (err) {
-    handleError(err, "Failed to load active students.");
+    handleError(err, 'Failed to load active students.');
     const el = document.getElementById('activeStudents');
     if (el) el.textContent = err.code === 'failed-precondition' ? '⚠️ Create Index' : 'Error';
   }
@@ -670,5 +617,5 @@ export async function loadDashboardCounts() {
     const snap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalSubjects');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, "Failed to load subjects."); }
+  } catch (err) { handleError(err, 'Failed to load subjects.'); }
 }
