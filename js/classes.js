@@ -102,33 +102,91 @@ function setupClassForm() {
     return;
   }
 
+  const classSelect = document.getElementById('className');
+  const manualClassName = document.getElementById('manualClassName');
+  const manualLevelSelect = document.getElementById('manualClassLevel');
+
+  if (!classSelect || !manualClassName || !manualLevelSelect) {
+    console.error('Form elements missing');
+    return;
+  }
+
+  // Mutual exclusivity: dropdown selection clears manual inputs
+  classSelect.addEventListener('change', () => {
+    if (classSelect.value !== '') {
+      manualClassName.value = '';
+      manualLevelSelect.value = '';
+    }
+  });
+
+  // Manual input or level change clears dropdown
+  manualClassName.addEventListener('input', () => {
+    if (manualClassName.value.trim() !== '') {
+      classSelect.value = '';
+    }
+  });
+  manualLevelSelect.addEventListener('change', () => {
+    if (manualLevelSelect.value !== '') {
+      classSelect.value = '';
+    }
+  });
+
   classForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const classSelect = document.getElementById('className');
-    if (!classSelect) {
-      showNotification("Form error: class selector missing.", "error");
+
+    const dropdownValue = classSelect.value;
+    const manualValue = manualClassName.value.trim();
+    const manualLevel = manualLevelSelect.value;
+
+    // Validate that exactly one method is used
+    const isDropdownUsed = dropdownValue && dropdownValue !== '';
+    const isManualUsed = manualValue !== '';
+
+    if (!isDropdownUsed && !isManualUsed) {
+      showNotification("Please either select a class from the list or enter a manual class name.", "error");
       return;
     }
-    const selectedValue = classSelect.value;
-    if (!selectedValue || selectedValue === '') {
-      showNotification("Please select a class.", "error");
+
+    if (isDropdownUsed && isManualUsed) {
+      showNotification("Please use only one method: either select from dropdown OR enter manually, not both.", "error");
       return;
     }
+
+    let className = '';
+    let classLevel = '';
+
+    if (isDropdownUsed) {
+      className = dropdownValue;
+      classLevel = getClassLevel(className); // auto-detect from name
+    } else {
+      // Manual entry
+      if (manualValue === '') {
+        showNotification("Please enter a class name.", "error");
+        return;
+      }
+      if (!manualLevel) {
+        showNotification("Please select a level (Primary/Secondary) for the manual class.", "error");
+        return;
+      }
+      className = manualValue;
+      classLevel = manualLevel;
+    }
+
     showLoader();
     try {
+      // Check for duplicate class name under the same school
       const q = query(
         collection(db, 'classes'),
         where('schoolId', '==', currentSchoolId),
-        where('name', '==', selectedValue)
+        where('name', '==', className)
       );
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        showNotification(`Class "${selectedValue}" already exists. Duplicate classes are not allowed.`, "error");
+        showNotification(`Class "${className}" already exists. Duplicate classes are not allowed.`, "error");
         return;
       }
-      
-      const level = getClassLevel(selectedValue);
-      await addClass(selectedValue, level);
+
+      await addClass(className, classLevel);
       classForm.reset();
       showNotification("Class added successfully.", "success");
     } catch (error) {

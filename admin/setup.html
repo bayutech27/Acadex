@@ -276,8 +276,8 @@
             <h2>Add New Class</h2>
             <form id="classForm">
               <div class="form-group">
-                <label for="className">Class Name</label>
-                <select id="className" required>
+                <label for="className">Select from list</label>
+                <select id="className">
                   <option value="">Select a class</option>
                   <optgroup label="Primary">
                     <option value="Nursery 1">Nursery 1</option>
@@ -302,6 +302,21 @@
                   </optgroup>
                 </select>
               </div>
+
+              <!-- Manual entry section (mutually exclusive with dropdown) -->
+              <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed #cbd5e1;">
+                <label>Or enter class manually:</label>
+                <input type="text" id="manualClassName" placeholder="e.g., Prep Class, Special Needs">
+              </div>
+              <div class="form-group">
+                <label for="manualClassLevel">Level (for manual entry)</label>
+                <select id="manualClassLevel">
+                  <option value="">-- Select level --</option>
+                  <option value="primary">Primary</option>
+                  <option value="secondary">Secondary</option>
+                </select>
+              </div>
+
               <button type="submit" class="btn-primary">Add Class</button>
             </form>
           </div>
