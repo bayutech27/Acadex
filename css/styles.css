@@ -342,6 +342,16 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--primary);
 }
 
+/* Hide hamburger menu on desktop, show only on mobile */
+.hamburger-menu {
+  display: none;
+}
+@media (max-width: 768px) {
+  .hamburger-menu {
+    display: block;
+  }
+}
+
 /* Mobile Sidebar – EXTRA HIGH Z-INDEX */
 .mobile-sidebar {
   position: fixed;

@@ -6,7 +6,6 @@
   <title>Acadex - Teacher Dashboard</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* Enhanced card styles */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -28,62 +27,45 @@
       box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
       border-color: #cbd5e1;
     }
-    .card-icon {
-      font-size: 3rem;
-      margin-bottom: 1rem;
-    }
-    .card-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-      color: #1e293b;
-    }
-    .card-desc {
-      font-size: 0.875rem;
-      color: #64748b;
-      line-height: 1.4;
-    }
+    .card-icon  { font-size: 3rem; margin-bottom: 1rem; }
+    .card-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: #1e293b; }
+    .card-desc  { font-size: 0.875rem; color: #64748b; line-height: 1.4; }
+
+    /* Disabled card */
     .disabled-card {
-      opacity: 0.6;
+      opacity: 0.55;
       cursor: not-allowed;
       pointer-events: none;
-      filter: grayscale(0.1);
+      filter: grayscale(0.3);
     }
     .disabled-card:hover {
       transform: none;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
     }
 
-    /* Hide hamburger on desktop */
-    @media (min-width: 769px) {
-      .hamburger-menu {
-        display: none !important;
-      }
+    /* Disabled sidebar nav link */
+    .disabled-nav-link {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
     }
 
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
     @media (max-width: 640px) {
-      .stats-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-      }
-      .clickable-card {
-        padding: 1.25rem;
-      }
-      .card-icon {
-        font-size: 2.5rem;
-      }
-      .card-title {
-        font-size: 1.25rem;
-      }
-      .card-desc {
-        font-size: 0.8rem;
-      }
+      .stats-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .clickable-card { padding: 1.25rem; }
+      .card-icon  { font-size: 2.5rem; }
+      .card-title { font-size: 1.25rem; }
+      .card-desc  { font-size: 0.8rem; }
     }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
-  <!-- Desktop Sidebar -->
+
+  <!-- ═══════════════════ Desktop Sidebar ═══════════════════ -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -92,10 +74,13 @@
       <a href="teacher-dashboard.html" class="active">Dashboard</a>
       <a href="class.html">Class</a>
       <a href="scores.html" id="scoresLink">Scores</a>
+      <a href="attendance.html" id="attendanceLink">Class Attendance</a>
+      <!-- CBT Menu Item Added -->
+      <a href="teacher-cbt.html">CBT</a>
     </nav>
   </aside>
 
-  <!-- Mobile Sidebar -->
+  <!-- ═══════════════════ Mobile Sidebar ═══════════════════ -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -105,6 +90,9 @@
       <a href="teacher-dashboard.html" class="active">Dashboard</a>
       <a href="class.html">Class</a>
       <a href="scores.html">Scores</a>
+      <a href="attendance.html" id="mobileAttendanceLink">Class Attendance</a>
+      <!-- CBT Menu Item Added (mobile) -->
+      <a href="teacher-cbt.html">CBT</a>
     </nav>
     <div class="mobile-logout-wrapper">
       <button class="mobile-logout-btn">Logout</button>
@@ -112,7 +100,9 @@
   </div>
   <div id="overlay" class="overlay"></div>
 
+  <!-- ═══════════════════ Main Content ═══════════════════ -->
   <main class="main-content">
+
     <!-- Header -->
     <header class="header">
       <div class="school-header-left">
@@ -127,7 +117,7 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
+        <button class="hamburger-menu" aria-label="Open menu">☰</button>
         <div id="subscriptionBadge" class="subscription-badge"></div>
         <button id="logoutBtn" class="logout-btn">Logout</button>
       </div>
@@ -136,7 +126,7 @@
     <!-- Academic Badge Row -->
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <span id="currentTermDisplay">Loading...</span> |
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
@@ -144,22 +134,33 @@
     <div class="content">
       <div class="welcome-card">
         <h1 id="welcomeHeading">Welcome, Teacher</h1>
-        <p>Manage your students, class, and scores.</p>
+        <p>Manage your students, class, scores, and attendance.</p>
       </div>
 
+      <!-- ═══ Dashboard Cards ═══ -->
       <div class="stats-grid">
+
         <div class="clickable-card" id="classCard">
           <div class="card-icon">🏫</div>
           <div class="card-title">Class</div>
           <div class="card-desc">Manage your homeroom class (if assigned)</div>
         </div>
+
         <div class="clickable-card" id="scoresCard">
           <div class="card-icon">📊</div>
           <div class="card-title">Scores</div>
           <div class="card-desc">Enter and manage exam scores</div>
         </div>
+
+        <!-- NEW: Class Attendance Card -->
+        <div class="clickable-card" id="attendanceCard">
+          <div class="card-icon">📋</div>
+          <div class="card-title">Class Attendance</div>
+          <div class="card-desc">Track daily morning & afternoon attendance for your class</div>
+        </div>
+
       </div>
-    </div>
+    </div><!-- /.content -->
 
     <footer class="app-footer">
       <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
@@ -168,20 +169,22 @@
 </div>
 
 <script type="module">
-  import { 
-    protectTeacherPage, 
-    loadSchoolInfo, 
-    setupSidebar, 
-    setupLogout, 
-    setupLogoUpload, 
-    checkClassTeacherStatus, 
-    displayTeacherName 
+  import {
+    protectTeacherPage,
+    loadSchoolInfo,
+    setupSidebar,
+    setupLogout,
+    setupLogoUpload,
+    checkClassTeacherStatus,
+    displayTeacherName,
+    getHostClassId
   } from '../js/teacher-dashboard.js';
-  import { initMobileMenu } from '../js/menu.js';
+  import { initMobileMenu }    from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
 
+  // ── Auth & init ──────────────────────────────────────────
   protectTeacherPage().then(async ({ teacherName }) => {
     displayTeacherName(teacherName);
     loadSchoolInfo();
@@ -190,18 +193,20 @@
     setupLogoUpload();
     initMobileMenu();
 
-    const classCard = document.getElementById('classCard');
     const isClassTeacher = await checkClassTeacherStatus();
+    const hostClassId    = getHostClassId();
 
+    // ── Class card ───────────────────────────────────────
+    const classCard = document.getElementById('classCard');
     if (!isClassTeacher) {
       classCard.classList.add('disabled-card');
-      classCard.addEventListener('click', (e) => {
+      classCard.addEventListener('click', e => {
         e.preventDefault();
         alert('You are not assigned as a class teacher. You cannot access this page.');
       });
       const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
       if (classLink) {
-        classLink.addEventListener('click', (e) => {
+        classLink.addEventListener('click', e => {
           e.preventDefault();
           alert('You are not assigned as a class teacher.');
         });
@@ -210,8 +215,39 @@
       classCard.addEventListener('click', () => { window.location.href = 'class.html'; });
     }
 
-    document.getElementById('scoresCard').addEventListener('click', () => { window.location.href = 'scores.html'; });
+    // ── Scores card ─────────────────────────────────────
+    document.getElementById('scoresCard')
+      .addEventListener('click', () => { window.location.href = 'scores.html'; });
 
+    // ── Attendance card & nav links ──────────────────────
+    const attendanceCard        = document.getElementById('attendanceCard');
+    const attendanceLink        = document.getElementById('attendanceLink');
+    const mobileAttendanceLink  = document.getElementById('mobileAttendanceLink');
+
+    const canAccessAttendance = isClassTeacher && !!hostClassId;
+
+    if (!canAccessAttendance) {
+      // Disable card
+      attendanceCard.classList.add('disabled-card');
+      attendanceCard.addEventListener('click', e => {
+        e.preventDefault();
+        alert('You must be assigned as a class teacher (with a host class) to access attendance.');
+      });
+
+      // Disable sidebar links
+      [attendanceLink, mobileAttendanceLink].forEach(link => {
+        if (!link) return;
+        link.classList.add('disabled-nav-link');
+        link.addEventListener('click', e => {
+          e.preventDefault();
+          alert('Attendance requires a class teacher assignment.');
+        });
+      });
+    } else {
+      attendanceCard.addEventListener('click', () => { window.location.href = 'attendance.html'; });
+    }
+
+    // Mobile logout mirrors header logout
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
     if (mobileLogoutBtn && headerLogoutBtn) {
@@ -219,13 +255,13 @@
     }
   });
 
-  subscribeToCalendar((state) => {
-    const termEl = document.getElementById('currentTermDisplay');
+  // ── Real-time calendar display ───────────────────────────
+  subscribeToCalendar(state => {
+    const termEl    = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');
-    if (termEl) termEl.textContent = state.currentTerm;
+    if (termEl)    termEl.textContent    = state.currentTerm;
     if (sessionEl) sessionEl.textContent = state.currentSession;
-    if (state.manualOverride) termEl?.classList.add('override-badge');
-    else termEl?.classList.remove('override-badge');
+    if (termEl)    termEl.classList.toggle('override-badge', !!state.manualOverride);
   });
 </script>
 </body>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="author" content="Acadex">
+  <title>Acadex CBT | Test</title>
+  <link rel="icon" type="image/png" href="../img/Smart-brain-icon.png">
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+  
+  <!-- correct relative paths from cbt/html/ to cbt/css/ -->
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/cbt.css">
+  <link rel="stylesheet" href="../css/test.css">
+</head>
+<body>
+  <!-- Acadex session validation -->
+  <script>
+    (function() {
+      const schoolId = localStorage.getItem('userSchoolId');
+      const studentId = localStorage.getItem('studentId');
+      if (!schoolId || !studentId) {
+        alert('Invalid session. Please log in again.');
+        window.location.href = '../../index.html';
+      }
+    })();
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+      if (caches) caches.keys().then(names => names.forEach(name => caches.delete(name)));
+    }
+  </script>
+
+  <!-- HEADER - MOBILE FIRST -->
+  <header class="header">
+    <div class="container header-container">
+      <div class="brand">
+        <h1 class="brand-name">Acadex <span class="cbt">CBT</span></h1>
+      </div>
+      <div class="hamburger" id="hamburger">
+        <span></span><span></span><span></span>
+      </div>
+      <nav class="desktop-nav">
+        <ul class="desktop-nav-list">
+          <li class="desktop-nav-item">
+            <a href="../../students/student-portal.html" class="desktop-nav-link"><i class="fas fa-home"></i> Home</a>
+          </li>
+          <li class="desktop-nav-item">
+            <a href="test.html" class="desktop-nav-link active"><i class="fas fa-pencil-alt"></i> Test</a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- MOBILE MENU -->
+  <nav class="mobile-menu" id="mobileMenu">
+    <div class="container">
+      <ul class="nav-list">
+        <li><a href="../../students/student-portal.html" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+        <li><a href="test.html" class="nav-link active"><i class="fas fa-pencil-alt"></i> Test</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="test-page">
+    <div class="test-container">
+      <!-- test header with timer -->
+      <div class="test-header">
+        <div class="test-info">
+          <h2 class="test-subject" id="testSubject"><i class="fas fa-book"></i> Loading Test...</h2>
+          <div class="question-counter" id="questionCounter">
+            Question <span id="currentQuestion">1</span> of <span id="totalQuestions">?</span>
+          </div>
+        </div>
+        <div class="timer-container">
+          <div class="timer-label">Time Remaining</div>
+          <div class="timer" id="timer">00:00</div>
+        </div>
+      </div>
+
+      <!-- subject tabs (jamb drill) -->
+      <div class="subject-tabs" id="subjectTabs" style="display: none;"></div>
+
+      <!-- question card -->
+      <div class="question-card">
+        <div class="question-content" id="questionContent">
+          <div class="question-text" id="questionText">Loading question...</div>
+        </div>
+        <div class="options-container" id="optionsContainer">
+          <div class="option" data-option="A"><div class="option-letter">A</div><div class="option-text">Loading...</div></div>
+          <div class="option" data-option="B"><div class="option-letter">B</div><div class="option-text">Loading...</div></div>
+          <div class="option" data-option="C"><div class="option-letter">C</div><div class="option-text">Loading...</div></div>
+          <div class="option" data-option="D"><div class="option-letter">D</div><div class="option-text">Loading...</div></div>
+        </div>
+        <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="question-dots" id="questionDots"></div>
+        <div class="test-navigation">
+          <div class="nav-buttons">
+            <button class="nav-btn prev-btn" id="prevBtn" disabled><i class="fas fa-arrow-left"></i> Previous</button>
+            <button class="nav-btn next-btn" id="nextBtn">Next <i class="fas fa-arrow-right"></i></button>
+          </div>
+          <button class="get-result-btn" id="getResultBtn"><i class="fas fa-check-circle"></i> Submit Test</button>
+        </div>
+      </div>
+    </div>
+    <footer class="test-footer">
+      <p>© <span id="currentYear">2026</span> Acadex CBT | Excellence Through Practice</p>
+    </footer>
+  </main>
+
+  <!-- SUBMIT CONFIRMATION MODAL -->
+  <div class="modal" id="submitModal">
+    <div class="modal-content">
+      <h3><i class="fas fa-exclamation-triangle"></i> Submit Test?</h3>
+      <p>You have answered <span id="answeredCount">0</span> out of <span id="totalQuestionsModal">?</span> questions. Are you sure you want to submit your test?</p>
+      <div class="modal-buttons">
+        <button class="modal-btn cancel" id="cancelSubmit">Continue Test</button>
+        <button class="modal-btn confirm" id="confirmSubmit">Submit Test</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS MODAL -->
+  <div class="modal" id="resultsModal">
+    <div class="modal-content">
+      <div class="score-display">
+        <div class="score-circle">
+          <div>
+            <div class="score-number" id="finalScore">0</div>
+            <div class="score-label" id="scoreLabel">% Score</div>
+          </div>
+        </div>
+        <h3>Test Completed!</h3>
+        <p>You scored <span id="correctCount">0</span> out of <span id="totalQuestionsCount">0</span> questions correctly.</p>
+        <div id="subjectBreakdown">
+          <strong>Subject Breakdown:</strong>
+          <div id="subjectBreakdownList"></div>
+        </div>
+        <p id="performanceMessage" style="margin-top: 10px; font-style: italic;"></p>
+        <div id="topicBreakdownContainer">
+          <strong><i class="fas fa-chart-pie"></i> Topic Performance:</strong>
+          <div id="topicBreakdownList" style="margin-top: 8px;"></div>
+        </div>
+        <div id="recommendationsContainer">
+          <strong><i class="fas fa-lightbulb"></i> Recommendations:</strong>
+          <ul id="recommendationsList" style="margin: 8px 0 0 20px; padding-left: 0; list-style-type: disc;"></ul>
+        </div>
+      </div>
+      <!-- premium notification (hidden by js) -->
+      <div id="premiumNotification">
+        <p style="margin: 0; font-size: 0.9rem; color: #666;">
+          <i class="fas fa-crown" style="color: #ffd700; margin-right: 8px;"></i>
+          <strong>Premium Feature:</strong> View detailed solutions for each question
+        </p>
+      </div>
+      <div class="modal-buttons">
+        <!-- solution button will be inserted by js -->
+        <button class="modal-btn confirm" id="backToDashboard">Back to Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SOLUTION MODAL -->
+  <div id="solutionModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="fas fa-lightbulb"></i> Detailed Solutions</h3>
+        <button class="close-modal" id="closeSolutionModal">&times;</button>
+      </div>
+      <div class="modal-body" id="solutionModalBody">
+        <!-- solutions will be loaded here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- scripts (correct relative paths from cbt/html/ to cbt/js/) -->
+  <script type="module" src="../js/script.js"></script>
+  <script type="module" src="../js/test.js"></script>
+
+  <!-- ANTI-COPY SCRIPT (preserved) -->
+  <script>
+    (function() {
+      document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+      });
+      document.addEventListener('copy', function(e) {
+        e.preventDefault();
+        return false;
+      });
+      document.addEventListener('cut', function(e) {
+        e.preventDefault();
+        return false;
+      });
+      document.addEventListener('paste', function(e) {
+        e.preventDefault();
+        return false;
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey) {
+          const key = e.key.toLowerCase();
+          if (key === 'c' || key === 'x' || key === 'a' || key === 's' || key === 'p' || key === 'u') {
+            e.preventDefault();
+            return false;
+          }
+          if (e.shiftKey && (key === 'i' || key === 'j')) {
+            e.preventDefault();
+            return false;
+          }
+        }
+        if (e.key === 'F12') {
+          e.preventDefault();
+          return false;
+        }
+      });
+      document.body.style.webkitUserSelect = 'none';
+      document.body.style.mozUserSelect = 'none';
+      document.body.style.msUserSelect = 'none';
+      document.body.style.userSelect = 'none';
+    })();
+  </script>
+</body>
+</html>

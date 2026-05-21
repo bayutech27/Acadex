@@ -2,125 +2,330 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Acadex – Student Portal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Student Dashboard</title>
+  <link rel="stylesheet" href="../css/styles.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #f5f7fa 0%, #e9edf2 100%);
-      min-height: 100vh;
+    /* ── Internal tabs ── */
+    .internal-tabs {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-    }
-
-    .access-denied-card {
-      background: white;
-      max-width: 500px;
-      width: 100%;
-      border-radius: 1.5rem;
-      box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.15);
-      text-align: center;
-      padding: 2.5rem 2rem;
-      transition: transform 0.2s ease;
-    }
-
-    .access-denied-card:hover {
-      transform: translateY(-5px);
-    }
-
-    .denied-icon {
-      font-size: 5rem;
-      margin-bottom: 1rem;
-    }
-
-    h1 {
-      font-size: 1.9rem;
-      color: #dc2626;
-      margin-bottom: 1rem;
-      font-weight: 700;
-    }
-
-    p {
-      color: #4b5563;
-      font-size: 1rem;
-      line-height: 1.5;
-      margin-bottom: 2rem;
-    }
-
-    .logout-btn {
-      background: #0f172a;
-      color: white;
-      border: none;
-      padding: 0.8rem 2rem;
-      font-size: 1rem;
-      font-weight: 600;
-      border-radius: 3rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
       gap: 0.5rem;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      border-bottom: 2px solid var(--gray-200);
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .internal-tab-btn {
+      background: transparent;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      font-weight: 600;
+      color: var(--gray-600);
+      cursor: pointer;
+      transition: var(--transition);
+      border-radius: var(--border-radius) var(--border-radius) 0 0;
+    }
+    .internal-tab-btn:hover  { color: var(--primary); background: var(--gray-100); }
+    .internal-tab-btn.active { color: var(--primary); border-bottom: 2px solid var(--primary); margin-bottom: -2px; }
+
+    .tab-pane { display: none; animation: fadeIn 0.25s ease; }
+    .tab-pane.active-pane { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
-    .logout-btn:hover {
-      background: #1e293b;
-      transform: scale(1.02);
+    /* ── Hero card ── */
+    .hero-card {
+      background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      align-items: center;
+      border: 1px solid var(--gray-200);
     }
+    .student-photo {
+      width: 90px; height: 90px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--primary);
+      background: var(--gray-100);
+      box-shadow: var(--shadow-sm);
+      flex-shrink: 0;
+    }
+    .hero-info h2 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .hero-meta {
+      display: flex; flex-wrap: wrap; gap: 0.75rem;
+      margin-top: 0.5rem; color: var(--gray-600); font-size: 0.88rem;
+    }
+    .hero-meta span { background: var(--gray-100); padding: 0.2rem 0.75rem; border-radius: 30px; }
 
-    .loading-message {
-      font-size: 0.9rem;
-      color: #64748b;
+    /* ── Info grid ── */
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    .info-item {
+      background: var(--gray-50);
+      padding: 0.75rem 1rem;
+      border-radius: var(--border-radius);
+      border-left: 3px solid var(--primary);
+    }
+    .info-label { font-weight: 600; font-size: 0.73rem; text-transform: uppercase; color: var(--gray-500); letter-spacing: 0.5px; }
+    .info-value  { font-weight: 500; margin-top: 0.2rem; min-height: 1.2em; }
+
+    /* ── Notification bell ── */
+    .notification-bell {
+      position: relative; background: none; border: none;
+      font-size: 1.5rem; cursor: pointer; padding: 0.25rem;
+      display: flex; align-items: center;
+      color: var(--gray-700); transition: var(--transition);
+    }
+    .notification-bell:hover { color: var(--primary); }
+    .notification-dropdown {
+      position: absolute; top: 45px; right: 0;
+      width: 320px; background: white; border-radius: 1rem;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04);
+      z-index: 1000; display: none; flex-direction: column;
+      max-height: 400px; overflow-y: auto; border: 1px solid var(--gray-200);
+    }
+    .notification-dropdown.show { display: flex; }
+    .notification-header {
+      padding: 0.75rem 1rem; font-weight: 700;
+      border-bottom: 1px solid var(--gray-200);
+      background: var(--gray-50); border-radius: 1rem 1rem 0 0;
+    }
+    .notification-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--gray-100); font-size: 0.85rem; color: var(--gray-700); }
+    .notification-item:last-child { border-bottom: none; }
+    .empty-notification { padding: 1.5rem; text-align: center; color: var(--gray-500); }
+
+    /* ── Summary / stat badges ── */
+    .summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .stat-badge { background: white; padding: 1rem; border-radius: 1rem; text-align: center; box-shadow: var(--shadow); }
+    .stat-badge .number { font-size: 2rem; font-weight: 800; color: var(--primary); }
+
+    /* ── Attendance mini-cards ── */
+    .attendance-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
       margin-top: 1rem;
-      display: none;
+    }
+    .attendance-meta-card {
+      background: var(--gray-50);
+      border-radius: var(--border-radius);
+      padding: 0.85rem 1rem;
+      border-left: 3px solid var(--primary);
     }
 
-    @media (max-width: 480px) {
-      .access-denied-card {
-        padding: 1.8rem 1.2rem;
-      }
-      h1 { font-size: 1.5rem; }
-      .denied-icon { font-size: 4rem; }
+    /* ── Grade badges ── */
+    .grade-A { background:#dcfce7; color:#15803d; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
+    .grade-B { background:#dbeafe; color:#1e40af; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
+    .grade-C { background:#fff3cd; color:#856404; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
+    .grade-D { background:#ffe5e5; color:#b91c1c; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
+
+    /* ── Attendance progress ── */
+    .attendance-progress { background: var(--gray-200); border-radius: 20px; height: 10px; overflow: hidden; margin: 1rem 0 0.25rem; }
+    .attendance-progress-bar { background: var(--primary); height: 100%; width: 0%; border-radius: 20px; transition: width 0.7s ease; }
+    .attendance-pct-label { font-size: 0.82rem; color: var(--gray-500); margin-bottom: 1rem; }
+
+    /* ── Results ── */
+    .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
+
+    /*
+     * School logo: READ-ONLY.
+     * No camera icon. No upload. Students cannot edit.
+     */
+    .school-logo-readonly {
+      width: 52px; height: 52px;
+      border-radius: 50%; overflow: hidden;
+      border: 2px solid var(--gray-200);
+      background: var(--gray-100);
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .school-logo-readonly img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+    /* Badge row: always visible, sits just below the header */
+    .academic-badge-row { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+    .academic-badge {
+      background: var(--primary); color: #fff;
+      padding: 0.3rem 1rem; border-radius: 30px;
+      font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+    }
+
+    /* ── Desktop: hide hamburger ── */
+    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
+
+    /* ── Mobile ── */
+    @media (max-width: 640px) {
+      .hero-card { flex-direction: column; text-align: center; }
+      .hero-meta  { justify-content: center; }
+      .internal-tabs { justify-content: center; }
+      .notification-dropdown { width: 280px; right: -10px; }
+      .school-name h1 { font-size: 0.95rem; }
     }
   </style>
 </head>
 <body>
-<div class="access-denied-card">
-  <div class="denied-icon">🚫</div>
-  <h1>Access Denied</h1>
-  <p>You do not have access to this portal now.<br>Only authorised student accounts can view this page.</p>
-  <button id="logoutBtn" class="logout-btn">🚪 Logout</button>
-  <div id="loadingMessage" class="loading-message">Signing out...</div>
+<div class="dashboard-container">
+
+  <!--
+    DESKTOP SIDEBAR
+    ───────────────
+    Logout link is intentionally REMOVED from the desktop sidebar.
+    Logout is available only via the header Logout button.
+  -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav" id="studentSidebarNav">
+      <a href="#" data-section="dashboard" class="active">Dashboard</a>
+      <a href="#" data-section="cbt">CBT</a>
+      <a href="#" data-section="results">Results</a>
+      <!-- Logout intentionally omitted from desktop sidebar -->
+    </nav>
+  </aside>
+
+  <!-- Mobile Sidebar -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" data-section="dashboard" class="active">Dashboard</a>
+      <a href="#" data-section="cbt">CBT</a>
+      <a href="#" data-section="results">Results</a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button id="mobileLogoutBtn" class="mobile-logout-btn">Logout</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!--
+      HEADER
+      ──────
+      • School logo is read-only (no camera, no upload — students cannot edit).
+      • Logo loaded from Firestore field "logo".
+      • School name and address only — NO term/session text here.
+    -->
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo-readonly">
+          <img
+            id="schoolLogoImg"
+            alt="School Logo"
+            src="https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=S&size=80"
+          >
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading…</h1>
+          <div id="schoolAddress" class="school-address"></div>
+          <!-- NO session/term line here — removed per requirement -->
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu">☰</button>
+        <div id="subscriptionBadge" class="subscription-badge"></div>
+        <div style="position:relative;">
+          <button id="notificationBell" class="notification-bell" aria-label="Notifications">🔔</button>
+          <div id="notificationDropdown" class="notification-dropdown">
+            <div class="notification-header">Notifications</div>
+            <div id="notificationList">Loading…</div>
+          </div>
+        </div>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <!--
+      ACADEMIC BADGE ROW
+      ──────────────────
+      This pill — driven by academic-calendar.js + calendar-sync.js —
+      is the ONLY place the current term and session appear in the header area.
+      It sits directly below the Logout button.
+    -->
+    <div class="academic-badge-row">
+      <div class="academic-badge">
+        <span id="currentTermDisplay">—</span>&nbsp;|&nbsp;<span id="currentSessionDisplay">—</span>
+      </div>
+    </div>
+
+    <div class="content" id="mainContentArea">
+
+      <!-- Dashboard Section -->
+      <div id="dashboardSection" class="dynamic-section">
+        <div id="heroContainer"></div>
+
+        <div class="internal-tabs">
+          <button class="internal-tab-btn active" data-tab="profile">Profile</button>
+          <button class="internal-tab-btn" data-tab="attendance">Attendance</button>
+          <button class="internal-tab-btn" data-tab="subjects">Subjects</button>
+          <button class="internal-tab-btn" data-tab="assignments">Assignments</button>
+        </div>
+
+        <div id="profileTab"     class="tab-pane active-pane">Loading profile…</div>
+        <div id="attendanceTab"  class="tab-pane">Loading attendance…</div>
+        <div id="subjectsTab"    class="tab-pane">Loading subjects…</div>
+        <div id="assignmentsTab" class="tab-pane">Loading assignments…</div>
+      </div>
+
+      <!-- Results Section -->
+      <div id="resultsSection" class="dynamic-section" style="display:none;">
+        <div class="welcome-card">
+          <h2>📊 Academic Performance</h2>
+          <p>Your termly results and subject breakdown</p>
+        </div>
+        <div id="resultsSummaryContainer" class="summary-stats"></div>
+        <div class="card" style="background:white;border-radius:1rem;padding:1.2rem;">
+          <h3>Subject Results</h3>
+          <div id="resultsTableContainer" class="results-table-wrapper">Loading results…</div>
+          <div class="form-actions" style="margin-top:1rem;">
+            <button id="downloadResultBtn" class="btn-secondary">📄 Download Result</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
+  </main>
 </div>
 
-<script type="module">
-  // ✅ Use ABSOLUTE path from project root
-  import { initStudentPortal, logoutUser } from '/js/auth.js';
+<script type="module" src="./student-portal.js"></script>
 
-  // Protect page (redirects to '/' if not a student)
-  initStudentPortal();
-
-  const logoutBtn = document.getElementById('logoutBtn');
-  const loadingMsg = document.getElementById('loadingMessage');
-
-  logoutBtn.addEventListener('click', async () => {
-    if (loadingMsg) loadingMsg.style.display = 'block';
-    try {
-      await logoutUser();  // defined in auth.js → redirects to '/'
-    } catch (error) {
-      console.error('Logout failed:', error);
-      alert('Logout failed. Please try again.');
-    } finally {
-      if (loadingMsg) loadingMsg.style.display = 'none';
+<script>
+  // CBT button validation and redirect (ensures schoolId and studentId exist)
+  (function() {
+    function validateAndRedirectToCBT(event) {
+      event.preventDefault();
+      const schoolId = localStorage.getItem('userSchoolId');
+      const studentId = localStorage.getItem('studentId');
+      if (!schoolId || !studentId) {
+        alert('Unable to access CBT. Please log out and log in again.');
+        return false;
+      }
+      // Correct path: go up one level (out of students/) then into cbt/html/
+      window.location.href = '../cbt/html/cbt.html';
+      return true;
     }
-  });
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const cbtLinks = document.querySelectorAll('[data-section="cbt"]');
+      cbtLinks.forEach(link => {
+        link.addEventListener('click', validateAndRedirectToCBT);
+      });
+    });
+  })();
 </script>
 </body>
 </html>

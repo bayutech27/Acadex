@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex - Class Attendance</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <style>
+    /* ══════════════════════════════════════════════
+       ATTENDANCE-SPECIFIC STYLES
+    ══════════════════════════════════════════════ */
+
+    /* ── Page header / action row ─────────────────── */
+    .attendance-page-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .attendance-page-header h2 {
+      margin: 0 0 0.25rem;
+      font-size: 1.4rem;
+      color: #1e293b;
+    }
+    #classNameDisplay {
+      font-size: 0.9rem;
+      color: #64748b;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .btn-save     { background: #2563eb; color: #fff; }
+    .btn-print    { background: #0f766e; color: #fff; }
+    .btn-download { background: #7c3aed; color: #fff; }
+    .btn-save, .btn-print, .btn-download {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-save:hover, .btn-print:hover, .btn-download:hover { opacity: 0.88; }
+
+    /* ── Class stats cards ────────────────────────── */
+    .class-stats-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+    .stat-chip {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      text-align: center;
+      min-width: 90px;
+    }
+    .stat-chip .chip-val { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
+    .stat-chip .chip-lbl { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+    .stat-chip.boys  { border-left: 4px solid #3b82f6; }
+    .stat-chip.girls { border-left: 4px solid #ec4899; }
+    .stat-chip.total { border-left: 4px solid #10b981; }
+
+    /* ── Attendance table wrapper ─────────────────── */
+    .table-scroll-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 72vh;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-bottom: 2rem;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ── Attendance table ─────────────────────────── */
+    .attendance-table {
+      border-collapse: collapse;
+      white-space: nowrap;
+      font-size: 0.72rem;
+      width: max-content;
+      min-width: 100%;
+    }
+    .attendance-table th,
+    .attendance-table td {
+      border: 1px solid #e2e8f0;
+      padding: 3px 4px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    /* Week header row */
+    .attendance-table .th-week {
+      background: #1e40af;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      border-right: 2px solid #3b82f6;
+      min-width: 22px;
+    }
+    /* Alternate week colour */
+    .attendance-table .th-week.even { background: #1d4ed8; }
+
+    /* Day header row */
+    .attendance-table .th-day {
+      background: #3b82f6;
+      color: #fff;
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
+
+    /* Period header row */
+    .attendance-table .th-period {
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 0.65rem;
+      font-weight: 700;
+      width: 20px;
+      min-width: 20px;
+    }
+
+    /* Sticky columns */
+    .sticky-col { position: sticky; background: #fff; z-index: 2; }
+    .sticky-sn  { left: 0;   min-width: 36px; width: 36px; }
+    .sticky-name{ left: 36px; min-width: 140px; width: 140px; text-align: left !important; padding: 3px 6px !important; }
+    .sticky-total{ right: 0; min-width: 44px; width: 44px; font-weight: 700; background: #f0fdf4 !important; }
+
+    /* Sticky headers get elevated z-index */
+    .attendance-table thead .sticky-col { z-index: 4; }
+    .attendance-table thead th          { position: sticky; top: 0; z-index: 3; }
+    /* Row 1: week headers */
+    .attendance-table thead tr:nth-child(1) th { top: 0; }
+    /* Row 2: day headers — sits below week row (30px) */
+    .attendance-table thead tr:nth-child(2) th { top: 30px; }
+    /* Row 3: period headers */
+    .attendance-table thead tr:nth-child(3) th { top: 58px; }
+
+    /* Checkbox cells */
+    .td-check {
+      width: 20px; max-width: 20px;
+      padding: 2px 1px;
+    }
+    .att-checkbox {
+      width: 13px; height: 13px;
+      cursor: pointer;
+      margin: 0;
+      accent-color: #2563eb;
+    }
+
+    /* S/N and Name body cells */
+    .td-sn   { color: #64748b; font-size: 0.68rem; }
+    .td-name { text-align: left !important; padding: 3px 6px !important; font-weight: 500; }
+    .td-total{ font-weight: 700; color: #059669; }
+
+    /* Holiday columns — visual dimming (applied via JS) */
+    .att-checkbox:disabled { accent-color: #94a3b8; opacity: 0.4; cursor: default; }
+
+    /* ── Weekly summary table ─────────────────────── */
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 2rem 0 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .summary-table {
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      min-width: 600px;
+      width: 100%;
+    }
+    .summary-table th {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      padding: 6px 10px;
+      font-weight: 600;
+      color: #334155;
+      white-space: nowrap;
+    }
+    .summary-table td {
+      border: 1px solid #e2e8f0;
+      padding: 5px 10px;
+      text-align: center;
+    }
+    .summary-table .week-label { font-weight: 600; color: #1e40af; }
+    .holiday-cell { background: #fef9c3; color: #92400e; font-size: 0.72rem; }
+    .open-day-cell { background: #f0fdf4; }
+    .day-detail { color: #64748b; font-size: 0.68rem; }
+    .stat-cell  { color: #1e293b; }
+    .stat-cell.combined   { font-weight: 700; }
+    .stat-cell.percentage { font-weight: 700; color: #059669; }
+
+    /* ── Term summary ─────────────────────────────── */
+    .term-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+      margin-bottom: 2rem;
+    }
+    .term-stat {
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      padding: 1rem 1.25rem;
+    }
+    .term-stat-label { font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem; }
+    .term-stat-value { font-size: 1.4rem; font-weight: 700; color: #1e293b; }
+    .term-stat-value.good { color: #059669; }
+    .term-stat-value.fair { color: #d97706; }
+    .term-stat-value.poor { color: #dc2626; }
+
+    /* ── No class / empty states ──────────────────── */
+    .no-class-warning {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      background: #fef9c3;
+      border: 1px solid #fbbf24;
+      border-radius: 12px;
+      margin: 2rem 0;
+    }
+    .no-class-warning .warning-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .no-class-warning h2  { font-size: 1.3rem; margin-bottom: 0.5rem; color: #92400e; }
+    .no-class-warning p   { color: #78350f; font-size: 0.9rem; max-width: 400px; margin: 0 auto 1.25rem; }
+    .btn-back {
+      display: inline-block;
+      padding: 0.5rem 1.25rem;
+      background: #1e40af;
+      color: #fff;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+    .no-data-msg { color: #64748b; font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; }
+    .empty-state { padding: 2rem; text-align: center; color: #64748b; }
+
+    /* ── Hide hamburger on desktop ────────────────── */
+    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
+
+    /* ── Mobile adjustments ───────────────────────── */
+    @media (max-width: 640px) {
+      .attendance-page-header { flex-direction: column; }
+      .action-buttons { width: 100%; }
+      .btn-save, .btn-print, .btn-download { flex: 1; text-align: center; }
+      .term-summary-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ══════════════════════════════════════════════
+       PRINT STYLES
+    ══════════════════════════════════════════════ */
+    .print-header { display: none; }
+
+    @media print {
+      /* Page orientation & size */
+      @page { size: A3 landscape; margin: 8mm; }
+
+      /* Hide all non-essential UI */
+      .sidebar,
+      .mobile-sidebar,
+      .overlay,
+      .hamburger-menu,
+      .action-buttons,
+      #logoutBtn,
+      .school-logo,
+      .academic-badge-row,
+      .app-footer,
+      .camera-icon,
+      #logoUploadInput { display: none !important; }
+
+      /* Show print header */
+      .print-header {
+        display: block !important;
+        margin-bottom: 8px;
+        border-bottom: 1px solid #000;
+        padding-bottom: 4px;
+      }
+      .print-header h2 { font-size: 11pt; margin: 0 0 2px; }
+      .print-header p  { font-size: 8pt;  margin: 0; }
+
+      /* Layout */
+      .dashboard-container { display: block; }
+      .main-content        { margin: 0; padding: 0; }
+      .header              { padding: 0; box-shadow: none; }
+      #schoolName          { font-size: 11pt; }
+      #schoolAddress       { display: none; }
+
+      /* Table must be fully visible */
+      .table-scroll-wrapper {
+        overflow: visible;
+        max-height: none;
+        border: none;
+      }
+      .attendance-table         { font-size: 0.45rem; width: 100%; }
+      .attendance-table th,
+      .attendance-table td      { padding: 1px; }
+      .att-checkbox             { width: 8px; height: 8px; pointer-events: none; }
+      .sticky-col               { position: static; }
+      .sticky-name              { min-width: 80px; width: auto; }
+
+      /* Summary tables */
+      .summary-table { font-size: 0.65rem; }
+      .term-summary-grid { grid-template-columns: repeat(3, 1fr); }
+
+      /* Section breaks */
+      .section-title { break-before: avoid; }
+      #weeklySummaryContainer { break-before: page; }
+    }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+
+  <!-- ═══════════════════ Desktop Sidebar ═══════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">Dashboard</a>
+      <a href="class.html">Class</a>
+      <a href="scores.html">Scores</a>
+      <a href="attendance.html" class="active">Class Attendance</a>
+    </nav>
+  </aside>
+
+  <!-- ═══════════════════ Mobile Sidebar ═══════════════════ -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar">&times;</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">Dashboard</a>
+      <a href="class.html">Class</a>
+      <a href="scores.html">Scores</a>
+      <a href="attendance.html" class="active">Class Attendance</a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">Logout</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <!-- ═══════════════════ Main Content ═══════════════════ -->
+  <main class="main-content">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu">☰</button>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <!-- Academic Badge Row -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <span id="currentTermDisplay">Loading...</span> |
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <!-- ══ Print Header (hidden on screen, visible on print) ══ -->
+    <div class="print-header">
+      <h2 id="printSchoolName"></h2>
+      <p>
+        Class: <strong id="printClass"></strong> &nbsp;|&nbsp;
+        Session: <strong id="printSession"></strong> &nbsp;|&nbsp;
+        Term: <strong id="printTerm"></strong> &nbsp;|&nbsp;
+        Teacher: <strong id="printTeacher"></strong>
+      </p>
+    </div>
+
+    <!-- ══ Main Content Area ══ -->
+    <div class="content">
+
+      <!-- Page title + action buttons -->
+      <div class="attendance-page-header">
+        <div>
+          <h2>📋 Class Attendance</h2>
+          <div id="classNameDisplay">Loading class...</div>
+        </div>
+        <div class="action-buttons">
+          <button id="saveAttendanceBtn"     class="btn-save">💾 Save</button>
+          <button id="printAttendanceBtn"    class="btn-print">🖨️ Print</button>
+          <button id="downloadAttendanceBtn" class="btn-download">⬇️ Download CSV</button>
+        </div>
+      </div>
+
+      <!-- Class statistics -->
+      <div id="classStatsContainer" class="class-stats-row"></div>
+
+      <!-- Main attendance table -->
+      <div id="attendanceTableContainer"></div>
+
+      <!-- Weekly summary table -->
+      <div id="weeklySummaryContainer"></div>
+
+      <!-- Term summary section -->
+      <div id="termSummaryContainer"></div>
+
+    </div><!-- /.content -->
+
+    <footer class="app-footer">
+      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+    </footer>
+  </main>
+</div>
+
+<script type="module">
+  import { initAttendancePage } from '../js/attendance.js';
+  initAttendancePage();
+</script>
+</body>
+</html>

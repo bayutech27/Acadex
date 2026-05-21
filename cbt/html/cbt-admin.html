@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex Super Admin | CBT Question Management</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/cbt-admin.css">
+  <style>
+    .admin-main { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+    .admin-container { background: white; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); padding: 2rem; }
+    .admin-tabs { display: flex; gap: 0.5rem; border-bottom: 2px solid #e2e8f0; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .tab-btn { background: none; border: none; padding: 0.75rem 1.25rem; font-size: 1rem; font-weight: 600; color: #64748b; cursor: pointer; border-radius: 8px 8px 0 0; transition: all 0.2s; }
+    .tab-btn i { margin-right: 8px; }
+    .tab-btn:hover { background: #f1f5f9; color: #1e293b; }
+    .tab-btn.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; background: #eff6ff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .form-section { background: #f8fafc; padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; }
+    .image-preview-container { margin-top: 10px; }
+    .image-preview { max-width: 200px; max-height: 150px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    .remove-image-btn { background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 6px; margin-top: 5px; cursor: pointer; }
+    .csv-preview-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .csv-preview-table th, .csv-preview-table td { border: 1px solid #e2e8f0; padding: 6px; }
+    .error-message { background: #fee2e2; color: #dc2626; padding: 0.75rem; border-radius: 8px; margin-top: 1rem; }
+    .upload-actions { display: flex; gap: 1rem; margin-top: 1rem; }
+    .progress-bar { background: #e2e8f0; border-radius: 8px; overflow: hidden; height: 20px; margin: 10px 0; }
+    .progress-fill { background: #3b82f6; width: 0%; height: 100%; transition: width 0.3s; }
+    .action-buttons { display: flex; gap: 0.5rem; }
+    .action-btn { background: none; border: none; cursor: pointer; font-size: 1rem; padding: 0.25rem 0.5rem; border-radius: 4px; transition: 0.2s; }
+    .edit-btn { color: #3b82f6; }
+    .edit-btn:hover { background: #eff6ff; }
+    .delete-btn { color: #ef4444; }
+    .delete-btn:hover { background: #fee2e2; }
+    .question-type { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+    .type-text { background: #dbeafe; color: #1e40af; }
+    .type-image { background: #fef3c7; color: #92400e; }
+    .type-both { background: #dcfce7; color: #166534; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="container header-container">
+      <div class="brand">
+        <h1 class="brand-name">Acadex <span class="cbt">CBT</span> <span class="powered-by">Super Admin</span></h1>
+      </div>
+      <nav class="desktop-nav">
+        <ul class="desktop-nav-list">
+          <li><a href="../../super-admin.html"><i class="fas fa-building"></i> Schools</a></li>
+          <li><a href="cbt-admin.html" class="active"><i class="fas fa-database"></i> CBT Question Bank</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <div class="admin-container">
+      <h1 class="admin-title"><i class="fas fa-database"></i> CBT Question Management</h1>
+      <p class="admin-subtitle">Add, edit, bulk upload, and manage practice questions for all students.</p>
+
+      <div class="admin-tabs">
+        <button class="tab-btn active" data-tab="question-manager"><i class="fas fa-edit"></i> Add Question</button>
+        <button class="tab-btn" data-tab="bulk-upload"><i class="fas fa-file-upload"></i> Bulk Upload</button>
+        <button class="tab-btn" data-tab="question-list"><i class="fas fa-list"></i> View/Edit Questions</button>
+      </div>
+
+      <!-- TAB 1: ADD QUESTION -->
+      <section id="question-manager" class="tab-content active">
+        <h2><i class="fas fa-edit"></i> Add / Edit Practice Question</h2>
+        <p class="section-info">All questions added here will be available to all students.</p>
+        <form id="addQuestionForm" class="admin-form">
+          <input type="hidden" id="questionId" name="questionId" value="">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="examType">Exam Type *</label>
+              <select id="examType" required>
+                <option value="" disabled selected>Select</option>
+                <option value="WAEC/NECO">WAEC/NECO</option>
+                <option value="JAMB">JAMB</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="subject">Subject *</label>
+              <select id="subject" required>
+                <option value="" disabled selected>Select subject</option>
+                <option value="mathematics">Mathematics</option>
+                <option value="english">English Language</option>
+                <option value="physics">Physics</option>
+                <option value="chemistry">Chemistry</option>
+                <option value="accounting">Accounting</option>
+                <option value="literature">Literature</option>
+                <option value="government">Government</option>
+                <option value="commerce">Commerce</option>
+                <option value="biology">Biology</option>
+                <option value="economics">Economics</option>
+                <option value="crk">CRK</option>
+                <option value="civic">Civic</option>
+                <option value="furtherMath">Further Maths</option>
+                <option value="geography">Geography</option>
+                <option value="ict">ICT</option>
+                <option value="marketing">Marketing</option>
+                <option value="agric">Agric Science</option>
+                <option value="yoruba">Yoruba</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="topic">Topic (optional)</label>
+              <input type="text" id="topic" placeholder="e.g., Algebra, Grammar">
+            </div>
+            <div class="form-group">
+              <label for="timeLimit">Time per question (seconds)</label>
+              <select id="timeLimit">
+                <option value="60">60 sec</option>
+                <option value="90">90 sec</option>
+                <option value="120" selected>120 sec</option>
+                <option value="180">180 sec</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-section">
+            <h3>Question Content</h3>
+            <div class="form-group">
+              <label for="questionText">Question Text</label>
+              <textarea id="questionText" rows="4" placeholder="Type or paste question text here"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="questionImage">Question Image</label>
+              <input type="file" id="questionImage" accept="image/*">
+              <div id="questionImagePreview" style="display:none; margin-top:10px;">
+                <img id="questionImagePreviewImg" class="image-preview">
+                <button type="button" id="removeQuestionImageBtn" class="remove-image-btn">Remove Image</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="option-group"><label>A. Option A *</label><input type="text" id="optionA" required></div>
+            <div class="option-group"><label>B. Option B *</label><input type="text" id="optionB" required></div>
+          </div>
+          <div class="form-row">
+            <div class="option-group"><label>C. Option C *</label><input type="text" id="optionC" required></div>
+            <div class="option-group"><label>D. Option D *</label><input type="text" id="optionD" required></div>
+          </div>
+          <div class="form-group">
+            <label for="correctAnswer">Correct Answer *</label>
+            <select id="correctAnswer" required>
+              <option value="" disabled selected>Select</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+          <div class="form-section">
+            <h3>Solution Explanation</h3>
+            <div class="form-group">
+              <label for="solution">Solution Text</label>
+              <textarea id="solution" rows="3" placeholder="Explain the answer"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="solutionImage">Solution Image</label>
+              <input type="file" id="solutionImage" accept="image/*">
+              <div id="solutionImagePreview" style="display:none; margin-top:10px;">
+                <img id="solutionImagePreviewImg" class="image-preview">
+                <button type="button" id="removeSolutionImageBtn" class="remove-image-btn">Remove Image</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="submitQuestionBtn" class="btn btn-primary"><i class="fas fa-save"></i> Save Question</button>
+            <button type="button" id="clearFormBtn" class="btn btn-secondary">Clear Form</button>
+            <button type="button" id="cancelEditBtn" class="btn btn-secondary" style="display:none;">Cancel Edit</button>
+          </div>
+        </form>
+        <div id="formFeedback"></div>
+        <div id="validationMessage"></div>
+      </section>
+
+      <!-- TAB 2: BULK UPLOAD -->
+      <section id="bulk-upload" class="tab-content">
+        <h2><i class="fas fa-file-upload"></i> Bulk Upload Questions</h2>
+        <div class="bulk-upload-container">
+          <div class="upload-method-selector">
+            <button type="button" id="csvMethodBtn" class="method-btn active"><i class="fas fa-file-csv"></i> CSV Upload</button>
+            <button type="button" id="textMethodBtn" class="method-btn"><i class="fas fa-font"></i> Text Format</button>
+          </div>
+
+          <!-- CSV Section -->
+          <div id="csvUploadSection" class="upload-section active">
+            <div class="upload-box" id="csvDropZone">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <h3>Upload CSV File</h3>
+              <p>Drag & drop or click to browse</p>
+              <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+              <button type="button" id="browseCsvBtn" class="btn btn-secondary">Browse</button>
+            </div>
+            <div class="preview-section"><h4>Preview</h4><div id="csvPreview"></div></div>
+            <div class="template-section">
+              <button id="downloadTemplateBtn" class="btn btn-secondary">Download CSV Template</button>
+            </div>
+            <div id="uploadProgress" class="upload-progress" style="display:none;">
+              <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+              <span id="processedCount">0</span> / <span id="totalCount">0</span> <span id="progressPercent">0%</span>
+            </div>
+            <div class="upload-actions">
+              <button id="startUploadBtn" class="btn btn-primary" disabled>Upload Questions</button>
+              <button id="cancelUploadBtn" class="btn btn-secondary" style="display:none;">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Text Section -->
+          <div id="textUploadSection" class="upload-section">
+            <textarea id="bulkTextInput" rows="12" placeholder="Paste questions in format..."></textarea>
+            <div class="upload-actions">
+              <button id="parseTextBtn" class="btn btn-secondary">Validate Format</button>
+              <button id="uploadTextBtn" class="btn btn-primary" disabled>Upload Text Questions</button>
+            </div>
+            <div id="textUploadProgress" class="upload-progress" style="display:none;">
+              <div class="progress-bar"><div id="textProgressFill" class="progress-fill"></div></div>
+              <span id="textProcessedCount">0</span> / <span id="textTotalCount">0</span> <span id="textProgressPercent">0%</span>
+            </div>
+            <div id="textPreview"></div>
+          </div>
+          <div id="bulkUploadFeedback"></div>
+        </div>
+      </section>
+
+      <!-- TAB 3: VIEW/EDIT QUESTIONS (FULL TABLE) -->
+      <section id="question-list" class="tab-content">
+        <h2><i class="fas fa-tasks"></i> Manage Question Bank</h2>
+        <div class="bulk-delete-section">
+          <h3>Delete All Questions by Subject</h3>
+          <select id="bulkDeleteSubject">
+            <option value="" disabled selected>Select subject</option>
+            <option value="mathematics">Mathematics</option>
+            <option value="english">English Language</option>
+            <option value="physics">Physics</option>
+            <option value="chemistry">Chemistry</option>
+            <option value="accounting">Accounting</option>
+            <option value="literature">Literature</option>
+            <option value="government">Government</option>
+            <option value="commerce">Commerce</option>
+            <option value="biology">Biology</option>
+            <option value="economics">Economics</option>
+            <option value="crk">CRK</option>
+            <option value="civic">Civic</option>
+            <option value="furtherMath">Further Maths</option>
+            <option value="geography">Geography</option>
+            <option value="ict">ICT</option>
+            <option value="marketing">Marketing</option>
+            <option value="agric">Agric Science</option>
+            <option value="yoruba">Yoruba</option>
+          </select>
+          <button id="bulkDeleteBtn" class="btn btn-danger">Delete All</button>
+          <div id="bulkDeleteProgress" style="display:none;">
+            <div class="progress-bar"><div id="bulkDeleteProgressFill" class="progress-fill"></div></div>
+            <span id="bulkDeleteStatus"></span>
+          </div>
+        </div>
+        <div class="search-box">
+          <input type="text" id="questionSearch" placeholder="Search by subject, exam, or text">
+          <button id="searchBtn" class="btn btn-primary">Search</button>
+        </div>
+        <div class="table-container">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Subject</th>
+                <th>Exam</th>
+                <th>Question Preview</th>
+                <th>Type</th>
+                <th>Correct</th>
+                <th>Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="questionTableBody">
+              <tr><td colspan="8">Loading...</td><tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination-controls" style="margin-top: 1rem; text-align: center;">
+          <button id="loadMoreQuestions" class="btn btn-secondary">Load More</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="dashboard-footer">
+    <button id="logoutBtn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+  </footer>
+
+  <script type="module" src="../js/script.js"></script>
+  <script type="module" src="../js/cbt-admin.js"></script>
+</body>
+</html>

@@ -215,8 +215,8 @@ function renderTable(schools) {
         <td>
           <button class="btn-warning approve-extra" data-id="${s.id}" ${!hasPending ? 'disabled' : ''}>Approve Extra</button>
           <button class="btn-danger toggle-subscription" data-id="${s.id}" data-status="${status}">${buttonText}</button>
-        </td>
-      </tr>
+         </td>
+       </tr>
     `;
   }).join('');
 

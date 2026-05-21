@@ -5,6 +5,7 @@
 //           Student can login with email and password ($Acadex123) to students-portal.html
 //           All existing edit / delete / filter / display logic is UNCHANGED.
 // ADDED: Alphabetical sorting of students by full name in the student list table.
+// MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
 
 import { db, auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -399,9 +400,9 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// IMAGE COMPRESSION
+// IMAGE COMPRESSION (MODIFIED: target size reduced to 750KB)
 // ───────────────────────────────────────────────────────────────────────────────
-async function compressAndResizeImage(file, maxSizeKB = 800, targetWidth = 100, targetHeight = 100) {
+async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
       reject('Invalid file type. Please upload an image.');
@@ -447,6 +448,7 @@ async function handlePassportUpload(e) {
   passportPreviewContainer.innerHTML = '';
   if (!file) return;
 
+  // Allow files up to 800KB, then compress to ≤750KB
   if (file.size > 800 * 1024) {
     passportErrorSpan.textContent = 'File size exceeds 800KB. Please choose a smaller image.';
     passportErrorSpan.style.display = 'block';
@@ -455,7 +457,8 @@ async function handlePassportUpload(e) {
   }
 
   try {
-    const base64 = await compressAndResizeImage(file, 800, 100, 100);
+    // Compress to 750KB (maxSizeKB = 750)
+    const base64 = await compressAndResizeImage(file, 750, 100, 100);
     passportInput.dataset.base64 = base64;
     const imgEl = document.createElement('img');
     imgEl.src = base64;

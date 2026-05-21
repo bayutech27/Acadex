@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="author" content="Acadex CBT">
+  <meta name="description" content="Acadex CBT Dashboard – Practice Tests & Assigned Exams">
+  <title>Acadex CBT | Dashboard</title>
+  <link rel="icon" type="image/png" href="../img/Smart-brain-icon.png">
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/cbt.css">
+  <style>
+    /* Additional styles for the assigned tests table */
+    .assigned-tests-table-wrapper {
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    .assigned-tests-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .assigned-tests-table th {
+      background: #f8fafc;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #1e293b;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .assigned-tests-table td {
+      padding: 12px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    .assigned-tests-table tr:hover {
+      background: #f8f9ff;
+    }
+    .take-test-btn {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.8rem;
+      transition: opacity 0.2s;
+    }
+    .take-test-btn:disabled {
+      background: #cbd5e1;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-started {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .status-pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .status-expired {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    @media (max-width: 640px) {
+      .assigned-tests-table th,
+      .assigned-tests-table td {
+        padding: 8px;
+        font-size: 0.75rem;
+      }
+      .take-test-btn {
+        padding: 4px 8px;
+        font-size: 0.7rem;
+      }
+    }
+  </style>
+</head>
+<body>
+<script>
+// Acadex session validation – must have schoolId and studentId
+(function() {
+  const schoolId = localStorage.getItem('userSchoolId');
+  const studentId = localStorage.getItem('studentId');
+  if (!schoolId || !studentId) {
+    alert('Invalid session. Please log in again.');
+    window.location.href = '../../index.html';
+  }
+})();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+    for(let registration of registrations) registration.unregister();
+  });
+  if (caches) {
+    caches.keys().then(names => names.forEach(name => caches.delete(name)));
+  }
+}
+</script>
+
+<header class="header">
+  <div class="container header-container">
+    <div class="brand">
+      <h1 class="brand-name">Acadex <span class="cbt">CBT</span></h1>
+    </div>
+    <div class="hamburger" id="hamburger"><span></span><span></span><span></span></div>
+    <nav class="desktop-nav">
+      <ul class="desktop-nav-list">
+        <li class="desktop-nav-item">
+          <a href="../../student/student-portal.html" class="desktop-nav-link"><i class="fas fa-home"></i> Home</a>
+        </li>
+        <li class="desktop-nav-item">
+          <a href="cbt.html" class="desktop-nav-link active"><i class="fas fa-tachometer-alt"></i> CBT Dashboard</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<nav class="mobile-menu" id="mobileMenu">
+  <div class="container">
+    <ul class="nav-list">
+      <li><a href="../../student/student-portal.html" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+      <li><a href="cbt.html" class="nav-link active"><i class="fas fa-tachometer-alt"></i> CBT Dashboard</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="dashboard">
+  <div class="dashboard-container">
+    
+    <!-- Welcome Section (Student name and class only) -->
+    <section class="welcome-section">
+      <div class="welcome-content" style="justify-content: flex-start;">
+        <div class="user-welcome">
+          <h1><span id="userName"></span></h1>
+          <p id="studentClassDisplay" class="student-class"><i class="fas fa-graduation-cap"></i> Class: --</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Basic Stats Cards (Completed Tests & Average Score) -->
+    <section class="stats-section">
+      <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fas fa-check-circle"></i>
+          </div>
+          <div class="stat-content">
+            <h3>Completed Tests</h3>
+            <div class="stat-number" id="completedTests">0</div>
+            <div class="stat-label">tests taken</div>
+          </div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fas fa-chart-line"></i>
+          </div>
+          <div class="stat-content">
+            <h3>Average Score</h3>
+            <div class="stat-number" id="averageScore">0<span class="percent">%</span></div>
+            <div class="stat-label" id="performanceMessage">Start practicing!</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABS will be inserted here by JavaScript (Practice Tests / Assigned Tests) -->
+
+    <!-- ASSIGNED CBT TESTS SECTION (shown when "Assigned Tests" tab is active) -->
+    <section class="practice-section" id="assignedCbtSection" style="display: none;">
+      <div class="section-header">
+        <h2><i class="fas fa-clock"></i> Assigned CBT Tests</h2>
+        <p class="section-subtitle">Tests created by your teachers</p>
+      </div>
+      <div id="assignedTestsTableWrapper" class="assigned-tests-table-wrapper">
+        <p class="loading">Loading assigned tests...</p>
+      </div>
+      <div id="cbtErrorMessage" class="error-message" style="display:none;"></div>
+    </section>
+
+    <!-- PRACTICE TESTS SECTION (shown when "Practice Tests" tab is active) -->
+    <div id="practiceTestsContainer">
+      <!-- QUICK TEST SECTION -->
+      <section class="practice-section" id="quickTestSection">
+        <div class="section-header">
+          <h2><i class="fas fa-bolt"></i> Quick Test (20 questions, 20 mins)</h2>
+          <p class="section-subtitle">Select your exam and subject to begin</p>
+        </div>
+        
+        <form class="practice-form" id="quickTestForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="classSelect"><i class="fas fa-graduation-cap"></i> Select Exam</label>
+              <select id="classSelect" class="form-select" required>
+                <option value="" disabled selected>Choose your exam</option>
+                <option value="waec">WAEC/NECO</option>
+                <option value="jamb">JAMB</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="subjectSelect"><i class="fas fa-book"></i> Select Subject</label>
+              <select id="subjectSelect" class="form-select" required>
+                <option value="" disabled selected>Choose subject</option>
+              </select>
+            </div>
+            
+            <button type="button" id="startQuickTestBtn" class="start-test-btn">
+              <i class="fas fa-play-circle"></i> Start Quick Test
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- JAMB DRILL SECTION -->
+      <section class="practice-section" id="jambDrillSection">
+        <div class="section-header">
+          <h2><i class="fas fa-graduation-cap"></i> JAMB Drill (4 Subjects, 120 mins, scored /400)</h2>
+          <p class="section-subtitle">English is compulsory. Choose 3 additional subjects.</p>
+        </div>
+
+        <form class="practice-form" id="jambDrillForm">
+          <div class="form-group">
+            <label><i class="fas fa-book"></i> English (Compulsory)</label>
+            <div class="checkbox-item" style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+              <input type="checkbox" id="subjectEnglish" value="english" checked disabled style="width: 18px; height: 18px;">
+              <label for="subjectEnglish" style="margin: 0; font-weight: 500;">English Language (60 questions)</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label><i class="fas fa-book"></i> Choose 3 Additional Subjects</label>
+            <div class="checkbox-group" id="additionalSubjects" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 12px; margin-top: 10px;">
+            </div>
+            <small id="subjectSelectionHint" style="color: #666; display: block; margin-top: 8px;">Select exactly 3 subjects</small>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <button type="button" id="startJambDrillBtn" class="start-test-btn" style="background: linear-gradient(135deg, #9C27B0, #6A11CB);">
+              <i class="fas fa-play-circle"></i> Start JAMB Drill
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- WAEC/NECO DRILL SECTION -->
+      <section class="practice-section" id="waecNecoDrillSection">
+        <div class="section-header">
+          <h2><i class="fas fa-school"></i> WAEC/NECO Drill (50 questions, 40 mins)</h2>
+          <p class="section-subtitle">Select a subject to start practicing WAEC/NECO style questions</p>
+        </div>
+
+        <form class="practice-form" id="waecNecoDrillForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="waecNecoSubjectSelect"><i class="fas fa-book"></i> Select Subject</label>
+              <select id="waecNecoSubjectSelect" class="form-select" required>
+                <option value="" disabled selected>Choose subject</option>
+              </select>
+            </div>
+
+            <button type="button" id="startWaecNecoDrillBtn" class="start-test-btn">
+              <i class="fas fa-play-circle"></i> Start WAEC/NECO Drill
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Recent Tests Section -->
+      <section class="recent-tests-section">
+        <div id="recentTestsContainer" class="recent-tests">
+          <h3>Recent Tests</h3>
+          <div id="recentTestsList"></div>
+          <div id="recentTestsMore" class="load-more-container" style="display:none; text-align: center; margin-top: 1rem;">
+            <button id="loadMoreRecentBtn" class="load-more-btn">
+              <i class="fas fa-chevron-down"></i> Load More
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Dashboard Footer -->
+    <footer class="dashboard-footer">
+      <div class="footer-content">
+        <div class="footer-nav">
+          <a href="../../student/student-portal.html" class="home-btn">
+            <i class="fas fa-home"></i> Home
+          </a>
+        </div>
+        <div class="footer-copyright">
+          <p>© 2026 Acadex • Empowering Schools through technology</p>
+        </div>
+      </div>
+    </footer>
+  </div>
+</main>
+
+<script type="module" src="../js/script.js"></script>
+<script type="module" src="../js/cbt.js"></script>
+</body>
+</html>
