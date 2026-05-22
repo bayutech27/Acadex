@@ -2,6 +2,7 @@
 // FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
 // DYNAMIC SESSION DROPDOWN – shows only sessions with existing scores for the school
 // ADDED: Alphabetical sorting of students, class options, and subject options.
+// MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
@@ -328,6 +329,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
+// ------------------- MODIFIED renderReportCard (attendance fix) -------------------
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -352,7 +354,8 @@ async function renderReportCard(studentId, studentName) {
     address: schoolDoc.exists() ? schoolDoc.data().address : '',
     logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
     email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
-    phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : ''
+    phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : '',
+    id:      currentSchoolId
   };
 
   const student = studentsList.find(s => s.id === studentId) || {};
@@ -369,8 +372,11 @@ async function renderReportCard(studentId, studentName) {
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
+  // ─── CRITICAL FIX: include classId and schoolId in studentData ───
   const studentData = {
     id: studentId, name: studentName,
+    classId: student.classId,        // ensures attendance query uses correct class
+    schoolId: currentSchoolId,       // ensures attendance query uses correct school
     admissionNumber: student.admissionNumber || '—',
     gender: student.gender || '—',
     dob:    student.dob    || '',
@@ -628,7 +634,7 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;

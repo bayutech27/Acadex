@@ -208,16 +208,20 @@ function calcWeekStats(week) {
 
 /**
  * Aggregate term statistics across all effective, non-holiday days.
+ * 
+ * MODIFIED: totalOpenedSessions = sum of (2 per non-holiday day)
+ *            totalPresent = sum of checked boxes (unchanged)
+ *            avgPercentage = (totalPresent / totalOpenedSessions) * 100
  */
 function calcTermStats() {
   const lastWeek = effectiveLastWeek();
-  let totalSchoolDays = 0, totalPresent = 0, totalExpected = 0;
+  let totalOpenedSessions = 0;
+  let totalPresent = 0;
 
   for (let w = 1; w <= lastWeek; w++) {
     for (const day of DAYS) {
       if (isHoliday(w, day)) continue;
-      totalSchoolDays++;
-      totalExpected += STATE.students.length * 2;
+      totalOpenedSessions += STATE.students.length * 2;   // each student has M + A on that day
       for (const s of STATE.students) {
         if (getVal(s.id, w, day, 'M')) totalPresent++;
         if (getVal(s.id, w, day, 'A')) totalPresent++;
@@ -226,10 +230,10 @@ function calcTermStats() {
   }
 
   return {
-    totalSchoolDays,
+    totalOpenedSessions,
     totalPresent,
-    avgPercentage: totalExpected > 0
-      ? Math.round((totalPresent / totalExpected) * 100)
+    avgPercentage: totalOpenedSessions > 0
+      ? Math.round((totalPresent / totalOpenedSessions) * 100)
       : 0
   };
 }
@@ -404,14 +408,14 @@ function buildTableHeader() {
     const cls = w % 2 === 0 ? 'th-week even' : 'th-week';
     r1 += `<th colspan="10" class="${cls}">Week ${w}</th>`;
   }
-  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></tr>';
+  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></table>';
 
   // Row 2: Mon(×2) Tue(×2) … × 15 weeks
   let r2 = '<tr class="day-header-row">';
   for (let w = 0; w < WEEKS; w++) {
     DAYS.forEach(d => { r2 += `<th colspan="2" class="th-day">${DAY_LABELS[d]}</th>`; });
   }
-  r2 += '</tr>';
+  r2 += '</td>';
 
   // Row 3: M A × 75
   let r3 = '<tr class="period-header-row">';
@@ -437,43 +441,40 @@ function buildTableBody() {
     tr.appendChild(tdSn);
 
     // Name (sticky)
-    // Name (sticky)
-const tdName = document.createElement('td');
-tdName.className = 'td-name sticky-col sticky-name';
-tdName.textContent = student.name;
+    const tdName = document.createElement('td');
+    tdName.className = 'td-name sticky-col sticky-name';
+    tdName.textContent = student.name;
 
-// Increase row height and visibility
+    // Increase row height and visibility
+    tdName.style.paddingTop = '14px';
+    tdName.style.paddingBottom = '14px';
+    tdName.style.minHeight = '56px';
+    tdName.style.fontSize = '0.95rem';
+    tdName.style.verticalAlign = 'middle';
 
-tdName.style.paddingTop = '14px';
-tdName.style.paddingBottom = '14px';
-tdName.style.minHeight = '56px';
-tdName.style.fontSize = '0.95rem';
-tdName.style.verticalAlign = 'middle';
-
-tr.appendChild(tdName);
+    tr.appendChild(tdName);
 
     // 15 weeks × 5 days × 2 periods = 150 checkbox cells
     for (let w = 1; w <= WEEKS; w++) {
       DAYS.forEach(day => {
         PERIODS.forEach(period => {
           const td = document.createElement('td');
-td.
-className = 'td-check';
+          td.className = 'td-check';
 
-// Increase checkbox row height
-td.style.paddingTop = '10px';
-td.style.paddingBottom = '10px';
-td.style.minHeight = '56px';
-td.style.verticalAlign = 'middle';
+          // Increase checkbox row height
+          td.style.paddingTop = '10px';
+          td.style.paddingBottom = '10px';
+          td.style.minHeight = '56px';
+          td.style.verticalAlign = 'middle';
 
           const cb = document.createElement('input');
           cb.type      = 'checkbox';
-cb.className = 'att-checkbox';
+          cb.className = 'att-checkbox';
 
-// Bigger checkbox for visibility
-cb.style.width = '18px';
-cb.style.height = '18px';
-cb.style.cursor = 'pointer';
+          // Bigger checkbox for visibility
+          cb.style.width = '18px';
+          cb.style.height = '18px';
+          cb.style.cursor = 'pointer';
           cb.checked   = getVal(student.id, w, day, period);
           cb.dataset.studentId = student.id;
           cb.dataset.week      = w;
@@ -556,7 +557,7 @@ function renderWeeklySummary() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// RENDERING — TERM SUMMARY
+// RENDERING — TERM SUMMARY (UPDATED to use sessions)
 // ═════════════════════════════════════════════════════════════════════════════
 function renderTermSummary() {
   const el = document.getElementById('termSummaryContainer');
@@ -568,7 +569,7 @@ function renderTermSummary() {
     return;
   }
 
-  const { totalSchoolDays, totalPresent, avgPercentage } = calcTermStats();
+  const { totalOpenedSessions, totalPresent, avgPercentage } = calcTermStats();
   const quality = avgPercentage >= 75 ? 'good' : avgPercentage >= 50 ? 'fair' : 'poor';
 
   el.innerHTML = `
@@ -576,11 +577,11 @@ function renderTermSummary() {
     <div class="term-summary-grid">
       <div class="term-stat">
         <div class="term-stat-label">Total Number of Times School Opened</div>
-        <div class="term-stat-value">${totalSchoolDays} day${totalSchoolDays !== 1 ? 's' : ''}</div>
+        <div class="term-stat-value">${totalOpenedSessions} time${totalOpenedSessions !== 1 ? 's' : ''}</div>
       </div>
       <div class="term-stat">
         <div class="term-stat-label">Total Number of Student Attendance</div>
-        <div class="term-stat-value">${totalPresent}</div>
+        <div class="term-stat-value">${totalPresent} times</div>
       </div>
       <div class="term-stat">
         <div class="term-stat-label">Average Class Attendance</div>
@@ -620,19 +621,198 @@ function onCheckboxChange(e) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// PRINT ENGINE
+// PRINT ENGINE — optimized for A4 landscape, compresses all content into one page
 // ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Injects print-specific CSS that:
+ *   - Hides all non-essential UI elements
+ *   - Forces A4 landscape, minimal margins
+ *   - Compresses the attendance table to fit horizontally
+ *   - Reduces font sizes and padding for printing
+ *   - Shows only the main content (attendance table + summaries)
+ */
+function injectPrintStyles() {
+  if (document.getElementById('attendance-print-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'attendance-print-styles';
+  style.textContent = `
+    @media print {
+      /* Hide all non-essential UI */
+      .sidebar, .hamburger-menu, .header-right, .school-header-left .camera-icon,
+      .app-footer, .logout-btn, .mobile-sidebar, .overlay, .hamburger-menu,
+      .btn-primary, .btn-secondary, .create-test-btn, .cbt-header,
+      #saveAttendanceBtn, #printAttendanceBtn, #downloadAttendanceBtn,
+      .attendance-filters, .no-data-msg, .empty-state {
+        display: none !important;
+      }
+
+      /* Keep the school header and class info */
+      .header {
+        display: flex !important;
+        justify-content: space-between !important;
+        margin-bottom: 10px !important;
+        padding: 0 !important;
+      }
+      .school-header-left {
+        display: flex !important;
+        align-items: center !important;
+        gap: 15px !important;
+      }
+      .school-logo img {
+        max-width: 50px !important;
+      }
+      .school-name h1 {
+        font-size: 1.2rem !important;
+        margin: 0 !important;
+      }
+      .school-address {
+        font-size: 0.8rem !important;
+      }
+      .academic-badge-row {
+        margin: 5px 0 10px !important;
+        text-align: center !important;
+      }
+      .academic-badge {
+        font-size: 0.9rem !important;
+        background: none !important;
+        padding: 0 !important;
+      }
+
+      /* Page setup */
+      @page {
+        size: A4 landscape;
+        margin: 0.5cm;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        font-size: 9pt !important;
+        line-height: 1.2 !important;
+      }
+
+      /* Main content area */
+      .main-content {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+      }
+      .content {
+        padding: 0 !important;
+      }
+
+      /* Attendance table – compress to fit */
+      .attendance-table {
+        font-size: 7pt !important;
+        border-collapse: collapse !important;
+        width: 100% !important;
+        table-layout: fixed !important;
+      }
+      .attendance-table th,
+      .attendance-table td {
+        padding: 2px 2px !important;
+        border: 1px solid #ccc !important;
+        white-space: nowrap !important;
+      }
+      .attendance-table .th-week {
+        font-size: 6pt !important;
+        padding: 1px !important;
+      }
+      .attendance-table .th-day {
+        font-size: 6pt !important;
+        padding: 1px !important;
+      }
+      .attendance-table .th-period {
+        font-size: 6pt !important;
+        padding: 1px !important;
+      }
+      .attendance-table .td-check input {
+        transform: scale(0.7);
+        width: 12px !important;
+        height: 12px !important;
+        margin: 0 auto !important;
+        display: block !important;
+      }
+      .attendance-table .td-sn,
+      .attendance-table .td-name,
+      .attendance-table .td-total {
+        font-size: 6pt !important;
+        padding: 2px 2px !important;
+      }
+
+      /* Remove sticky positioning for print (causes issues) */
+      .sticky-col {
+        position: static !important;
+      }
+
+      /* Weekly summary table */
+      .summary-table {
+        font-size: 7pt !important;
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin-top: 10px !important;
+      }
+      .summary-table th, .summary-table td {
+        padding: 2px 4px !important;
+        border: 1px solid #ccc !important;
+      }
+
+      /* Term summary cards */
+      .term-summary-grid {
+        display: flex !important;
+        justify-content: space-between !important;
+        gap: 10px !important;
+        margin-top: 10px !important;
+      }
+      .term-stat {
+        background: #f5f5f5 !important;
+        padding: 5px !important;
+        border-radius: 4px !important;
+        text-align: center !important;
+        flex: 1 !important;
+      }
+      .term-stat-label {
+        font-size: 8pt !important;
+        font-weight: bold !important;
+      }
+      .term-stat-value {
+        font-size: 10pt !important;
+        font-weight: bold !important;
+      }
+
+      /* Section titles */
+      .section-title {
+        font-size: 10pt !important;
+        margin: 10px 0 5px !important;
+      }
+
+      /* Ensure the table wrapper allows horizontal scroll if needed (but we hope it fits) */
+      .table-scroll-wrapper {
+        overflow-x: visible !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function printAttendance() {
-  // Populate the print-only header with live state
-  const safe = s => escapeHtml(s || '—');
-  const set  = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  // Inject print-specific styles
+  injectPrintStyles();
 
-  set('printSchoolName', STATE.school.name);
-  set('printClass',      STATE.class.name);
-  set('printSession',    STATE.academic.session);
-  set('printTerm',       STATE.academic.term);
-  set('printTeacher',    STATE.teacher.name);
+  // Prepare the print header (already populated in the DOM by normal rendering)
+  // Ensure the print-only header elements are filled (they are already set by loadSchoolInfo etc.)
+  const setPrintText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value || '—';
+  };
+  setPrintText('printSchoolName', STATE.school.name);
+  setPrintText('printClass', STATE.class.name);
+  setPrintText('printSession', STATE.academic.session);
+  setPrintText('printTerm', STATE.academic.term);
+  setPrintText('printTeacher', STATE.teacher.name);
 
+  // Trigger browser print
   window.print();
 }
 
@@ -678,10 +858,10 @@ function downloadCSV() {
   });
 
   // Term summary block
-  const { totalSchoolDays, totalPresent, avgPercentage } = calcTermStats();
+  const { totalOpenedSessions, totalPresent, avgPercentage } = calcTermStats();
   rows.push([]);
-  rows.push(['Total School Days',       totalSchoolDays]);
-  rows.push(['Total Student Attendance', totalPresent]);
+  rows.push(['Total Number of Times School Opened', totalOpenedSessions]);
+  rows.push(['Total Number of Student Attendance', totalPresent]);
   rows.push(['Average Class Attendance', `${avgPercentage}%`]);
 
   const csv  = rows.map(r => r.join(',')).join('\n');
@@ -868,6 +1048,21 @@ function showNoClassWarning() {
       <a href="teacher-dashboard.html" class="btn-back">← Back to Dashboard</a>
     </div>
   `;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXPORTED HELPER FOR REPORTCARD RENDERER
+// ═════════════════════════════════════════════════════════════════════════════
+/**
+ * Returns attendance summary for a given student.
+ * @param {string} studentId - The student's document ID.
+ * @returns {{ totalOpened: number, present: number, absent: number }}
+ */
+export function getStudentAttendanceSummary(studentId) {
+  const { totalOpenedSessions } = calcTermStats();
+  const present = calcStudentTotal(studentId);
+  const absent = totalOpenedSessions - present;
+  return { totalOpened: totalOpenedSessions, present, absent };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

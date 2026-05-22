@@ -2,8 +2,117 @@
 // Layout: subjects table extreme left, skills tables extreme right
 // Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
 import { showNotification } from './error-handler.js';
+import { db } from './firebase-config.js';
+import { collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-export function renderReportCardUI({
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIVATE HELPER — accurate single-student attendance calculation
+//
+// Why we query the WHOLE class instead of just the student:
+//   A "holiday / school closure" day is defined as one where NO student in
+//   the class has any mark (M or A).  If we only fetch the one student's docs,
+//   a day the student was absent looks identical to a holiday — we cannot tell
+//   them apart.  Fetching all class records lets us reproduce the exact
+//   holiday-detection logic used in attendance.js:
+//
+//     isHoliday(week, day) → no student has M=true or A=true for that slot
+//
+//   Each confirmed open school day contributes 2 to "schoolOpened"
+//   (morning + afternoon), matching the attendance engine's MAX 10/week rule.
+//
+// @param {string}      studentId
+// @param {string}      schoolId
+// @param {string|null} classId    — student.classId (preferred); null = skip filter
+// @param {string}      term
+// @param {string}      session
+// @returns {Promise<{schoolOpened:number, present:number, absent:number}>}
+// ─────────────────────────────────────────────────────────────────────────────
+async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, session) {
+  const fallback = { schoolOpened: 0, present: 0, absent: 0 };
+  if (!studentId || !schoolId || !term || !session) return fallback;
+
+  const DAYS_LIST = ['mon', 'tue', 'wed', 'thu', 'fri'];
+
+  // ── Normalise term ──────────────────────────────────────────────────────────
+  // The attendance collection stores term as "First Term" / "Second Term" /
+  // "Third Term" (set by academic-calendar.js / attendance.js).
+  // Report card callers often pass the numeric shorthand '1', '2', or '3'.
+  // Convert numeric → word form so the Firestore WHERE clause matches.
+  const TERM_MAP = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
+  const queryTerm = TERM_MAP[String(term).trim()] || term;
+
+  try {
+    // ── Build Firestore query for the entire class ──────────────────────────
+    // Including classId makes the query cheaper and scoped correctly.
+    // If classId is unavailable we still get correct results via schoolId alone
+    // (slightly broader scan, but accurate).
+    const filters = [
+      where('schoolId',        '==', schoolId),
+      where('term',            '==', queryTerm),
+      where('academicSession', '==', session),
+    ];
+    if (classId) filters.push(where('classId', '==', classId));
+
+    const classSnap = await getDocs(query(collection(db, 'attendance'), ...filters));
+    if (classSnap.empty) return fallback;
+
+    // openDayKeys  — Set<string>: "w{week}_{day}" confirmed as a school day
+    //   (at least one student has M=true or A=true on that slot)
+    const openDayKeys  = new Set();
+
+    // studentMarks — Map<string, {M:bool, A:bool}>: this student's marks only
+    const studentMarks = new Map();
+
+    for (const docSnap of classSnap.docs) {
+      const { studentId: docStudentId, weekNumber, days } = docSnap.data();
+      if (!weekNumber || !days) continue;
+
+      for (const day of DAYS_LIST) {
+        const dayData = days[day];
+        if (!dayData) continue;
+
+        const key = `w${weekNumber}_${day}`;
+
+        // Any student with a mark → this day was a real school day (not holiday)
+        if (dayData.M === true || dayData.A === true) {
+          openDayKeys.add(key);
+        }
+
+        // Capture this student's individual marks
+        if (docStudentId === studentId) {
+          studentMarks.set(key, {
+            M: dayData.M === true,
+            A: dayData.A === true,
+          });
+        }
+      }
+    }
+
+    // ── Tally using only confirmed open-school days ─────────────────────────
+    let schoolOpened = 0;
+    let present      = 0;
+
+    for (const key of openDayKeys) {
+      schoolOpened += 2;                         // morning + afternoon per open day
+      const marks = studentMarks.get(key);
+      if (marks) {
+        if (marks.M) present++;
+        if (marks.A) present++;
+      }
+    }
+
+    return { schoolOpened, present, absent: schoolOpened - present };
+
+  } catch (err) {
+    console.warn('[reportCardRenderer] _fetchStudentAttendanceData error:', err);
+    return fallback;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+export async function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
   isPrimary = false,
@@ -13,6 +122,74 @@ export function renderReportCardUI({
     console.error("renderReportCardUI: container element is required");
     showNotification("Failed to render report card: container missing.", "error");
     return;
+  }
+
+  // ── Resolve attendance from Firestore ────────────────────────────────────
+  //
+  // Firestore is ALWAYS queried first — it holds the authoritative attendance
+  // data saved by the teacher via the attendance engine.  The `attendance`
+  // prop is used only as a last-resort fallback when the query returns nothing
+  // (e.g. class has no saved attendance yet, or identifiers are unavailable).
+  //
+  // schoolId resolution order:
+  //   1. school.id        — present on fully-hydrated school objects
+  //   2. student.schoolId — always present on student documents
+  //   3. localStorage     — legacy fallback for older call-sites
+  //
+  // term is passed through _fetchStudentAttendanceData's normalisation map
+  // so numeric shorthand ('1','2','3') converts to the stored word form
+  // ('First Term','Second Term','Third Term') before the WHERE clause runs.
+  // ─────────────────────────────────────────────────────────────────────────
+  let attendanceData = { schoolOpened: 0, present: 0, absent: 0 };
+
+  try {
+    const schoolId =
+      school?.id ||
+      student?.schoolId ||
+      localStorage.getItem('userSchoolId') ||
+      null;
+
+    const classId = student?.classId || null;
+
+    if (schoolId && student?.id && term && session) {
+      const fetched = await _fetchStudentAttendanceData(
+        student.id, schoolId, classId, term, session
+      );
+
+      if (fetched.schoolOpened > 0 || fetched.present > 0 || fetched.absent > 0) {
+        // Firestore returned real data — always use it
+        attendanceData = fetched;
+      } else if (
+        attendance.schoolOpened > 0 ||
+        attendance.present      > 0 ||
+        attendance.absent       > 0
+      ) {
+        // Firestore returned nothing — fall back to passed prop
+        attendanceData = { ...attendance };
+      }
+    } else {
+      // Missing identifiers — use passed prop if available
+      if (
+        attendance.schoolOpened > 0 ||
+        attendance.present      > 0 ||
+        attendance.absent       > 0
+      ) {
+        attendanceData = { ...attendance };
+      }
+      console.warn(
+        '[reportCardRenderer] Attendance query skipped — missing schoolId, studentId, term, or session.',
+        { schoolId: school?.id || student?.schoolId, studentId: student?.id, term, session }
+      );
+    }
+  } catch (err) {
+    console.error('[reportCardRenderer] Attendance fetch error:', err);
+    if (
+      attendance.schoolOpened > 0 ||
+      attendance.present      > 0 ||
+      attendance.absent       > 0
+    ) {
+      attendanceData = { ...attendance };
+    }
   }
 
   function escapeHtml(str) {
@@ -79,7 +256,7 @@ export function renderReportCardUI({
     const scale = isPrimary ? primaryScale : secondaryScale;
     return `<table class="rc-grade-scale">
       <thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead>
-      <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>
+      <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody>
     </table>`;
   }
 
@@ -153,7 +330,9 @@ export function renderReportCardUI({
       <tr><th>Remark</th><td>${overallRemark}</td></tr>
     </table>`;
 
-  // ── Attendance table ─────────────────────────────────────────────────────────
+  // ── Attendance table ──────────────────────────────────────────────────────────
+  // Values are pre-calculated from Firestore (holiday-aware, class-wide query).
+  // All three inputs remain editable so the teacher can make manual corrections.
   const attendanceHtml = `
     <div class="rc-section-title">📅 Attendance Record</div>
     <table class="rc-attendance-table">
@@ -161,22 +340,22 @@ export function renderReportCardUI({
         <tr>
           <td class="rc-att-label">No of times School opened</td>
           <td class="rc-att-cell">
-            <input type="number" class="rc-att-input school-opened" value="${attendance.schoolOpened || 0}" min="0" step="1">
-            <span class="rc-print-val school-opened-value">${attendance.schoolOpened || 0}</span>
+            <input type="number" class="rc-att-input school-opened" value="${attendanceData.schoolOpened}" min="0" step="1">
+            <span class="rc-print-val school-opened-value">${attendanceData.schoolOpened}</span>
           </td>
         </tr>
         <tr>
           <td class="rc-att-label">No of times present</td>
           <td class="rc-att-cell">
-            <input type="number" class="rc-att-input present" value="${attendance.present || 0}" min="0" step="1">
-            <span class="rc-print-val present-value">${attendance.present || 0}</span>
+            <input type="number" class="rc-att-input present" value="${attendanceData.present}" min="0" step="1">
+            <span class="rc-print-val present-value">${attendanceData.present}</span>
           </td>
         </tr>
         <tr>
           <td class="rc-att-label">No of times absent</td>
           <td class="rc-att-cell">
-            <input type="number" class="rc-att-input absent" value="${attendance.absent || 0}" min="0" step="1">
-            <span class="rc-print-val absent-value">${attendance.absent || 0}</span>
+            <input type="number" class="rc-att-input absent" value="${attendanceData.absent}" min="0" step="1">
+            <span class="rc-print-val absent-value">${attendanceData.absent}</span>
           </td>
         </tr>
       </tbody>

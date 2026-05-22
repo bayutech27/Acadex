@@ -13,6 +13,7 @@ import {
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
+import { renderReportCardUI } from './reportCardRenderer.js';   // <--- NEW: import external renderer
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -258,7 +259,7 @@ async function loadStudentsList() {
       id: doc.id, name: doc.data().name, classId: doc.data().classId,
       admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
       dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
-      subjects: doc.data().subjects || []
+      subjects: doc.data().subjects || [], schoolId: doc.data().schoolId
     }));
   } catch (err) {
     handleError(err, "Failed to load students.");
@@ -352,443 +353,93 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
 }
 
-// ==================== LOCAL REPORT CARD RENDERER ====================
-// Visual updates: bigger school name, email+phone under address, bigger passport,
-// navy details band with clean cell dividers, cream paper background on wrapper.
-// Layout, functions and behaviours are unchanged.
-function renderReportCardUI({
-  student, scores, className, school, grading, psychomotor, comments,
-  term, session, subjectStats, container, attendance = {},
-  isPrimary = false,
-  onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
-}) {
-  if (!container) return;
-
-  const calcGrade = (total) => isPrimary
-    ? (total>=90?'A+':total>=80?'A':total>=70?'B+':total>=60?'B':total>=50?'C':total>=40?'D':'F')
-    : (total>=85?'A1':total>=75?'B2':total>=70?'B3':total>=65?'C4':total>=60?'C5':total>=50?'C6':total>=45?'D7':total>=40?'E8':'F9');
-  const gradeRemark = (g) => isPrimary
-    ? ({'A+':'Exceptional','A':'Excellent','B+':'Very Good','B':'Good','C':'Fairly Good','D':'Pass','F':'Fail'}[g]||'')
-    : ({A1:'Excellent',B2:'Very Good',B3:'Good',C4:'Credit',C5:'Credit',C6:'Credit',D7:'Pass',E8:'Pass',F9:'Fail'}[g]||'');
-
-  // Subject table rows
-  let totalScore = 0, subjectCount = 0, rows = '';
-  if (scores && scores.length) {
-    for (const s of scores) {
-      const subj = s.subjectName || s.subjectId;
-      const t = (s.ca||0)+(s.exam||0);
-      totalScore += t; subjectCount++;
-      const g = calcGrade(t);
-      const r = gradeRemark(g);
-      let pos = '—', avg = '—';
-      const stat = subjectStats?.get(s.subjectId);
-      if (stat && !isPrimary) {
-        const rank = stat.rankMap?.get(student.id);
-        if (rank) pos = `${rank}<sup>${rank===1?'st':rank===2?'nd':rank===3?'rd':'th'}</sup>`;
-        avg = stat.classAverage ?? '—';
-      }
-      rows += isPrimary
-        ? `<tr><td class="rc-subj-name">${escapeHtml(subj)}</td><td>${s.ca}</td><td>${s.exam}</td><td>${t}</td><td>${g}</td><td>${r}</td></tr>`
-        : `<tr><td class="rc-subj-name">${escapeHtml(subj)}</td><td>${s.ca}</td><td>${s.exam}</td><td>${t}</td><td>${g}</td><td>${r}</td><td>${pos}</td><td>${avg}</td></tr>`;
+// ==================== REPORT CARD LOADING (uses external renderer) ====================
+async function loadReportCard(studentId, studentName) {
+  if (!isSubscriptionActive) {
+    const container = document.getElementById('reportCardContent');
+    if (container) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;margin:20px;">
+          <h3>⚠️ Subscription Required</h3>
+          <p>Report cards are unavailable because the school subscription is inactive.</p>
+          <p>Please contact your administrator to renew.</p>
+        </div>`;
     }
-  } else rows = `<tr><td colspan="${isPrimary?6:8}">No scores found</td></tr>`;
-
-  const avgPercent = subjectCount ? ((totalScore/(subjectCount*100))*100).toFixed(1) : 0;
-  const overallGrade = calcGrade(parseFloat(avgPercent));
-  const remark = gradeRemark(overallGrade);
-
-  const subjectHeader = isPrimary
-    ? `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>`
-    : `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th><th>Pos.</th><th>Cls Avg</th></tr></thead>`;
-  const subjectTable = `<table class="rc-subject-table">${subjectHeader}<tbody>${rows}</tbody></table>`;
-
-  // Grade scale
-  const gradeScaleHtml = (() => {
-    const scale = isPrimary
-      ? [['A+','90-100','Exceptional'],['A','80-89','Excellent'],['B+','70-79','Very Good'],['B','60-69','Good'],['C','50-59','Fairly Good'],['D','40-49','Pass'],['F','0-39','Fail']]
-      : [['A1','85-100','Excellent'],['B2','75-84','Very Good'],['B3','70-74','Good'],['C4','65-69','Credit'],['C5','60-64','Credit'],['C6','50-59','Credit'],['D7','45-49','Pass'],['E8','40-44','Pass'],['F9','0-39','Fail']];
-    return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
-  })();
-
-  // Summary
-  const summaryHtml = `
-    <div class="rc-section-title">📊 SUMMARY OF PERFORMANCE</div>
-    <table class="rc-summary-table">
-      <tr><th>Total Obtained</th><td>${totalScore}</td></tr>
-      <tr><th>Total Obtainable</th><td>${subjectCount*100}</td></tr>
-      <tr><th>Total Subjects</th><td>${subjectCount}</td></tr>
-      <tr><th>% Average</th><td>${avgPercent}%</td></tr>
-      <tr><th>Grade</th><td>${overallGrade}</td></tr>
-      <tr><th>Remark</th><td>${remark}</td></tr>
-    </table>`;
-
-  // Attendance
-  const attendanceHtml = `
-    <div class="rc-section-title">📅 Attendance Record</div>
-    <table class="rc-attendance-table">
-      <tr><td class="rc-att-label">Times School Opened</td><td><input class="rc-att-input school-opened" type="number" value="${attendance.schoolOpened||0}" min="0"><span class="rc-print-val school-opened-value">${attendance.schoolOpened||0}</span></td></tr>
-      <tr><td class="rc-att-label">Times Present</td><td><input class="rc-att-input present" type="number" value="${attendance.present||0}" min="0"><span class="rc-print-val present-value">${attendance.present||0}</span></td></tr>
-      <tr><td class="rc-att-label">Times Absent</td><td><input class="rc-att-input absent" type="number" value="${attendance.absent||0}" min="0"><span class="rc-print-val absent-value">${attendance.absent||0}</span></td></tr>
-    </table>`;
-
-  // Skills tables
-  let psychoRows = '';
-  for (const skill of psychomotorSkillsList) {
-    const k = skill.toLowerCase().replace(/[^a-z]/g, '');
-    const v = psychomotor?.[k] ?? 3;
-    psychoRows += `<tr><td class="rc-skill-name">${escapeHtml(skill)}</td><td class="rc-rating-cell" data-skill-key="${k}"><span class="rc-print-val">${v}</span></td></tr>`;
+    const actions = document.getElementById('reportActions');
+    if (actions) actions.style.display = 'none';
+    return;
   }
-  let affectRows = '';
-  for (const skill of affectiveSkillsList) {
-    const k = skill.toLowerCase().replace(/[^a-z]/g, '');
-    const v = psychomotor?.[k] ?? 3;
-    affectRows += `<tr><td class="rc-skill-name">${escapeHtml(skill)}</td><td class="rc-rating-cell" data-skill-key="${k}"><span class="rc-print-val">${v}</span></td></tr>`;
+
+  reportState.selectedStudent = { id: studentId, name: studentName };
+  reportState.term    = document.getElementById('termSelect').value;
+  reportState.session = document.getElementById('sessionSelect').value;
+
+  const student       = studentsList.find(s => s.id === studentId);
+  const studentClassId = student ? student.classId : classId;
+  let classLevel = null;
+  if (studentClassId && classesMap.has(studentClassId)) {
+    classLevel = classesMap.get(studentClassId).level;
+  } else if (studentClassId) {
+    const classDoc = await getDoc(doc(db, 'classes', studentClassId));
+    if (classDoc.exists()) classLevel = classDoc.data().level;
   }
-  const skillsStack = `
-    <table class="rc-skills-table">
-      <thead><tr><th>Psychomotor Skills</th><th>Rating</th></tr></thead>
-      <tbody>${psychoRows}</tbody>
-    </table>
-    <table class="rc-skills-table rc-skills-table--lower">
-      <thead><tr><th>Affective Domain</th><th>Rating</th></tr></thead>
-      <tbody>${affectRows}</tbody>
-    </table>
-    <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
+  await loadGradingSetting(reportState.session, reportState.term, classLevel);
+  const isPrimary = (classLevel === 'primary');
 
-  // ── Header — school name enlarged; email + phone (from Firestore) shown under address ──
-  const headerHtml = `
-    <div class="rc-header">
-      <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="School Logo">` : ''}</div>
-      <div class="rc-header-text">
-        <h1 class="rc-school-name">${escapeHtml(school.name)}</h1>
-        ${school.address ? `<div class="rc-school-address">${escapeHtml(school.address)}</div>` : ''}
-        ${school.phone   ? `<div class="rc-school-contact">📞 ${escapeHtml(school.phone)}</div>`   : ''}
-        ${school.email   ? `<div class="rc-school-contact">✉️ ${escapeHtml(school.email)}</div>`   : ''}
-      </div>
-      <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
-    </div>`;
+  showLoader();
+  try {
+    const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
+    const school = {
+      name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
+      address: schoolDoc.exists() ? schoolDoc.data().address : '',
+      logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
+      email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
+      phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : '',
+      id:      currentSchoolId
+    };
 
-  // ── Student details band — navy background with clean cell dividers ──
-  const studentAge = student.dob ? calculateAge(student.dob) : '—';
-  const detailsBand = `
-    <div class="rc-details-band">
-      <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
-      <div class="rc-details-cell"><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber||'—')}</div>
-      <div class="rc-details-cell"><strong>Gender:</strong> ${escapeHtml(student.gender||'—')}</div>
-      <div class="rc-details-cell"><strong>DOB:</strong> ${student.dob||'—'} (Age ${studentAge})</div>
-      <div class="rc-details-cell"><strong>Class:</strong> ${escapeHtml(className)}</div>
-      <div class="rc-details-cell"><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
-      <div class="rc-details-cell"><strong>Session:</strong> ${session}</div>
-      <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(student.club||'—')}</div>
-    </div>`;
+    const rawScores = await fetchScores(studentId, reportState.term, reportState.session);
+    const scoresWithNames = rawScores.map(score => ({
+      subjectId:   score.subjectId,
+      subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
+      ca:   score.ca,
+      exam: score.exam
+    }));
 
-  // Comments
-  const commentBank = [
-    'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
-    'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
-  ];
-  const teacherEff   = comments.teacherComment   || commentBank[0];
-  const principalEff = comments.principalComment || commentBank[0];
-  const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
-  const commentsHtml = `
-    <div class="rc-comments">
-      <strong>Comments</strong>
-      <div class="rc-comment-row">
-        <label>Class Teacher's Comment:</label>
-        <select class="teacher-comment-select">${commentBank.map(o=>`<option ${teacherEff===o?'selected':''}>${o}</option>`).join('')}</select>
-        <textarea class="teacher-comment-text" rows="1">${escapeHtml(teacherEff)}</textarea>
-        <span class="rc-print-comment">${escapeHtml(teacherEff)}</span>
-      </div>
-      <div class="rc-comment-row">
-        <label>${principalLabel}</label>
-        <select class="principal-comment-select">${commentBank.map(o=>`<option ${principalEff===o?'selected':''}>${o}</option>`).join('')}</select>
-        <textarea class="principal-comment-text" rows="1">${escapeHtml(principalEff)}</textarea>
-        <span class="rc-print-comment">${escapeHtml(principalEff)}</span>
-      </div>
-    </div>`;
+    const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
+    await loadExistingReport(studentId);
 
-  // ── STYLES ──────────────────────────────────────────────────────────────────
-  const styles = `
-    <style>
-      /* ── Wrapper — cream paper background ── */
-      .rc-wrapper {
-        width: 100%;
-        max-width: 210mm;
-        margin: 0 auto;
-        background: #fdf8f2 !important;
-        border: 2px solid #000;
-        padding: clamp(8px, 2%, 20px);
-        box-sizing: border-box;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: clamp(9px, 1.2vw, 13px);
-      }
+    const studentData = {
+      id: studentId, name: studentName, schoolId: currentSchoolId,
+      classId: studentClassId,
+      admissionNumber: student.admissionNumber || '—',
+      gender:   student.gender   || '—',
+      dob:      student.dob      || '',
+      club:     student.club     || '—',
+      passport: student.passport || null
+    };
 
-      /* ── Header ── */
-      .rc-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .rc-header-logo img {
-        max-width: clamp(60px, 8vw, 100px);
-        max-height: clamp(60px, 8vw, 100px);
-        object-fit: contain;
-        border-radius: 4px;
-      }
-      /* ── Passport — slightly bigger + framed ── */
-      .rc-header-passport img {
-        width:  clamp(80px, 11vw, 125px);
-        height: clamp(80px, 11vw, 125px);
-        object-fit: cover;
-        border-radius: 6px;
-        border: 2px solid #1a3a5c;
-      }
-      .rc-header-text { flex: 1; text-align: center; }
-
-      /* ── School name — notably larger ── */
-      .rc-school-name {
-        margin: 0 0 4px 0;
-        font-size: clamp(22px, 4vw, 42px) !important;
-        font-weight: 800;
-        letter-spacing: 0.02em;
-        line-height: 1.15;
-        text-transform: uppercase;
-      }
-      .rc-school-address { font-size: 0.88em; margin-top: 2px; }
-      .rc-school-contact { font-size: 0.82em; color: #333; margin-top: 1px; }
-
-      /* ── Details band — deep navy, white text, clean cell dividers ── */
-      .rc-details-band {
-        background: #1a3a5c !important;
-        padding: 0;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
-        gap: 0;
-        font-weight: bold;
-        font-size: 0.92em;
-        border-radius: 6px;
-        margin-bottom: 12px;
-        overflow: hidden;
-        border: 1px solid #0f2740;
-      }
-      .rc-details-cell {
-        padding: clamp(5px, 1.2%, 10px) clamp(6px, 1.5%, 12px);
-        border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
-        color: #fff !important;
-      }
-      .rc-details-cell strong { color: #a8d8f0 !important; margin-right: 3px; }
-      .rc-student-name { font-size: 1.05em; font-weight: 700; color: #fff !important; }
-
-      /* ── Summary + Attendance row (top) ── */
-      .rc-top-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: clamp(8px, 2%, 20px);
-        margin-bottom: clamp(10px, 2%, 18px);
-      }
-      .rc-top-row > div { flex: 1 1 clamp(160px, 40%, 300px); }
-
-      /* ── Section title ── */
-      .rc-section-title { font-weight: bold; margin-bottom: 4px; font-size: 0.95em; }
-
-      /* ── Shared table base ── */
-      .rc-subject-table,
-      .rc-summary-table,
-      .rc-attendance-table,
-      .rc-skills-table,
-      .rc-grade-scale {
-        width: 100%;
-        border-collapse: collapse;
-        border: 2px solid #000;
-        background: #fff !important;
-      }
-      .rc-subject-table th, .rc-subject-table td,
-      .rc-summary-table th, .rc-summary-table td,
-      .rc-attendance-table th, .rc-attendance-table td,
-      .rc-skills-table th, .rc-skills-table td,
-      .rc-grade-scale th, .rc-grade-scale td {
-        border: 1px solid #000;
-        padding: clamp(2px, 0.6%, 6px);
-        text-align: center;
-        vertical-align: middle;
-      }
-      .rc-subject-table th,
-      .rc-summary-table th,
-      .rc-attendance-table th,
-      .rc-skills-table th { background: #ADD8E6 !important; }
-      .rc-grade-scale th  { background: #FFD700 !important; }
-
-      .rc-subj-name,
-      .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
-
-      .rc-skill-name {
-        text-align: left !important;
-        writing-mode: horizontal-tb !important;
-        text-orientation: mixed !important;
-        white-space: normal !important;
-        word-break: break-word;
-      }
-
-      /* ── Main two-column grid ── */
-      .rc-main-row {
-        display: grid;
-        grid-template-columns: 62fr 35fr;
-        gap: clamp(12px, 3%, 28px);
-        align-items: start;
-        width: 100%;
-        box-sizing: border-box;
-      }
-      .rc-col-left,
-      .rc-col-right {
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(6px, 1.5%, 14px);
-      }
-
-      .rc-rating-guide { font-size: 0.78em; color: #444; margin-top: 2px; }
-
-      /* Rating ticks */
-      .rc-tick-row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
-      .rc-tick {
-        width: clamp(14px, 2vw, 20px);
-        height: clamp(14px, 2vw, 20px);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid #999;
-        border-radius: 50%;
-        cursor: pointer;
-        font-size: 0.75em;
-        user-select: none;
-      }
-      .rc-tick.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
-
-      /* Attendance input */
-      .rc-att-input { width: 100%; max-width: 80px; padding: 2px 4px; box-sizing: border-box; font-size: inherit; }
-
-      /* Comments */
-      .rc-comments {
-        border: 1px solid #ddd;
-        padding: clamp(4px, 1%, 10px);
-        margin-top: 10px;
-        font-size: 0.9em;
-        background: #f9f9f9 !important;
-      }
-      .rc-comment-row { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
-      .rc-comment-row select,
-      .rc-comment-row textarea { width: 100%; box-sizing: border-box; font-size: inherit; }
-      .rc-comment-row textarea { display: none; }
-
-      .rc-print-val,
-      .rc-print-comment { display: none; }
-
-      /* ── Mobile ── */
-      @media (max-width: 600px) {
-        .rc-wrapper   { padding: 8px; font-size: 11px; }
-        .rc-school-name { font-size: clamp(18px, 6vw, 26px) !important; }
-        .rc-main-row  { grid-template-columns: 1fr; gap: 16px; }
-        .rc-top-row   { flex-direction: column; }
-        .rc-details-band { grid-template-columns: 1fr 1fr; }
-        .rc-header-logo img { max-width: 55px; max-height: 55px; }
-        .rc-header-passport img { width: 65px; height: 65px; }
-      }
-
-      /* ── Print ── */
-      @media print {
-        .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8.5pt; background: #fdf8f2 !important; }
-        .rc-school-name { font-size: 22pt !important; }
-        .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
-        .rc-att-input, .rc-tick-row, select, textarea, button { display: none !important; }
-        .rc-print-val    { display: block !important; }
-        .rc-print-comment { display: block !important; }
-        .rc-rating-cell .rc-print-val { display: inline !important; }
-        .rc-details-band { background: #1a3a5c !important; }
-        .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
-        .rc-details-cell strong { color: #a8d8f0 !important; }
-        .rc-scroll-outer { overflow: visible !important; }
-        *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-        @page { size: A4; margin: 8mm; }
-      }
-    </style>`;
-
-  // ── Final HTML assembly ──────────────────────────────────────────────────────
-  const cardHtml = `
-    ${styles}
-    <div class="rc-wrapper">
-      ${headerHtml}
-      ${detailsBand}
-      <div class="rc-top-row">
-        <div>${summaryHtml}</div>
-        <div>${attendanceHtml}</div>
-      </div>
-      <div class="rc-main-row">
-        <div class="rc-col-left">
-          ${subjectTable}
-          ${gradeScaleHtml}
-        </div>
-        <div class="rc-col-right">
-          ${skillsStack}
-        </div>
-      </div>
-      ${commentsHtml}
-    </div>`;
-
-  container.innerHTML = `<div class="rc-scroll-outer" style="overflow-x:auto;">${cardHtml}</div>`;
-
-  // ── Attach interactive rating ticks ─────────────────────────────────────────
-  container.querySelectorAll('.rc-rating-cell').forEach(el => {
-    const key = el.dataset.skillKey;
-    if (!key) return;
-    const val = psychomotor?.[key] ?? 3;
-    const tickRow = document.createElement('div');
-    tickRow.className = 'rc-tick-row';
-    for (let i = 1; i <= 5; i++) {
-      const tick = document.createElement('span');
-      tick.className = 'rc-tick' + (i === val ? ' selected' : '');
-      tick.textContent = i;
-      tick.addEventListener('click', (e) => {
-        e.stopPropagation();
-        tickRow.querySelectorAll('.rc-tick').forEach(t => t.classList.remove('selected'));
-        tick.classList.add('selected');
-        if (onRatingChange) onRatingChange(key, i);
-        const printSpan = el.querySelector('.rc-print-val');
-        if (printSpan) printSpan.textContent = i;
-      });
-      tickRow.appendChild(tick);
-    }
-    el.appendChild(tickRow);
-  });
-
-  // ── Attendance live sync ─────────────────────────────────────────────────────
-  container.querySelectorAll('.rc-att-input').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const spanClass = '.' + inp.classList[1] + '-value';
-      const span = container.querySelector(spanClass);
-      if (span) span.textContent = inp.value;
+    // ─── USE THE EXTERNAL RENDERER (reportCardRenderer.js) ───
+    await renderReportCardUI({
+      student: studentData, scores: scoresWithNames, className: classNameCache,
+      school, grading: currentGrading, psychomotor: reportState.psychomotor,
+      comments: { teacherComment: reportState.teacherComment, principalComment: reportState.principalComment },
+      attendance: reportState.attendance, term: reportState.term, session: reportState.session,
+      subjectStats, container: document.getElementById('reportCardContent'), isPrimary,
+      onRatingChange:          (skillKey, newValue) => { reportState.psychomotor[skillKey] = newValue; },
+      onTeacherCommentChange:  (newComment)          => { reportState.teacherComment   = newComment; },
+      onPrincipalCommentChange:(newComment)          => { reportState.principalComment = newComment; }
     });
-  });
 
-  // ── Comment selects / textareas ──────────────────────────────────────────────
-  const tSelect  = container.querySelector('.teacher-comment-select');
-  const tText    = container.querySelector('.teacher-comment-text');
-  const pSelect  = container.querySelector('.principal-comment-select');
-  const pText    = container.querySelector('.principal-comment-text');
-  const printComments = container.querySelectorAll('.rc-print-comment');
-  const tPrint   = printComments[0];
-  const pPrint   = printComments[1];
-
-  if (tSelect) tSelect.onchange = () => { tText.value = tSelect.value; if (tPrint) tPrint.textContent = tSelect.value; onTeacherCommentChange?.(tSelect.value); };
-  if (tText)   tText.oninput   = () => { if (tPrint) tPrint.textContent = tText.value; onTeacherCommentChange?.(tText.value); };
-  if (pSelect) pSelect.onchange = () => { pText.value = pSelect.value; if (pPrint) pPrint.textContent = pSelect.value; onPrincipalCommentChange?.(pSelect.value); };
-  if (pText)   pText.oninput   = () => { if (pPrint) pPrint.textContent = pText.value; onPrincipalCommentChange?.(pText.value); };
+    const actions = document.getElementById('reportActions');
+    if (actions) actions.style.display = 'flex';
+  } catch (err) {
+    handleError(err, "Failed to load report card.");
+  } finally {
+    hideLoader();
+  }
 }
 
-// ------------------- Report Card Helpers -------------------
 async function loadExistingReport(studentId) {
   try {
     const q = query(
@@ -917,90 +568,6 @@ function printReportCard() {
   `);
   printWindow.document.close();
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
-}
-
-async function loadReportCard(studentId, studentName) {
-  if (!isSubscriptionActive) {
-    const container = document.getElementById('reportCardContent');
-    if (container) {
-      container.innerHTML = `
-        <div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;margin:20px;">
-          <h3>⚠️ Subscription Required</h3>
-          <p>Report cards are unavailable because the school subscription is inactive.</p>
-          <p>Please contact your administrator to renew.</p>
-        </div>`;
-    }
-    const actions = document.getElementById('reportActions');
-    if (actions) actions.style.display = 'none';
-    return;
-  }
-
-  reportState.selectedStudent = { id: studentId, name: studentName };
-  reportState.term    = document.getElementById('termSelect').value;
-  reportState.session = document.getElementById('sessionSelect').value;
-
-  const student       = studentsList.find(s => s.id === studentId);
-  const studentClassId = student ? student.classId : classId;
-  let classLevel = null;
-  if (studentClassId && classesMap.has(studentClassId)) {
-    classLevel = classesMap.get(studentClassId).level;
-  } else if (studentClassId) {
-    const classDoc = await getDoc(doc(db, 'classes', studentClassId));
-    if (classDoc.exists()) classLevel = classDoc.data().level;
-  }
-  await loadGradingSetting(reportState.session, reportState.term, classLevel);
-  const isPrimary = (classLevel === 'primary');
-
-  showLoader();
-  try {
-    const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-    // ── email and phone fetched from Firestore school document ──
-    const school = {
-      name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
-      address: schoolDoc.exists() ? schoolDoc.data().address : '',
-      logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
-      email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
-      phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : ''
-    };
-
-    const rawScores = await fetchScores(studentId, reportState.term, reportState.session);
-    const scoresWithNames = rawScores.map(score => ({
-      subjectId:   score.subjectId,
-      subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
-      ca:   score.ca,
-      exam: score.exam
-    }));
-
-    const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
-    await loadExistingReport(studentId);
-
-    const studentData = {
-      id: studentId, name: studentName,
-      admissionNumber: student.admissionNumber || '—',
-      gender:   student.gender   || '—',
-      dob:      student.dob      || '',
-      club:     student.club     || '—',
-      passport: student.passport || null
-    };
-
-    renderReportCardUI({
-      student: studentData, scores: scoresWithNames, className: classNameCache,
-      school, grading: currentGrading, psychomotor: reportState.psychomotor,
-      comments: { teacherComment: reportState.teacherComment, principalComment: reportState.principalComment },
-      attendance: reportState.attendance, term: reportState.term, session: reportState.session,
-      subjectStats, container: document.getElementById('reportCardContent'), isPrimary,
-      onRatingChange:          (skillKey, newValue) => { reportState.psychomotor[skillKey] = newValue; },
-      onTeacherCommentChange:  (newComment)          => { reportState.teacherComment   = newComment; },
-      onPrincipalCommentChange:(newComment)          => { reportState.principalComment = newComment; }
-    });
-
-    const actions = document.getElementById('reportActions');
-    if (actions) actions.style.display = 'flex';
-  } catch (err) {
-    handleError(err, "Failed to load report card.");
-  } finally {
-    hideLoader();
-  }
 }
 
 async function loadClassStudents() {
