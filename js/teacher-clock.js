@@ -33,8 +33,8 @@ import { handleError, showNotification } from './error-handler.js';
 // STATE
 // ─────────────────────────────────────────────────────────────────────────────
 let _schoolId      = null;
-let _teacherUid    = null;   // Firebase auth UID — used as primary key
-let _teacherDbId   = null;   // teachers/{docId} — stored alongside for queries
+let _teacherUid    = null;   // Firebase auth UID — primary identity
+let _teacherDbId   = null;   // Optional teachers/{docId} reference
 let _teacherName   = '';
 let _geofence      = null;
 let _todayRecord   = null;   // Current teacher_attendance doc for today
@@ -161,26 +161,37 @@ function showFeedback(type, text) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD TEACHER PROFILE  (reads from Firestore — NOT localStorage)
+// LOAD TEACHER PROFILE (refactored – /users/{uid} is the primary identity)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadTeacherProfile(uid) {
   try {
-    // Try teachers collection by authUid / uid field
-    const snap = await getDocs(
-      query(collection(db, 'teachers'), where('uid', '==', uid))
-    );
-    if (!snap.empty) {
-      const d = snap.docs[0];
-      _teacherDbId = d.id;
-      return { dbId: d.id, ...d.data() };
+    // 1. Load mandatory user document
+    const userSnap = await getDoc(doc(db, 'users', uid));
+    if (!userSnap.exists()) {
+      throw new Error('User profile not found.');
     }
-    // Fallback: try doc keyed by uid directly
-    const direct = await getDoc(doc(db, 'teachers', uid));
-    if (direct.exists()) {
-      _teacherDbId = uid;
-      return { dbId: uid, ...direct.data() };
+    const user = userSnap.data();
+    if (user.role !== 'teacher') {
+      throw new Error('User is not a teacher.');
     }
-    return null;
+
+    const schoolId = user.schoolId;
+    const name = user.name || user.fullName || 'Teacher';
+
+    // 2. Optionally fetch the teacher's extended metadata doc
+    let dbId = null;
+    try {
+      const tQuery = await getDocs(
+        query(collection(db, 'teachers'), where('authUid', '==', uid))
+      );
+      if (!tQuery.empty) {
+        dbId = tQuery.docs[0].id;
+      }
+    } catch (e) {
+      console.warn('Teacher metadata document not found; continuing with user profile only.', e);
+    }
+
+    return { schoolId, name, dbId };
   } catch (err) {
     handleError(err, 'Failed to load teacher profile.');
     return null;
@@ -299,8 +310,7 @@ function renderTodayStatus() {
     return;
   }
 
-  const lateMin  = _geofence?.lateThresholdMinutes ?? 30;
-  let   display  = r.status;
+  let display = r.status;
   if (!r.clockOut && r.clockIn) display = 'clockedin';
   if (r.adminOverride) display = 'override';
 
@@ -327,9 +337,7 @@ function updateButtonStates() {
   const hasClockedIn  = _todayRecord?.clockIn  != null;
   const hasClockedOut = _todayRecord?.clockOut != null;
 
-  // Can clock in: not yet clocked in today
   inBtn.disabled  = hasClockedIn;
-  // Can clock out: has clocked in but not yet clocked out
   outBtn.disabled = !hasClockedIn || hasClockedOut;
 }
 
@@ -356,7 +364,7 @@ async function performClockIn() {
     return;
   }
 
-  // Double-check: no duplicate clock-in today (race condition guard)
+  // Double-check: no duplicate clock-in today
   await loadTodayRecord();
   if (_todayRecord?.clockIn) {
     showFeedback('info', `You already clocked in today at ${formatTime(_todayRecord.clockIn)}.`);
@@ -365,44 +373,29 @@ async function performClockIn() {
   }
 
   try {
-    const today   = todayStr();
-    const lateMin = _geofence?.lateThresholdMinutes ?? 30;
+    const today = todayStr();
 
-    // We write to Firestore — serverTimestamp() is the ONLY accepted time source
     const docRef = await addDoc(collection(db, 'teacher_attendance'), {
-      // ── Identity (read from authenticated profile, NOT client input) ──
-      uid:          _teacherUid,        // Firebase auth UID
-      teacherDbId:  _teacherDbId,       // teachers/{docId}
+      uid:          _teacherUid,
+      teacherDbId:  _teacherDbId,      // null is allowed
       teacherName:  _teacherName,
       schoolId:     _schoolId,
-
-      // ── Date (used for queries) ───────────────────────────────────────
-      date:         today,              // YYYY-MM-DD string
-
-      // ── Times (SERVER-SIDE ONLY) ──────────────────────────────────────
-      clockIn:      serverTimestamp(),  // ⚠️ cannot be tampered from browser
+      date:         today,
+      clockIn:      serverTimestamp(),
       clockOut:     null,
-
-      // ── GPS audit trail ───────────────────────────────────────────────
       clockInLat:          gpsResult.lat,
       clockInLng:          gpsResult.lng,
       distanceAtClockIn:   gpsResult.distance,
       withinFenceAtClockIn: true,
-
       clockOutLat:           null,
       clockOutLng:           null,
       distanceAtClockOut:    null,
       withinFenceAtClockOut: null,
-
-      // ── Status (derived from serverTimestamp at read time by admin; ───
-      //    stored here as initial best-guess, recalculated on admin side)
-      status:        null,              // set properly on clock-out or by admin
+      status:        null,
       method:        'geofence',
       adminOverride: false,
       adminOverrideBy:   null,
       adminOverrideNote: null,
-
-      // ── Metadata ──────────────────────────────────────────────────────
       createdAt:    serverTimestamp(),
       updatedAt:    serverTimestamp(),
     });
@@ -451,16 +444,12 @@ async function performClockOut() {
   }
 
   try {
-    const lateMin  = _geofence?.lateThresholdMinutes ?? 30;
-
     await updateDoc(doc(db, 'teacher_attendance', _todayRecord.id), {
-      clockOut:              serverTimestamp(), // ⚠️ server-side only
+      clockOut:              serverTimestamp(),
       clockOutLat:           gpsResult.lat,
       clockOutLng:           gpsResult.lng,
       distanceAtClockOut:    gpsResult.distance,
       withinFenceAtClockOut: true,
-      // Status is computed here based on clockIn (which was already stored)
-      // Admin JS will re-derive it; we store a client-computed hint only
       updatedAt:             serverTimestamp(),
     });
 
@@ -485,7 +474,6 @@ async function loadHistory() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
   try {
-    // Get last 7 dates
     const dates = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date();
@@ -553,10 +541,8 @@ function addRipple(btn) {
 // MAIN INIT
 // ─────────────────────────────────────────────────────────────────────────────
 export async function initTeacherClockPage(passedTeacherName = '') {
-  // 1 – Start live clock immediately
   startLiveClock();
 
-  // 2 – Wait for auth
   const uid = await new Promise(resolve => {
     const unsub = onAuthStateChanged(auth, user => {
       unsub();
@@ -570,14 +556,15 @@ export async function initTeacherClockPage(passedTeacherName = '') {
   }
   _teacherUid = uid;
 
-  // 3 – Load teacher profile from Firestore (never from localStorage)
+  // Load teacher profile from /users/{uid} (primary identity)
   const profile = await loadTeacherProfile(uid);
   if (!profile) {
     showFeedback('error', 'Teacher profile not found. Please contact your admin.');
     return;
   }
   _schoolId    = profile.schoolId;
-  _teacherName = profile.name || profile.fullName || passedTeacherName || 'Teacher';
+  _teacherName = profile.name;
+  _teacherDbId = profile.dbId;   // may be null
 
   const nameEl = document.getElementById('teacherDisplayName');
   if (nameEl) nameEl.textContent = _teacherName;
@@ -587,7 +574,7 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     return;
   }
 
-  // 4 – Load geofence
+  // Load geofence
   _geofence = await loadGeofence(_schoolId);
   if (!_geofence || !_geofence.enabled) {
     setGpsBar('disabled', 'Geofence not yet configured by your admin. Clock-in is unavailable.');
@@ -595,15 +582,14 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     return;
   }
 
-  // 5 – Load today's record and history
+  // Load today's record and history
   await loadTodayRecord();
   await loadHistory();
 
-  // 6 – Wire up GPS check button
+  // Wire up GPS check button
   document.getElementById('checkGpsBtn')?.addEventListener('click', async () => {
     const result = await performGpsCheck();
-    updateButtonStates(); // re-evaluate after GPS check
-    // Only unlock if both GPS valid AND state allows it
+    updateButtonStates();
     const inBtn  = document.getElementById('clockInBtn');
     const outBtn = document.getElementById('clockOutBtn');
     const hasClockedIn  = _todayRecord?.clockIn  != null;
@@ -612,13 +598,13 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     if (outBtn) outBtn.disabled = !result.valid || !hasClockedIn || hasClockedOut;
   });
 
-  // 7 – Clock In button
+  // Clock In button
   document.getElementById('clockInBtn')?.addEventListener('click', async (e) => {
     addRipple(e.currentTarget);
     await performClockIn();
   });
 
-  // 8 – Clock Out button
+  // Clock Out button
   document.getElementById('clockOutBtn')?.addEventListener('click', async (e) => {
     addRipple(e.currentTarget);
     await performClockOut();
