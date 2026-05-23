@@ -148,32 +148,64 @@
 <body>
 <div class="dashboard-container">
 
-  <!-- Desktop Sidebar -->
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
   <aside class="sidebar">
-    <div class="sidebar-header"><span class="acadex-brand"><span class="acadex-a">A</span>cadex</span></div>
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-      <a href="class.html"><i class="fas fa-chalkboard"></i> Class</a>
-      <a href="scores.html"><i class="fas fa-chart-bar"></i> Scores</a>
-      <a href="attendance.html"><i class="fas fa-calendar-check"></i> Attendance</a>
-      <a href="teacher-cbt.html" class="active"><i class="fas fa-puzzle-piece"></i> CBT</a>
+      <a href="teacher-dashboard.html" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="scores.html" id="scoresLink">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="attendance.html" id="attendanceLink">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
     </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- Mobile Sidebar -->
+  <!-- ===================== MOBILE SIDEBAR ===================== -->
   <div id="mobileSidebar" class="mobile-sidebar">
-    <div class="mobile-sidebar-header"><span class="acadex-brand"><span class="acadex-a">A</span>cadex</span><button class="close-sidebar">&times;</button></div>
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">Dashboard</a>
-      <a href="class.html">Class</a>
-      <a href="scores.html">Scores</a>
-      <a href="attendance.html">Attendance</a>
-      <a href="teacher-cbt.html" class="active">CBT</a>
+      <a href="teacher-dashboard.html" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="scores.html">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="attendance.html" id="mobileAttendanceLink">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
     </nav>
-    <div class="mobile-logout-wrapper"><button class="mobile-logout-btn">Logout</button></div>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
+    </div>
   </div>
   <div id="overlay" class="overlay"></div>
-
   <!-- Main Content -->
   <main class="main-content">
     <header class="header">
