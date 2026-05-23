@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acadex - Teachers Attendance</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Global Styles -->
+  <link rel="stylesheet" href="../css/styles.css">
+
+  <style>
+    /* =========================================================
+       TEACHER ATTENDANCE ADMIN – Page styles
+       ========================================================= */
+    .academic-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white; padding: 5px 14px; border-radius: 999px;
+      font-size: 0.78rem; font-weight: 700; display: inline-flex;
+      align-items: center; gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25); letter-spacing: .02em;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b; color: #000; padding: 2px 7px;
+      border-radius: 999px; font-size: .68rem; font-weight: 800;
+    }
+    .school-address { font-size: .74rem; color: #64748b; margin-top: 3px; }
+    .subscription-badge {
+      font-weight: 700; font-size: .78rem; padding: 4px 12px;
+      border-radius: 999px; background: #f1f5f9;
+      display: inline-flex; align-items: center; gap: 5px;
+      border: 1px solid #e2e8f0; white-space: nowrap;
+    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+    .header {
+      display: flex; align-items: center;
+      justify-content: space-between; flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex; align-items: center;
+      gap: 14px; min-width: 0; flex: 1;
+    }
+
+    /* ---- Summary stat cards ---- */
+    .attendance-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .summary-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px 16px 16px;
+      box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08);
+      text-align: center;
+      border: 1px solid rgba(67,97,238,.07);
+      position: relative; overflow: hidden;
+      transition: transform .25s ease, box-shadow .25s ease;
+      animation: fadeSlideUp .4s ease both;
+    }
+    .summary-card::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 4px;
+      border-radius: 16px 16px 0 0;
+    }
+    .summary-card:nth-child(1)::before { background: linear-gradient(90deg, #10b981, #06b6d4); }
+    .summary-card:nth-child(2)::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .summary-card:nth-child(3)::before { background: linear-gradient(90deg, #ef4444, #dc2626); }
+    .summary-card:nth-child(4)::before { background: linear-gradient(90deg, #4361ee, #7c3aed); }
+    .summary-card:hover { transform: translateY(-4px); box-shadow: 0 12px 36px rgba(13,27,42,.12); }
+    .summary-icon {
+      width: 46px; height: 46px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 10px; font-size: 1.2rem;
+    }
+    .summary-card:nth-child(1) .summary-icon { background: rgba(16,185,129,.1); color: #10b981; }
+    .summary-card:nth-child(2) .summary-icon { background: rgba(245,158,11,.1); color: #d97706; }
+    .summary-card:nth-child(3) .summary-icon { background: rgba(239,68,68,.1);  color: #ef4444; }
+    .summary-card:nth-child(4) .summary-icon { background: rgba(67,97,238,.1);  color: #4361ee; }
+    .summary-number {
+      font-family: 'Outfit', sans-serif; font-size: 2.2rem;
+      font-weight: 800; line-height: 1; letter-spacing: -.04em;
+    }
+    .summary-card:nth-child(1) .summary-number { color: #10b981; }
+    .summary-card:nth-child(2) .summary-number { color: #d97706; }
+    .summary-card:nth-child(3) .summary-number { color: #ef4444; }
+    .summary-card:nth-child(4) .summary-number { color: #4361ee; }
+    .summary-label {
+      color: #64748b; font-size: .72rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; margin-top: 4px;
+    }
+    .summary-card:nth-child(1) { animation-delay: .05s; }
+    .summary-card:nth-child(2) { animation-delay: .1s; }
+    .summary-card:nth-child(3) { animation-delay: .15s; }
+    .summary-card:nth-child(4) { animation-delay: .2s; }
+
+    /* ---- Section cards ---- */
+    .section-card {
+      background: #fff; border-radius: 16px; padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
+      border: 1px solid rgba(67,97,238,.07);
+      animation: fadeSlideUp .4s ease both;
+    }
+    .section-card-header {
+      display: flex; align-items: center; gap: .75rem;
+      margin-bottom: 1.25rem; padding-bottom: .9rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .section-card-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: rgba(67,97,238,.1); color: #4361ee;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; flex-shrink: 0;
+    }
+    .section-card-title { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 700; color: #0d1b2a; }
+    .section-card-sub   { font-size: .78rem; color: #94a3b8; margin-top: 2px; font-weight: 500; }
+
+    /* ---- Geofence setup ---- */
+    .geofence-form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+    .geofence-form .form-group { flex: 1; min-width: 160px; margin-bottom: 0; }
+    .geofence-status {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .6rem 1rem; border-radius: 10px;
+      font-size: .82rem; font-weight: 700;
+      margin-top: .75rem;
+    }
+    .geofence-status.set    { background: #d1fae5; color: #065f46; }
+    .geofence-status.notset { background: #fef3c7; color: #92400e; }
+    .geofence-status.saving { background: #e0f2fe; color: #0369a1; }
+
+    /* ---- Attendance table ---- */
+    .attendance-table-wrapper { overflow-x: auto; border-radius: 12px; border: 1px solid #f1f5f9; }
+    .attendance-table {
+      width: 100%; border-collapse: collapse;
+      font-size: .84rem; background: #fff; min-width: 700px;
+    }
+    .attendance-table th {
+      background: #f8faff; font-weight: 700; font-size: .74rem;
+      color: #475569; text-transform: uppercase; letter-spacing: .05em;
+      padding: .75rem 1rem; text-align: left;
+      border-bottom: 1px solid #f1f5f9; white-space: nowrap;
+    }
+    .attendance-table td {
+      padding: .75rem 1rem; border-bottom: 1px solid #f8fafc;
+      vertical-align: middle; color: #334155;
+    }
+    .attendance-table tr:hover td { background: #fafbff; }
+    .attendance-table tr:last-child td { border-bottom: none; }
+
+    /* Status pill */
+    .status-pill {
+      display: inline-flex; align-items: center; gap: .3rem;
+      padding: .22rem .7rem; border-radius: 999px;
+      font-size: .72rem; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .status-present  { background: #d1fae5; color: #065f46; }
+    .status-late     { background: #fef3c7; color: #92400e; }
+    .status-absent   { background: #fee2e2; color: #991b1b; }
+    .status-override { background: #e0f2fe; color: #0369a1; }
+    .status-clockedin { background: rgba(67,97,238,.1); color: #4361ee; }
+
+    /* Distance badge */
+    .dist-badge {
+      background: #f0f4ff; color: #4361ee;
+      padding: .2rem .6rem; border-radius: 6px;
+      font-size: .72rem; font-weight: 700;
+    }
+
+    /* ---- Date filter bar ---- */
+    .filter-row {
+      display: flex; gap: .75rem; align-items: center;
+      flex-wrap: wrap; margin-bottom: 1rem;
+    }
+    .filter-row .form-group { margin-bottom: 0; }
+
+    /* ---- Override modal ---- */
+    .override-note-area {
+      width: 100%; padding: .6rem .9rem;
+      border: 1.5px solid #e2e8f0; border-radius: 10px;
+      font-family: 'Nunito', sans-serif; font-size: .875rem;
+      resize: vertical; min-height: 80px;
+      transition: border-color .18s ease;
+    }
+    .override-note-area:focus {
+      outline: none; border-color: #4361ee;
+      box-shadow: 0 0 0 3.5px rgba(67,97,238,.15);
+    }
+
+    /* GPS indicator */
+    .gps-indicator {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .3rem .8rem; border-radius: 8px;
+      font-size: .78rem; font-weight: 700;
+    }
+    .gps-pulse { animation: gpsPulse 1.4s infinite; }
+    @keyframes gpsPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+
+    @media (max-width: 768px) {
+      .attendance-summary { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .summary-number { font-size: 1.8rem; }
+      .geofence-form { flex-direction: column; }
+      .geofence-form .form-group { min-width: unset; }
+      .filter-row { flex-direction: column; align-items: stretch; }
+    }
+    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
+
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="teachers.html">
+        <i class="fa-solid fa-chalkboard-user"></i> Teachers
+      </a>
+      <a href="students.html">
+        <i class="fa-solid fa-users"></i> Students &amp; Pupils
+      </a>
+      <a href="setup.html">
+        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
+      </a>
+      <a href="results.html">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
+      <a href="teacher-attendance.html" class="active">
+        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+    </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
+  </aside>
+
+  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="teachers.html">
+        <i class="fa-solid fa-chalkboard-user"></i> Teachers
+      </a>
+      <a href="students.html">
+        <i class="fa-solid fa-users"></i> Students &amp; Pupils
+      </a>
+      <a href="setup.html">
+        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
+      </a>
+      <a href="results.html">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
+      <a href="teacher-attendance.html" class="active">
+        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <!-- ===================== MAIN CONTENT ===================== -->
+  <main class="main-content">
+
+    <!-- HEADER -->
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+          <div id="cameraIcon" class="camera-icon" title="Change logo">
+            <i class="fa-solid fa-camera"></i>
+          </div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <div id="subscriptionBadge" class="subscription-badge">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+        </div>
+        <button id="logoutBtn" class="logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
+      </div>
+    </header>
+
+    <!-- ACADEMIC CALENDAR BADGE -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading&hellip;</span>
+        &nbsp;|&nbsp;
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <!-- PAGE CONTENT -->
+    <div class="content">
+
+      <!-- Welcome -->
+      <div class="welcome-card">
+        <h1>
+          <i class="fa-solid fa-user-clock" style="opacity:.8;margin-right:8px;"></i>
+          Teachers Attendance
+        </h1>
+        <p>Monitor teacher clock-in &amp; clock-out, configure geofencing, and manage attendance records.</p>
+      </div>
+
+      <!-- ======== GEOFENCE SETUP ======== -->
+      <div class="section-card">
+        <div class="section-card-header">
+          <div class="section-card-icon"><i class="fa-solid fa-location-crosshairs"></i></div>
+          <div>
+            <div class="section-card-title">Geofence Setup</div>
+            <div class="section-card-sub">Set your school's GPS location and attendance radius</div>
+          </div>
+        </div>
+
+        <div id="geofenceStatus" class="geofence-status notset" style="margin-bottom:1rem;">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          <span id="geofenceStatusText">Geofence not configured yet</span>
+        </div>
+
+        <div class="geofence-form">
+          <div class="form-group">
+            <label>Latitude</label>
+            <input type="number" id="geofenceLat" step="0.000001" placeholder="e.g. 6.524379">
+          </div>
+          <div class="form-group">
+            <label>Longitude</label>
+            <input type="number" id="geofenceLng" step="0.000001" placeholder="e.g. 3.379206">
+          </div>
+          <div class="form-group">
+            <label>Radius (metres)</label>
+            <select id="geofenceRadius">
+              <option value="100">100 m — Small/single building</option>
+              <option value="150" selected>150 m — Recommended default</option>
+              <option value="200">200 m — Medium campus</option>
+              <option value="300">300 m — Large campus</option>
+              <option value="500">500 m — Very large campus</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Late after (minutes past 8 AM)</label>
+            <select id="geofenceLateThreshold">
+              <option value="0">8:00 AM sharp</option>
+              <option value="15">8:15 AM</option>
+              <option value="30" selected>8:30 AM</option>
+              <option value="45">8:45 AM</option>
+              <option value="60">9:00 AM</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem;align-items:center;">
+          <button id="useMyLocationBtn" class="btn-primary">
+            <i class="fa-solid fa-location-arrow"></i> Use My Current Location
+          </button>
+          <button id="saveGeofenceBtn" class="btn-success">
+            <i class="fa-solid fa-floppy-disk"></i> Save Geofence
+          </button>
+          <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:#10b981;display:none;">
+            <i class="fa-solid fa-circle-check"></i> Saved!
+          </span>
+        </div>
+      </div>
+
+      <!-- ======== TODAY SUMMARY ======== -->
+      <div class="attendance-summary">
+        <div class="summary-card">
+          <div class="summary-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="summary-number" id="countPresent">—</div>
+          <div class="summary-label">Present</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-icon"><i class="fa-solid fa-clock"></i></div>
+          <div class="summary-number" id="countLate">—</div>
+          <div class="summary-label">Late</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-icon"><i class="fa-solid fa-circle-xmark"></i></div>
+          <div class="summary-number" id="countAbsent">—</div>
+          <div class="summary-label">Absent</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-icon"><i class="fa-solid fa-chalkboard-user"></i></div>
+          <div class="summary-number" id="countTotal">—</div>
+          <div class="summary-label">Total Teachers</div>
+        </div>
+      </div>
+
+      <!-- ======== ATTENDANCE TABLE ======== -->
+      <div class="section-card">
+        <div class="section-card-header">
+          <div class="section-card-icon" style="background:rgba(16,185,129,.1);color:#10b981;">
+            <i class="fa-solid fa-table-list"></i>
+          </div>
+          <div>
+            <div class="section-card-title">Attendance Records</div>
+            <div class="section-card-sub">Real-time teacher clock-in &amp; clock-out log</div>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-row">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="attendanceDateFilter" style="width:auto;">
+          </div>
+          <button id="loadAttendanceBtn" class="btn-primary" style="margin-top:1.25rem;">
+            <i class="fa-solid fa-rotate"></i> Load
+          </button>
+          <button id="exportCsvBtn" class="btn-secondary" style="margin-top:1.25rem;">
+            <i class="fa-solid fa-file-csv"></i> Export CSV
+          </button>
+        </div>
+
+        <div class="attendance-table-wrapper">
+          <table class="attendance-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Teacher</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Distance</th>
+                <th>Hours</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="attendanceTableBody">
+              <tr>
+                <td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
+                  <i class="fa-solid fa-spinner fa-spin" style="margin-right:.5rem;"></i>
+                  Select a date and click Load
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ======== ADMIN OVERRIDE ======== -->
+      <div class="section-card">
+        <div class="section-card-header">
+          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </div>
+          <div>
+            <div class="section-card-title">Admin Override</div>
+            <div class="section-card-sub">Manually mark a teacher as present for a specific date</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;">
+          <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0;">
+            <label>Select Teacher</label>
+            <select id="overrideTeacherSelect">
+              <option value="">— Select teacher —</option>
+            </select>
+          </div>
+          <div class="form-group" style="min-width:160px;margin-bottom:0;">
+            <label>Date</label>
+            <input type="date" id="overrideDateInput">
+          </div>
+          <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0;">
+            <label>Status</label>
+            <select id="overrideStatusSelect">
+              <option value="present">Present</option>
+              <option value="late">Late</option>
+              <option value="absent">Absent</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:.75rem;">
+          <label>Reason / Note</label>
+          <textarea id="overrideNote" class="override-note-area" placeholder="e.g. Official assignment, medical leave..."></textarea>
+        </div>
+        <button id="applyOverrideBtn" class="btn-warning" style="margin-top:.5rem;">
+          <i class="fa-solid fa-pen-ruler"></i> Apply Override
+        </button>
+        <div id="overrideMsg" style="margin-top:.6rem;font-size:.82rem;font-weight:700;display:none;"></div>
+      </div>
+
+    </div><!-- /content -->
+
+    <!-- FOOTER -->
+    <footer class="app-footer">
+      <p>
+        <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
+        <span id="currentYear"></span> Acadex &mdash; All rights reserved.
+      </p>
+    </footer>
+
+  </main>
+</div>
+
+<!-- ===================== SCRIPTS ===================== -->
+<script type="module">
+  import {
+    protectAdminPage,
+    loadSchoolInfo,
+    setupSidebar,
+    setupLogout,
+    setupLogoUpload
+  } from '../js/admin.js';
+  import { initMobileMenu }      from '../js/menu.js';
+  import { subscribeToCalendar } from '../js/academic-calendar.js';
+  import {
+    initTeacherAttendancePage
+  } from '../js/teacher-attendance.js';
+
+  const yr = new Date().getFullYear();
+  document.getElementById('currentYear').innerText = yr;
+  const sidebarYr = document.getElementById('sidebarYear');
+  if (sidebarYr) sidebarYr.innerText = yr;
+
+  /* Set today as default date */
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('attendanceDateFilter').value = today;
+  document.getElementById('overrideDateInput').value    = today;
+
+  protectAdminPage().then(async () => {
+    loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
+    setupLogoUpload();
+    initMobileMenu();
+    await initTeacherAttendancePage();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
+  });
+
+  subscribeToCalendar((state) => {
+    const termEl    = document.getElementById('currentTermDisplay');
+    const sessionEl = document.getElementById('currentSessionDisplay');
+    if (termEl)    termEl.textContent = state.currentTerm;
+    if (sessionEl) sessionEl.textContent = state.currentSession;
+    if (state.manualOverride) termEl?.classList.add('override-badge');
+    else termEl?.classList.remove('override-badge');
+  });
+</script>
+</body>
+</html>

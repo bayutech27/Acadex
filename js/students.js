@@ -6,6 +6,7 @@
 //           All existing edit / delete / filter / display logic is UNCHANGED.
 // ADDED: Alphabetical sorting of students by full name in the student list table.
 // MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
+// ADDED: Nationality (all countries), State (Nigerian states), Religion, Parent Phone – mandatory fields.
 
 import { db, auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -30,6 +31,44 @@ let studentForm, modal, admissionNoInput;
 let surnameInput, firstNameInput, otherNameInput;
 let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
+// New DOM elements
+let nationalitySelect, stateSelect, religionSelect, parentPhoneInput;
+
+// ───────────────────────────────────────────────────────────────────────────────
+// LISTS FOR DROPDOWNS
+// ───────────────────────────────────────────────────────────────────────────────
+const NIGERIAN_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa",
+  "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger",
+  "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
+  "FCT Abuja"
+];
+
+const COUNTRIES = [
+  "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia",
+  "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium",
+  "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria",
+  "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad",
+  "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus",
+  "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador",
+  "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia",
+  "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti",
+  "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica",
+  "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon",
+  "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia",
+  "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova",
+  "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands",
+  "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
+  "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal",
+  "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines",
+  "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone",
+  "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan",
+  "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania",
+  "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
+  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu",
+  "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
+];
 
 // ───────────────────────────────────────────────────────────────────────────────
 // SECONDARY FIREBASE APP (for student account creation – prevents admin logout)
@@ -155,6 +194,30 @@ export async function initStudentsPage() {
   passportInput            = document.getElementById('studentPassport');
   passportPreviewContainer = document.getElementById('passportPreviewContainer');
   passportErrorSpan        = document.getElementById('passportError');
+  nationalitySelect        = document.getElementById('studentNationality');
+  stateSelect              = document.getElementById('studentState');
+  religionSelect           = document.getElementById('studentReligion');
+  parentPhoneInput         = document.getElementById('studentParentPhone');
+
+  // Populate dropdowns
+  if (nationalitySelect) {
+    nationalitySelect.innerHTML = '<option value="">-- Select Country --</option>';
+    COUNTRIES.forEach(country => {
+      const opt = document.createElement('option');
+      opt.value = country;
+      opt.textContent = country;
+      nationalitySelect.appendChild(opt);
+    });
+  }
+  if (stateSelect) {
+    stateSelect.innerHTML = '<option value="">-- Select State --</option>';
+    NIGERIAN_STATES.forEach(state => {
+      const opt = document.createElement('option');
+      opt.value = state;
+      opt.textContent = state;
+      stateSelect.appendChild(opt);
+    });
+  }
 
   if (!studentForm || !modal || !surnameInput || !firstNameInput || !levelSelect || !classSelect || !subjectsSelect) {
     console.error('Required DOM elements not found');
@@ -400,7 +463,7 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// IMAGE COMPRESSION (MODIFIED: target size reduced to 750KB)
+// IMAGE COMPRESSION
 // ───────────────────────────────────────────────────────────────────────────────
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
@@ -448,7 +511,6 @@ async function handlePassportUpload(e) {
   passportPreviewContainer.innerHTML = '';
   if (!file) return;
 
-  // Allow files up to 800KB, then compress to ≤750KB
   if (file.size > 800 * 1024) {
     passportErrorSpan.textContent = 'File size exceeds 800KB. Please choose a smaller image.';
     passportErrorSpan.style.display = 'block';
@@ -457,7 +519,6 @@ async function handlePassportUpload(e) {
   }
 
   try {
-    // Compress to 750KB (maxSizeKB = 750)
     const base64 = await compressAndResizeImage(file, 750, 100, 100);
     passportInput.dataset.base64 = base64;
     const imgEl = document.createElement('img');
@@ -507,7 +568,6 @@ async function loadAndDisplayStudents() {
     return;
   }
   let students = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  // ✅ Sort students alphabetically by full name
   students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const container = document.getElementById('studentsList');
@@ -635,6 +695,10 @@ function openModal(studentId = null) {
   if (clubInput)                clubInput.value = '';
   if (admissionNoInput)         admissionNoInput.value = '';
   if (levelSelect)              levelSelect.value = '';
+  if (nationalitySelect)        nationalitySelect.value = '';
+  if (stateSelect)              stateSelect.value = '';
+  if (religionSelect)           religionSelect.value = '';
+  if (parentPhoneInput)         parentPhoneInput.value = '';
 
   if (classSelect) {
     classSelect.innerHTML = '<option value="">-- Select level first --</option>';
@@ -691,6 +755,12 @@ async function loadStudentData(studentId) {
     if (clubInput)    clubInput.value    = data.club || '';
     if (data.dob)     calculateAndDisplayAge();
 
+    // New fields
+    if (nationalitySelect) nationalitySelect.value = data.nationality || '';
+    if (stateSelect) stateSelect.value = data.state || '';
+    if (religionSelect) religionSelect.value = data.religion || '';
+    if (parentPhoneInput) parentPhoneInput.value = data.parentPhone || '';
+
     if (data.passport && passportPreviewContainer) {
       const imgEl = document.createElement('img');
       imgEl.src = data.passport;
@@ -733,8 +803,19 @@ async function handleStudentSubmit(e) {
   const club    = clubInput?.value.trim() || null;
   const passport = passportInput?.dataset.base64 || null;
 
+  // New fields
+  const nationality = nationalitySelect?.value ?? '';
+  const state = stateSelect?.value ?? '';
+  const religion = religionSelect?.value ?? '';
+  const parentPhone = parentPhoneInput?.value.trim() ?? '';
+
+  // Validation
   if (!surname || !firstName || !email || !classId || !gender || !dob || !level) {
     showNotification('Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).', 'error');
+    return;
+  }
+  if (!nationality || !state || !religion || !parentPhone) {
+    showNotification('Please fill in Nationality, State, Religion and Parent Phone.', 'error');
     return;
   }
   const age = calculateAge(dob);
@@ -774,6 +855,11 @@ async function handleStudentSubmit(e) {
     schoolId: currentSchoolId,
     updatedAt: timestamp,
     subscriptionCovered: false,
+    // New fields
+    nationality,
+    state,
+    religion,
+    parentPhone
   };
   if (!editingStudentId) {
     studentBaseData.locked = lockedValue;
