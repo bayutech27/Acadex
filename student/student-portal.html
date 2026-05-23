@@ -4,311 +4,793 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>Acadex - Student Dashboard</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Global Styles -->
   <link rel="stylesheet" href="../css/styles.css">
+
   <style>
-    /* ── Internal tabs ── */
+    /* =========================================================
+       STUDENT DASHBOARD – Page-specific styles
+       ========================================================= */
+
+    /* ----- Academic badge row ----- */
+    .academic-badge-row {
+      display: flex;
+      justify-content: flex-end;
+      padding: .45rem 1.75rem;
+      background: var(--card-bg);
+      border-bottom: 1px solid rgba(67,97,238,.08);
+    }
+    .academic-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: #fff;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: .68rem;
+      font-weight: 800;
+    }
+
+    /* ----- School address ----- */
+    .school-address {
+      font-size: .74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    /* ----- Subscription badge ----- */
+    .subscription-badge {
+      font-weight: 700;
+      font-size: .78rem;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+    /* ----- School logo: READ-ONLY (no camera, no upload) ----- */
+    .school-logo-readonly {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 2.5px solid #4361ee;
+      background: #e0e7ff;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 0 4px rgba(67,97,238,.12);
+    }
+    .school-logo-readonly img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+
+    /* ----- Notification bell ----- */
+    .notification-bell {
+      position: relative;
+      background: #f0f4ff;
+      border: 1.5px solid rgba(67,97,238,.15);
+      border-radius: 10px;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: .42rem .55rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #4361ee;
+      transition: all .18s ease;
+      width: 38px; height: 38px;
+    }
+    .notification-bell:hover {
+      background: #4361ee;
+      color: #fff;
+      border-color: #4361ee;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(67,97,238,.3);
+    }
+    .notification-badge-dot {
+      position: absolute;
+      top: 3px; right: 3px;
+      width: 8px; height: 8px;
+      background: #ef4444;
+      border-radius: 50%;
+      border: 1.5px solid #fff;
+    }
+
+    .notification-dropdown {
+      position: absolute;
+      top: 48px; right: 0;
+      width: 320px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(13,27,42,.15), 0 4px 10px rgba(13,27,42,.08);
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid rgba(67,97,238,.1);
+      animation: modalIn .2s ease both;
+    }
+    .notification-dropdown.show { display: flex; }
+    @keyframes modalIn {
+      from { transform: scale(.96) translateY(8px); opacity: 0; }
+      to   { transform: scale(1)   translateY(0);   opacity: 1; }
+    }
+    .notification-header {
+      padding: .75rem 1rem;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: .9rem;
+      border-bottom: 1px solid #f1f5f9;
+      background: #f8fafc;
+      border-radius: 16px 16px 0 0;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      color: #0d1b2a;
+    }
+    .notification-header i { color: #4361ee; }
+    .notification-item {
+      padding: .7rem 1rem;
+      border-bottom: 1px solid #f8fafc;
+      font-size: .83rem;
+      color: #475569;
+      font-weight: 500;
+      line-height: 1.5;
+      transition: background .15s ease;
+    }
+    .notification-item:hover { background: #f8faff; }
+    .notification-item:last-child { border-bottom: none; }
+    .empty-notification {
+      padding: 1.5rem;
+      text-align: center;
+      color: #94a3b8;
+      font-size: .85rem;
+    }
+    .empty-notification i { display: block; font-size: 1.6rem; margin-bottom: .5rem; opacity: .5; }
+
+    /* =========================================================
+       INTERNAL TABS
+       ========================================================= */
     .internal-tabs {
       display: flex;
-      gap: 0.5rem;
-      border-bottom: 2px solid var(--gray-200);
+      gap: .25rem;
+      border-bottom: 2px solid #e2e8f0;
       margin-bottom: 1.5rem;
       flex-wrap: wrap;
     }
     .internal-tab-btn {
       background: transparent;
       border: none;
-      padding: 0.6rem 1.2rem;
-      font-weight: 600;
-      color: var(--gray-600);
+      padding: .55rem 1.1rem;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      font-size: .83rem;
+      color: #64748b;
       cursor: pointer;
-      transition: var(--transition);
-      border-radius: var(--border-radius) var(--border-radius) 0 0;
+      transition: all .18s ease;
+      border-radius: 8px 8px 0 0;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      letter-spacing: .01em;
     }
-    .internal-tab-btn:hover  { color: var(--primary); background: var(--gray-100); }
-    .internal-tab-btn.active { color: var(--primary); border-bottom: 2px solid var(--primary); margin-bottom: -2px; }
+    .internal-tab-btn i { font-size: .8rem; opacity: .7; }
+    .internal-tab-btn:hover  { color: #4361ee; background: rgba(67,97,238,.06); }
+    .internal-tab-btn.active {
+      color: #4361ee;
+      border-bottom: 2px solid #4361ee;
+      margin-bottom: -2px;
+      background: rgba(67,97,238,.05);
+    }
+    .internal-tab-btn.active i { opacity: 1; }
 
-    .tab-pane { display: none; animation: fadeIn 0.25s ease; }
+    .tab-pane { display: none; animation: fadeTabIn .25s ease; }
     .tab-pane.active-pane { display: block; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(5px); }
+    @keyframes fadeTabIn {
+      from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    /* ── Hero card ── */
+    /* =========================================================
+       HERO CARD
+       ========================================================= */
     .hero-card {
-      background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
-      border-radius: 1.25rem;
+      background: linear-gradient(135deg, #fff 0%, #f8faff 100%);
+      border-radius: 18px;
       padding: 1.5rem;
-      margin-bottom: 2rem;
-      box-shadow: var(--shadow);
+      margin-bottom: 1.75rem;
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
       display: flex;
       flex-wrap: wrap;
-      gap: 1.5rem;
+      gap: 1.25rem;
       align-items: center;
-      border: 1px solid var(--gray-200);
+      border: 1px solid rgba(67,97,238,.1);
+      animation: fadeSlideUp .45s ease both;
     }
     .student-photo {
       width: 90px; height: 90px;
       border-radius: 50%;
       object-fit: cover;
-      border: 3px solid var(--primary);
-      background: var(--gray-100);
-      box-shadow: var(--shadow-sm);
+      border: 3px solid #4361ee;
+      background: #e0e7ff;
+      box-shadow: 0 0 0 5px rgba(67,97,238,.12), 0 4px 14px rgba(67,97,238,.2);
       flex-shrink: 0;
     }
-    .hero-info h2 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .hero-info h2 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.4rem;
+      font-weight: 800;
+      margin-bottom: .2rem;
+      color: #0d1b2a;
+      letter-spacing: -.03em;
+    }
     .hero-meta {
-      display: flex; flex-wrap: wrap; gap: 0.75rem;
-      margin-top: 0.5rem; color: var(--gray-600); font-size: 0.88rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-top: .5rem;
+      font-size: .82rem;
     }
-    .hero-meta span { background: var(--gray-100); padding: 0.2rem 0.75rem; border-radius: 30px; }
+    .hero-meta span {
+      background: rgba(67,97,238,.08);
+      color: #4361ee;
+      padding: .22rem .75rem;
+      border-radius: 999px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      border: 1px solid rgba(67,97,238,.15);
+    }
+    .hero-meta span i { font-size: .72rem; }
 
-    /* ── Info grid ── */
-    .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    /* =========================================================
+       INFO GRID
+       ========================================================= */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: .9rem;
+    }
     .info-item {
-      background: var(--gray-50);
-      padding: 0.75rem 1rem;
-      border-radius: var(--border-radius);
-      border-left: 3px solid var(--primary);
+      background: #f8faff;
+      padding: .8rem 1rem;
+      border-radius: 10px;
+      border-left: 3.5px solid #4361ee;
+      transition: all .18s ease;
     }
-    .info-label { font-weight: 600; font-size: 0.73rem; text-transform: uppercase; color: var(--gray-500); letter-spacing: 0.5px; }
-    .info-value  { font-weight: 500; margin-top: 0.2rem; min-height: 1.2em; }
+    .info-item:hover { transform: translateX(3px); box-shadow: 0 3px 10px rgba(67,97,238,.1); }
+    .info-label {
+      font-weight: 700;
+      font-size: .7rem;
+      text-transform: uppercase;
+      color: #94a3b8;
+      letter-spacing: .06em;
+    }
+    .info-value {
+      font-weight: 600;
+      font-size: .9rem;
+      color: #1e293b;
+      margin-top: .2rem;
+      min-height: 1.2em;
+    }
 
-    /* ── Notification bell ── */
-    .notification-bell {
-      position: relative; background: none; border: none;
-      font-size: 1.5rem; cursor: pointer; padding: 0.25rem;
-      display: flex; align-items: center;
-      color: var(--gray-700); transition: var(--transition);
+    /* =========================================================
+       SUMMARY STATS
+       ========================================================= */
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: .9rem;
+      margin-bottom: 1.25rem;
     }
-    .notification-bell:hover { color: var(--primary); }
-    .notification-dropdown {
-      position: absolute; top: 45px; right: 0;
-      width: 320px; background: white; border-radius: 1rem;
-      box-shadow: 0 20px 25px -5px rgba(0,0,0,.1), 0 10px 10px -5px rgba(0,0,0,.04);
-      z-index: 1000; display: none; flex-direction: column;
-      max-height: 400px; overflow-y: auto; border: 1px solid var(--gray-200);
+    .stat-badge {
+      background: #fff;
+      padding: 1.1rem 1rem;
+      border-radius: 14px;
+      text-align: center;
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 5px 18px rgba(13,27,42,.07);
+      border: 1px solid rgba(67,97,238,.07);
+      animation: fadeSlideUp .4s ease both;
     }
-    .notification-dropdown.show { display: flex; }
-    .notification-header {
-      padding: 0.75rem 1rem; font-weight: 700;
-      border-bottom: 1px solid var(--gray-200);
-      background: var(--gray-50); border-radius: 1rem 1rem 0 0;
+    .stat-badge .number {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.9rem;
+      font-weight: 800;
+      color: #4361ee;
+      line-height: 1;
+      letter-spacing: -.04em;
     }
-    .notification-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--gray-100); font-size: 0.85rem; color: var(--gray-700); }
-    .notification-item:last-child { border-bottom: none; }
-    .empty-notification { padding: 1.5rem; text-align: center; color: var(--gray-500); }
+    .stat-badge .label {
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #94a3b8;
+      letter-spacing: .05em;
+      margin-top: .3rem;
+    }
 
-    /* ── Summary / stat badges ── */
-    .summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
-    .stat-badge { background: white; padding: 1rem; border-radius: 1rem; text-align: center; box-shadow: var(--shadow); }
-    .stat-badge .number { font-size: 2rem; font-weight: 800; color: var(--primary); }
-
-    /* ── Attendance mini-cards ── */
+    /* =========================================================
+       ATTENDANCE
+       ========================================================= */
     .attendance-meta-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: .9rem;
       margin-top: 1rem;
     }
     .attendance-meta-card {
-      background: var(--gray-50);
-      border-radius: var(--border-radius);
-      padding: 0.85rem 1rem;
-      border-left: 3px solid var(--primary);
+      background: #f8faff;
+      border-radius: 10px;
+      padding: .85rem 1rem;
+      border-left: 3.5px solid #4361ee;
+      font-size: .875rem;
+    }
+    .attendance-progress {
+      background: #e2e8f0;
+      border-radius: 20px;
+      height: 10px;
+      overflow: hidden;
+      margin: .9rem 0 .25rem;
+    }
+    .attendance-progress-bar {
+      background: linear-gradient(90deg, #4361ee, #7c3aed);
+      height: 100%;
+      width: 0%;
+      border-radius: 20px;
+      transition: width .7s ease;
+    }
+    .attendance-pct-label {
+      font-size: .78rem;
+      color: #94a3b8;
+      font-weight: 600;
+      margin-bottom: .9rem;
     }
 
-    /* ── Grade badges ── */
-    .grade-A { background:#dcfce7; color:#15803d; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
-    .grade-B { background:#dbeafe; color:#1e40af; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
-    .grade-C { background:#fff3cd; color:#856404; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
-    .grade-D { background:#ffe5e5; color:#b91c1c; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; }
+    /* =========================================================
+       GRADE BADGES
+       ========================================================= */
+    .grade-A { background: #d1fae5; color: #065f46; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
+    .grade-B { background: #dbeafe; color: #1e40af; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
+    .grade-C { background: #fef3c7; color: #92400e; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
+    .grade-D { background: #fee2e2; color: #991b1b; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
 
-    /* ── Attendance progress ── */
-    .attendance-progress { background: var(--gray-200); border-radius: 20px; height: 10px; overflow: hidden; margin: 1rem 0 0.25rem; }
-    .attendance-progress-bar { background: var(--primary); height: 100%; width: 0%; border-radius: 20px; transition: width 0.7s ease; }
-    .attendance-pct-label { font-size: 0.82rem; color: var(--gray-500); margin-bottom: 1rem; }
-
-    /* ── Results ── */
+    /* Results table wrapper */
     .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
 
-    /*
-     * School logo: READ-ONLY.
-     * No camera icon. No upload. Students cannot edit.
-     */
-    .school-logo-readonly {
-      width: 52px; height: 52px;
-      border-radius: 50%; overflow: hidden;
-      border: 2px solid var(--gray-200);
-      background: var(--gray-100);
-      flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .school-logo-readonly img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    /* =========================================================
+       MOBILE MENU CARDS  (≤ 768 px — identical to admin/teacher)
+       ========================================================= */
+    .mobile-menu-section { display: none; }
 
-    /* Badge row: always visible, sits just below the header */
-    .academic-badge-row { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
-    .academic-badge {
-      background: var(--primary); color: #fff;
-      padding: 0.3rem 1rem; border-radius: 30px;
-      font-size: 0.82rem; font-weight: 600; white-space: nowrap;
-    }
+    @media (max-width: 768px) {
+      .mobile-menu-section {
+        display: block;
+        margin-bottom: 24px;
+        animation: fadeSlideUp .4s ease both;
+      }
+      .mobile-menu-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+      }
+      .mobile-menu-title i { color: #4361ee; font-size: .95rem; }
 
-    /* ── Desktop: hide hamburger ── */
-    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
+      .mobile-nav-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
 
-    /* ── Mobile ── */
-    @media (max-width: 640px) {
+      .mobile-nav-card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 18px 14px 14px;
+        text-decoration: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        border: 2px solid transparent;
+        box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 5px 18px rgba(13,27,42,.07);
+        transition: all .22s ease;
+        position: relative;
+        overflow: hidden;
+        text-align: center;
+        cursor: pointer;
+        animation: fadeSlideUp .4s ease both;
+      }
+      .mobile-nav-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        border-radius: 16px 16px 0 0;
+        background: linear-gradient(90deg, var(--card-color-a), var(--card-color-b));
+      }
+      .mobile-nav-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 28px rgba(13,27,42,.12);
+        border-color: rgba(67,97,238,.12);
+      }
+      .mobile-nav-card.active {
+        background: linear-gradient(145deg, #4361ee, #7c3aed);
+        border-color: transparent;
+        box-shadow: 0 8px 24px rgba(67,97,238,.38);
+      }
+      .mobile-nav-card.active .mobile-nav-icon,
+      .mobile-nav-card.active .mobile-nav-label { color: #fff !important; }
+      .mobile-nav-card.active .mobile-nav-icon { background: rgba(255,255,255,.18) !important; }
+
+      .mobile-nav-icon {
+        width: 50px; height: 50px;
+        border-radius: 14px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.3rem;
+        transition: transform .2s ease;
+        background: var(--icon-bg);
+        color: var(--icon-color);
+        box-shadow: 0 3px 10px rgba(0,0,0,.09);
+      }
+      .mobile-nav-card:hover .mobile-nav-icon { transform: scale(1.1) rotate(-3deg); }
+
+      .mobile-nav-label {
+        font-family: 'Outfit', sans-serif;
+        font-size: .82rem;
+        font-weight: 700;
+        color: #1e293b;
+        letter-spacing: -.01em;
+      }
+
+      /* Colour themes */
+      .mnc-dashboard { --card-color-a: #4361ee; --card-color-b: #7c3aed; --icon-bg: rgba(67,97,238,.1);  --icon-color: #4361ee; }
+      .mnc-cbt       { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
+      .mnc-results   { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
+
+      /* Stagger */
+      .mobile-nav-card:nth-child(1) { animation-delay: .04s; }
+      .mobile-nav-card:nth-child(2) { animation-delay: .10s; }
+      .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
+
+      /* Hero adjustments */
       .hero-card { flex-direction: column; text-align: center; }
       .hero-meta  { justify-content: center; }
+      .student-photo { margin: 0 auto; }
+
+      /* Tabs wrap */
       .internal-tabs { justify-content: center; }
+
+      /* Notification dropdown */
       .notification-dropdown { width: 280px; right: -10px; }
-      .school-name h1 { font-size: 0.95rem; }
+
+      /* School name */
+      .school-name h1 { font-size: 1.1rem !important; max-width: 46vw; }
+    }
+
+    /* =========================================================
+       HEADER tweaks
+       ========================================================= */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
+
+    /* =========================================================
+       KEYFRAMES
+       ========================================================= */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
 
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
   <!--
-    DESKTOP SIDEBAR
-    ───────────────
     Logout link is intentionally REMOVED from the desktop sidebar.
     Logout is available only via the header Logout button.
   -->
   <aside class="sidebar">
     <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav" id="studentSidebarNav">
-      <a href="#" data-section="dashboard" class="active">Dashboard</a>
-      <a href="#" data-section="cbt">CBT</a>
-      <a href="#" data-section="results">Results</a>
+      <a href="#" data-section="dashboard" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="#" data-section="cbt">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
+      <a href="#" data-section="results">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
       <!-- Logout intentionally omitted from desktop sidebar -->
     </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- Mobile Sidebar -->
+  <!-- ===================== MOBILE SIDEBAR ===================== -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar">&times;</button>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
     <nav class="sidebar-nav">
-      <a href="#" data-section="dashboard" class="active">Dashboard</a>
-      <a href="#" data-section="cbt">CBT</a>
-      <a href="#" data-section="results">Results</a>
+      <a href="#" data-section="dashboard" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="#" data-section="cbt">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
+      <a href="#" data-section="results">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button id="mobileLogoutBtn" class="mobile-logout-btn">Logout</button>
+      <button id="mobileLogoutBtn" class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
-  <!-- Main Content -->
+  <!-- ===================== MAIN CONTENT ===================== -->
   <main class="main-content">
 
+    <!-- ---- TOP HEADER ---- -->
     <!--
-      HEADER
-      ──────
-      • School logo is read-only (no camera, no upload — students cannot edit).
-      • Logo loaded from Firestore field "logo".
-      • School name and address only — NO term/session text here.
+      School logo is READ-ONLY — no camera, no upload.
+      Logo loaded from Firestore "logo" field.
+      School name and address only — NO term/session text here.
     -->
     <header class="header">
       <div class="school-header-left">
-        <div class="school-logo-readonly">
+        <!-- Logo: read-only, no camera overlay -->
+       <!--  <div class="school-logo-readonly">
           <img
             id="schoolLogoImg"
             alt="School Logo"
             src="https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=S&size=80"
           >
-        </div>
+        </div> -->
+        <!-- School name & address -->
         <div class="school-name">
-          <h1 id="schoolName">Loading…</h1>
+          <h1 id="schoolName">Loading&hellip;</h1>
           <div id="schoolAddress" class="school-address"></div>
           <!-- NO session/term line here — removed per requirement -->
         </div>
       </div>
 
+      <!-- Right controls -->
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Open menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge"></div>
+        <!-- Hamburger (mobile only) -->
+        <button class="hamburger-menu" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <!-- Subscription status -->
+        <div id="subscriptionBadge" class="subscription-badge">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+        </div>
+        <!-- Notification bell -->
         <div style="position:relative;">
-          <button id="notificationBell" class="notification-bell" aria-label="Notifications">🔔</button>
+          <button id="notificationBell" class="notification-bell" aria-label="Notifications">
+            <i class="fa-solid fa-bell"></i>
+          </button>
           <div id="notificationDropdown" class="notification-dropdown">
-            <div class="notification-header">Notifications</div>
-            <div id="notificationList">Loading…</div>
+            <div class="notification-header">
+              <i class="fa-solid fa-bell"></i> Notifications
+            </div>
+            <div id="notificationList">
+              <div class="empty-notification">
+                <i class="fa-regular fa-bell-slash"></i>
+                No notifications yet
+              </div>
+            </div>
           </div>
         </div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <!-- Logout (desktop only) -->
+        <button id="logoutBtn" class="logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
       </div>
     </header>
 
+    <!-- ---- ACADEMIC CALENDAR BADGE ---- -->
     <!--
-      ACADEMIC BADGE ROW
-      ──────────────────
       This pill — driven by academic-calendar.js + calendar-sync.js —
       is the ONLY place the current term and session appear in the header area.
-      It sits directly below the Logout button.
+      It sits directly below the header.
     -->
     <div class="academic-badge-row">
       <div class="academic-badge">
-        <span id="currentTermDisplay">—</span>&nbsp;|&nbsp;<span id="currentSessionDisplay">—</span>
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">&mdash;</span>
+        &nbsp;|&nbsp;
+        <span id="currentSessionDisplay">&mdash;</span>
       </div>
     </div>
 
+    <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content" id="mainContentArea">
 
-      <!-- Dashboard Section -->
+      <!-- ======================================================
+           DASHBOARD SECTION
+           ====================================================== -->
       <div id="dashboardSection" class="dynamic-section">
+
+        <!-- Hero container (rendered by student-portal.js) -->
         <div id="heroContainer"></div>
 
+        <!-- ---- MOBILE NAVIGATION CARDS (visible ≤ 768px) ---- -->
+        <div class="mobile-menu-section">
+          <div class="mobile-menu-title">
+            <i class="fa-solid fa-grip"></i> Quick Navigation
+          </div>
+          <div class="mobile-nav-grid">
+
+            <a href="#" data-section="dashboard" class="mobile-nav-card mnc-dashboard active">
+              <div class="mobile-nav-icon">
+                <i class="fa-solid fa-gauge-high"></i>
+              </div>
+              <span class="mobile-nav-label">Dashboard</span>
+            </a>
+
+            <a href="#" data-section="cbt" class="mobile-nav-card mnc-cbt">
+              <div class="mobile-nav-icon">
+                <i class="fa-solid fa-laptop-code"></i>
+              </div>
+              <span class="mobile-nav-label">CBT</span>
+            </a>
+
+            <a href="#" data-section="results" class="mobile-nav-card mnc-results" style="grid-column: span 2;">
+              <div class="mobile-nav-icon">
+                <i class="fa-solid fa-chart-bar"></i>
+              </div>
+              <span class="mobile-nav-label">Results</span>
+            </a>
+
+          </div>
+        </div>
+        <!-- /mobile nav cards -->
+
+        <!-- ---- INTERNAL TABS ---- -->
         <div class="internal-tabs">
-          <button class="internal-tab-btn active" data-tab="profile">Profile</button>
-          <button class="internal-tab-btn" data-tab="attendance">Attendance</button>
-          <button class="internal-tab-btn" data-tab="subjects">Subjects</button>
-          <button class="internal-tab-btn" data-tab="assignments">Assignments</button>
+          <button class="internal-tab-btn active" data-tab="profile">
+            <i class="fa-solid fa-user"></i> Profile
+          </button>
+          <button class="internal-tab-btn" data-tab="attendance">
+            <i class="fa-solid fa-clipboard-list"></i> Attendance
+          </button>
+          <button class="internal-tab-btn" data-tab="subjects">
+            <i class="fa-solid fa-book-open"></i> Subjects
+          </button>
+          <button class="internal-tab-btn" data-tab="assignments">
+            <i class="fa-solid fa-pen-to-square"></i> Assignments
+          </button>
         </div>
 
-        <div id="profileTab"     class="tab-pane active-pane">Loading profile…</div>
-        <div id="attendanceTab"  class="tab-pane">Loading attendance…</div>
-        <div id="subjectsTab"    class="tab-pane">Loading subjects…</div>
-        <div id="assignmentsTab" class="tab-pane">Loading assignments…</div>
-      </div>
+        <div id="profileTab"     class="tab-pane active-pane">Loading profile&hellip;</div>
+        <div id="attendanceTab"  class="tab-pane">Loading attendance&hellip;</div>
+        <div id="subjectsTab"    class="tab-pane">Loading subjects&hellip;</div>
+        <div id="assignmentsTab" class="tab-pane">Loading assignments&hellip;</div>
 
-      <!-- Results Section -->
+      </div>
+      <!-- /dashboardSection -->
+
+      <!-- ======================================================
+           RESULTS SECTION
+           ====================================================== -->
       <div id="resultsSection" class="dynamic-section" style="display:none;">
         <div class="welcome-card">
-          <h2>📊 Academic Performance</h2>
-          <p>Your termly results and subject breakdown</p>
+          <h1>
+            <i class="fa-solid fa-chart-bar" style="opacity:.8; margin-right:8px;"></i>
+            Academic Performance
+          </h1>
+          <p>Your termly results and subject breakdown.</p>
         </div>
         <div id="resultsSummaryContainer" class="summary-stats"></div>
-        <div class="card" style="background:white;border-radius:1rem;padding:1.2rem;">
-          <h3>Subject Results</h3>
-          <div id="resultsTableContainer" class="results-table-wrapper">Loading results…</div>
+        <div style="background:#fff; border-radius:16px; padding:1.4rem; box-shadow:0 2px 0 rgba(0,0,0,.05),0 6px 22px rgba(13,27,42,.07); border:1px solid rgba(67,97,238,.07);">
+          <h3 style="font-family:'Outfit',sans-serif; font-size:1.05rem; margin-bottom:.25rem; display:flex; align-items:center; gap:.5rem;">
+            <i class="fa-solid fa-table-list" style="color:#4361ee;"></i> Subject Results
+          </h3>
+          <div id="resultsTableContainer" class="results-table-wrapper">Loading results&hellip;</div>
           <div class="form-actions" style="margin-top:1rem;">
-            <button id="downloadResultBtn" class="btn-secondary">📄 Download Result</button>
+            <button id="downloadResultBtn" class="btn-secondary">
+              <i class="fa-solid fa-file-arrow-down"></i> Download Result
+            </button>
           </div>
         </div>
       </div>
+      <!-- /resultsSection -->
 
     </div>
+    <!-- /content -->
 
+    <!-- ---- FOOTER ---- -->
     <footer class="app-footer">
-      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+      <p>
+        <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
+        <span id="currentYear"></span> Acadex &mdash; All rights reserved.
+      </p>
     </footer>
+
   </main>
 </div>
 
+<!-- ===================== SCRIPTS ===================== -->
 <script type="module" src="./student-portal.js"></script>
 
 <script>
-  // CBT button validation and redirect (ensures schoolId and studentId exist)
-  (function() {
+  /* Year stamps */
+  document.addEventListener('DOMContentLoaded', function () {
+    const yr = new Date().getFullYear();
+    const yearEl = document.getElementById('currentYear');
+    if (yearEl) yearEl.innerText = yr;
+    const sidebarYr = document.getElementById('sidebarYear');
+    if (sidebarYr) sidebarYr.innerText = yr;
+  });
+
+  /* ── CBT button validation and redirect ── */
+  (function () {
     function validateAndRedirectToCBT(event) {
       event.preventDefault();
-      const schoolId = localStorage.getItem('userSchoolId');
+      const schoolId  = localStorage.getItem('userSchoolId');
       const studentId = localStorage.getItem('studentId');
       if (!schoolId || !studentId) {
         alert('Unable to access CBT. Please log out and log in again.');
@@ -319,9 +801,9 @@
       return true;
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
       const cbtLinks = document.querySelectorAll('[data-section="cbt"]');
-      cbtLinks.forEach(link => {
+      cbtLinks.forEach(function (link) {
         link.addEventListener('click', validateAndRedirectToCBT);
       });
     });
