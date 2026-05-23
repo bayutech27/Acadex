@@ -3,6 +3,7 @@
 // DYNAMIC SESSION DROPDOWN – shows only sessions with existing scores for the school
 // ADDED: Alphabetical sorting of students, class options, and subject options.
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
+// ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
@@ -100,7 +101,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
+  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></table></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -180,7 +181,11 @@ async function loadAllStudents() {
       id: doc.id, name: doc.data().name, classId: doc.data().classId,
       admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
       dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
-      subjects: doc.data().subjects || []
+      subjects: doc.data().subjects || [],
+      parentPhone: doc.data().parentPhone || null,
+      nationality: doc.data().nationality || null,
+      state: doc.data().state || null,
+      religion: doc.data().religion || null
     }));
     // ✅ Sort students alphabetically by name
     studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -329,7 +334,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// ------------------- MODIFIED renderReportCard (attendance fix) -------------------
+// ------------------- MODIFIED renderReportCard (attendance fix + store parentPhone) -------------------
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -372,17 +377,20 @@ async function renderReportCard(studentId, studentName) {
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
-  // ─── CRITICAL FIX: include classId and schoolId in studentData ───
+  // ─── include classId, schoolId and parentPhone in studentData ───
   const studentData = {
     id: studentId, name: studentName,
-    classId: student.classId,        // ensures attendance query uses correct class
-    schoolId: currentSchoolId,       // ensures attendance query uses correct school
+    classId: student.classId,
+    schoolId: currentSchoolId,
     admissionNumber: student.admissionNumber || '—',
     gender: student.gender || '—',
     dob:    student.dob    || '',
     club:   student.club   || '—',
-    passport: student.passport || null
+    passport: student.passport || null,
+    parentPhone: student.parentPhone || null
   };
+  // Store parentPhone in editorState for quick access
+  editorState.selectedStudent.parentPhone = student.parentPhone || null;
 
   const comments   = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
   const attendance = editorState.attendance || { schoolOpened: 0, present: 0, absent: 0 };
@@ -526,6 +534,54 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
+// ─────────── NEW: Send to WhatsApp function (robust normalisation) ───────────
+function sendToWhatsApp() {
+  // 1) No student selected
+  if (!editorState.selectedStudent) {
+    showNotification('No student selected. Please select a student first.', 'error');
+    return;
+  }
+
+  let phone = editorState.selectedStudent.parentPhone;
+  if (!phone || phone.trim() === '') {
+    showNotification('Parent phone number is not available for this student. Please update the student record with a valid phone number.', 'error');
+    return;
+  }
+
+  // 2) Normalise the phone number
+  let digits = phone.replace(/\D/g, '');
+  
+  if (digits.length === 10 && digits.startsWith('8')) {
+    digits = '234' + digits;
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    digits = '234' + digits.substring(1);
+  } else if (digits.length === 13 && digits.startsWith('234')) {
+    // already correct
+  } else if (digits.length === 14 && digits.startsWith('234')) {
+    // Sometimes +234... gives 14 digits? Actually + is removed, so 234... is 13. But if extra, strip first 3.
+    if (digits.startsWith('234234')) digits = digits.substring(3);
+  } else if (digits.length === 10 && /^[789]/.test(digits)) {
+    digits = '234' + digits;
+  } else {
+    showNotification(`Phone number could not be normalised. Raw input: ${phone}. Please use a valid Nigerian number.`, 'error');
+    return;
+  }
+  
+  if (!digits.startsWith('234')) {
+    showNotification(`Phone number does not start with Nigeria country code. Raw: ${phone}`, 'error');
+    return;
+  }
+  if (digits.length !== 13) {
+    showNotification(`Phone number normalised to ${digits} (length ${digits.length}) – expected 13 digits. Raw: ${phone}`, 'error');
+    return;
+  }
+  
+  const message = `Please find attached the report card for ${editorState.selectedStudent.name}.`;
+  const whatsappUrl = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+  window.open(whatsappUrl, '_blank');
+}
+
+// ------------------- Broadsheet Functions (unchanged) -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -634,7 +690,7 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
@@ -837,7 +893,6 @@ export async function initResultsPage() {
   classSelects.forEach(id => {
     const select = document.getElementById(id);
     if (select) {
-      // ✅ Sort classes alphabetically before populating options
       const sortedClasses = Array.from(classesMap.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
       select.innerHTML = '<option value="">-- Select Class --</option>' +
         sortedClasses.map(([id, info]) => `<option value="${id}">${escapeHtml(info.name)}</option>`).join('');
@@ -875,6 +930,19 @@ export async function initResultsPage() {
   if (downloadBroadsheetBtn) downloadBroadsheetBtn.textContent = 'Print/Download';
   const downloadReportBtn = document.getElementById('printReportBtn');
   if (downloadReportBtn) downloadReportBtn.textContent = 'Print/Download';
+
+  // ─── ADD SEND TO WHATSAPP BUTTON ───
+  const reportActions = document.getElementById('reportActions');
+  if (reportActions && !document.getElementById('whatsappReportBtn')) {
+    const whatsappBtn = document.createElement('button');
+    whatsappBtn.id = 'whatsappReportBtn';
+    whatsappBtn.className = 'btn-secondary';
+    whatsappBtn.style.backgroundColor = '#25D366';
+    whatsappBtn.style.color = 'white';
+    whatsappBtn.innerHTML = '📱 Send to WhatsApp';
+    whatsappBtn.addEventListener('click', sendToWhatsApp);
+    reportActions.appendChild(whatsappBtn);
+  }
 
   updateSubscriptionUI();
   await onEditorClassChange();
