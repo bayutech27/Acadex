@@ -96,39 +96,70 @@
 </head>
 <body>
 <div class="dashboard-container">
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
   <aside class="sidebar">
     <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">Dashboard</a>
-      <a href="teachers.html">Teachers</a>
-      <a href="students.html">Students & Pupils</a>
-      <a href="setup.html" class="active">Subjects & Classes</a>
-      <a href="results.html">Results</a>
-       <!---<a href="records.html">Records</a>--->
+      <a href="admin-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="teachers.html">
+        <i class="fa-solid fa-chalkboard-user"></i> Teachers
+      </a>
+      <a href="students.html">
+        <i class="fa-solid fa-users"></i> Students &amp; Pupils
+      </a>
+      <a href="setup.html">
+        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
+      </a>
+      <a href="results.html">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
+      <a href="teacher-attendance.html" class="active">
+        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
     </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
+  <!-- ===================== MOBILE SIDEBAR ===================== -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar">&times;</button>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">Dashboard</a>
-      <a href="teachers.html">Teachers</a>
-      <a href="students.html">Students & Pupils</a>
-      <a href="setup.html" class="active">Subjects & Classes</a>
-      <a href="results.html">Results</a>
-       <!---<a href="records.html">Records</a>--->
+      <a href="admin-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="teachers.html">
+        <i class="fa-solid fa-chalkboard-user"></i> Teachers
+      </a>
+      <a href="students.html">
+        <i class="fa-solid fa-users"></i> Students &amp; Pupils
+      </a>
+      <a href="setup.html">
+        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
+      </a>
+      <a href="results.html">
+        <i class="fa-solid fa-chart-bar"></i> Results
+      </a>
+      <a href="teacher-attendance.html" class="active">
+        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">Logout</button>
+      <button class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
-
   <main class="main-content">
     <header class="header">
       <div class="school-header-left">
