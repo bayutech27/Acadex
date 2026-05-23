@@ -4,170 +4,558 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Teacher Dashboard</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Global Styles -->
   <link rel="stylesheet" href="../css/styles.css">
+
   <style>
+    /* =========================================================
+       TEACHER DASHBOARD – Page-specific styles
+       ========================================================= */
+
+    /* ----- Academic badge ----- */
+    .academic-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
+    }
+
+    /* ----- School address ----- */
+    .school-address {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    /* ----- Subscription badge ----- */
+    .subscription-badge {
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+    /* =========================================================
+       TEACHER NAV CARDS  (same grid as admin)
+       ========================================================= */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
-      margin: 2rem 0;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 20px;
+      margin-bottom: 28px;
     }
+
+    /* Clickable nav card – shared base */
     .clickable-card {
-      background: white;
-      border-radius: 1rem;
-      padding: 1.5rem;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-      transition: all 0.2s ease;
-      cursor: pointer;
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px 20px 22px;
+      box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08);
       text-align: center;
-      border: 1px solid #e2e8f0;
+      border: 2px solid transparent;
+      position: relative;
+      overflow: hidden;
+      transition: transform .25s ease, box-shadow .25s ease, border-color .2s ease;
+      cursor: pointer;
+      animation: fadeSlideUp .45s ease both;
     }
+    .clickable-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      border-radius: 16px 16px 0 0;
+    }
+    /* Color top-bar per card */
+    #classCard::before      { background: linear-gradient(90deg, #4361ee, #7c3aed); }
+    #scoresCard::before     { background: linear-gradient(90deg, #10b981, #06b6d4); }
+    #attendanceCard::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    #cbtCard::before        { background: linear-gradient(90deg, #8b5cf6, #f72585); }
+
     .clickable-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
-      border-color: #cbd5e1;
+      transform: translateY(-5px);
+      box-shadow: 0 12px 36px rgba(13,27,42,.13);
+      border-color: rgba(67,97,238,.1);
     }
-    .card-icon  { font-size: 3rem; margin-bottom: 1rem; }
-    .card-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: #1e293b; }
-    .card-desc  { font-size: 0.875rem; color: #64748b; line-height: 1.4; }
+
+    /* Card icon badge */
+    .card-icon-wrap {
+      width: 60px; height: 60px;
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 14px;
+      font-size: 1.55rem;
+      transition: transform .2s ease;
+      box-shadow: 0 3px 12px rgba(0,0,0,.1);
+    }
+    .clickable-card:hover .card-icon-wrap {
+      transform: scale(1.1) rotate(-3deg);
+    }
+
+    /* Icon colour themes */
+    #classCard      .card-icon-wrap { background: rgba(67,97,238,.1);  color: #4361ee; }
+    #scoresCard     .card-icon-wrap { background: rgba(16,185,129,.1); color: #10b981; }
+    #attendanceCard .card-icon-wrap { background: rgba(245,158,11,.1); color: #d97706; }
+    #cbtCard        .card-icon-wrap { background: rgba(139,92,246,.1); color: #8b5cf6; }
+
+    .card-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: #0d1b2a;
+      letter-spacing: -.02em;
+    }
+    .card-desc {
+      font-size: 0.8rem;
+      color: #64748b;
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    /* Stagger entry */
+    .clickable-card:nth-child(1) { animation-delay: .05s; }
+    .clickable-card:nth-child(2) { animation-delay: .12s; }
+    .clickable-card:nth-child(3) { animation-delay: .19s; }
+    .clickable-card:nth-child(4) { animation-delay: .26s; }
 
     /* Disabled card */
     .disabled-card {
-      opacity: 0.55;
-      cursor: not-allowed;
+      opacity: 0.52;
+      cursor: not-allowed !important;
       pointer-events: none;
-      filter: grayscale(0.3);
+      filter: grayscale(.25);
     }
     .disabled-card:hover {
-      transform: none;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      transform: none !important;
+      box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08) !important;
     }
 
     /* Disabled sidebar nav link */
     .disabled-nav-link {
-      opacity: 0.45;
-      cursor: not-allowed;
-      pointer-events: none;
+      opacity: .42 !important;
+      cursor: not-allowed !important;
+      pointer-events: none !important;
     }
 
+    /* =========================================================
+       MOBILE MENU CARDS  (≤ 768 px only — identical to admin)
+       ========================================================= */
+    .mobile-menu-section {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-section {
+        display: block;
+        margin-bottom: 24px;
+        animation: fadeSlideUp .4s ease both;
+      }
+      .mobile-menu-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+      }
+      .mobile-menu-title i { color: #4361ee; font-size: .95rem; }
+
+      .mobile-nav-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+
+      .mobile-nav-card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 18px 14px 14px;
+        text-decoration: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        border: 2px solid transparent;
+        box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 5px 18px rgba(13,27,42,.07);
+        transition: all .22s ease;
+        position: relative;
+        overflow: hidden;
+        text-align: center;
+        cursor: pointer;
+        animation: fadeSlideUp .4s ease both;
+      }
+      .mobile-nav-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        border-radius: 16px 16px 0 0;
+        background: linear-gradient(90deg, var(--card-color-a), var(--card-color-b));
+      }
+      .mobile-nav-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 28px rgba(13,27,42,.12);
+        border-color: rgba(67,97,238,.12);
+      }
+      .mobile-nav-card.active {
+        background: linear-gradient(145deg, #4361ee, #7c3aed);
+        border-color: transparent;
+        box-shadow: 0 8px 24px rgba(67,97,238,.38);
+      }
+      .mobile-nav-card.active .mobile-nav-icon,
+      .mobile-nav-card.active .mobile-nav-label {
+        color: #fff !important;
+      }
+      .mobile-nav-card.active .mobile-nav-icon {
+        background: rgba(255,255,255,.18) !important;
+      }
+
+      .mobile-nav-icon {
+        width: 50px; height: 50px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        transition: transform .2s ease;
+        background: var(--icon-bg);
+        color: var(--icon-color);
+        box-shadow: 0 3px 10px rgba(0,0,0,.09);
+      }
+      .mobile-nav-card:hover .mobile-nav-icon {
+        transform: scale(1.1) rotate(-3deg);
+      }
+
+      .mobile-nav-label {
+        font-family: 'Outfit', sans-serif;
+        font-size: .82rem;
+        font-weight: 700;
+        color: #1e293b;
+        letter-spacing: -.01em;
+      }
+
+      /* Color themes per card */
+      .mnc-dashboard  { --card-color-a: #4361ee; --card-color-b: #7c3aed; --icon-bg: rgba(67,97,238,.1);  --icon-color: #4361ee; }
+      .mnc-class      { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
+      .mnc-scores     { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
+      .mnc-attendance { --card-color-a: #8b5cf6; --card-color-b: #f72585; --icon-bg: rgba(139,92,246,.1); --icon-color: #8b5cf6; }
+      .mnc-cbt        { --card-color-a: #0ea5e9; --card-color-b: #6366f1; --icon-bg: rgba(14,165,233,.1); --icon-color: #0ea5e9; }
+
+      /* Stagger animation */
+      .mobile-nav-card:nth-child(1) { animation-delay: .04s; }
+      .mobile-nav-card:nth-child(2) { animation-delay: .10s; }
+      .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
+      .mobile-nav-card:nth-child(4) { animation-delay: .22s; }
+      .mobile-nav-card:nth-child(5) { animation-delay: .28s; }
+
+      /* Desktop dashboard cards: single column on mobile */
+      .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        display: none;
+      }
+      .clickable-card { padding: 20px 16px 16px; }
+      .card-icon-wrap { width: 50px; height: 50px; font-size: 1.3rem; border-radius: 13px; margin-bottom: 10px; }
+      .card-title { font-size: 1rem; }
+    }
+
+    /* =========================================================
+       HEADER tweaks
+       ========================================================= */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    /* Hide hamburger on desktop */
     @media (min-width: 769px) {
       .hamburger-menu { display: none !important; }
     }
-    @media (max-width: 640px) {
-      .stats-grid { grid-template-columns: 1fr; gap: 1rem; }
-      .clickable-card { padding: 1.25rem; }
-      .card-icon  { font-size: 2.5rem; }
-      .card-title { font-size: 1.25rem; }
-      .card-desc  { font-size: 0.8rem; }
+
+    /* =========================================================
+       KEYFRAMES
+       ========================================================= */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeSlideDown {
+      from { opacity: 0; transform: translateY(-18px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
 
-  <!-- ═══════════════════ Desktop Sidebar ═══════════════════ -->
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
   <aside class="sidebar">
     <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html" class="active">Dashboard</a>
-      <a href="class.html">Class</a>
-      <a href="scores.html" id="scoresLink">Scores</a>
-      <a href="attendance.html" id="attendanceLink">Class Attendance</a>
-      <!-- CBT Menu Item Added -->
-      <a href="teacher-cbt.html">CBT</a>
+      <a href="teacher-dashboard.html" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="scores.html" id="scoresLink">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="attendance.html" id="attendanceLink">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
     </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ═══════════════════ Mobile Sidebar ═══════════════════ -->
+  <!-- ===================== MOBILE SIDEBAR ===================== -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar">&times;</button>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html" class="active">Dashboard</a>
-      <a href="class.html">Class</a>
-      <a href="scores.html">Scores</a>
-      <a href="attendance.html" id="mobileAttendanceLink">Class Attendance</a>
-      <!-- CBT Menu Item Added (mobile) -->
-      <a href="teacher-cbt.html">CBT</a>
+      <a href="teacher-dashboard.html" class="active">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="scores.html">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="attendance.html" id="mobileAttendanceLink">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">Logout</button>
+      <button class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
 
-  <!-- ═══════════════════ Main Content ═══════════════════ -->
+  <!-- ===================== MAIN CONTENT ===================== -->
   <main class="main-content">
 
-    <!-- Header -->
+    <!-- ---- TOP HEADER ---- -->
     <header class="header">
       <div class="school-header-left">
+        <!-- Logo (hidden on mobile via CSS) -->
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo">
+            <i class="fa-solid fa-camera"></i>
+          </div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
+        <!-- School name & address -->
         <div class="school-name">
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
       </div>
+
+      <!-- Right controls -->
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Open menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge"></div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <!-- Hamburger (mobile only) -->
+        <button class="hamburger-menu" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <!-- Subscription status -->
+        <div id="subscriptionBadge" class="subscription-badge">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+        </div>
+        <!-- Logout (desktop only) -->
+        <button id="logoutBtn" class="logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
       </div>
     </header>
 
-    <!-- Academic Badge Row -->
+    <!-- ---- ACADEMIC CALENDAR BADGE ---- -->
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> |
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading&hellip;</span>
+        &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
 
+    <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content">
+
+      <!-- Welcome card -->
       <div class="welcome-card">
-        <h1 id="welcomeHeading">Welcome, Teacher</h1>
+        <h1>
+          <i class="fa-solid fa-chalkboard-user" style="opacity:.8; margin-right:8px;"></i>
+          <span id="welcomeHeading">Welcome, Teacher</span>
+        </h1>
         <p>Manage your students, class, scores, and attendance.</p>
       </div>
 
-      <!-- ═══ Dashboard Cards ═══ -->
+      <!-- ---- MOBILE NAVIGATION CARDS (visible ≤ 768px) ---- -->
+      <div class="mobile-menu-section">
+        <div class="mobile-menu-title">
+          <i class="fa-solid fa-grip"></i> Quick Navigation
+        </div>
+        <div class="mobile-nav-grid">
+
+          <a href="teacher-dashboard.html" class="mobile-nav-card mnc-dashboard active">
+            <div class="mobile-nav-icon">
+              <i class="fa-solid fa-gauge-high"></i>
+            </div>
+            <span class="mobile-nav-label">Dashboard</span>
+          </a>
+
+          <a href="class.html" class="mobile-nav-card mnc-class">
+            <div class="mobile-nav-icon">
+              <i class="fa-solid fa-school"></i>
+            </div>
+            <span class="mobile-nav-label">Class</span>
+          </a>
+
+          <a href="scores.html" class="mobile-nav-card mnc-scores">
+            <div class="mobile-nav-icon">
+              <i class="fa-solid fa-chart-bar"></i>
+            </div>
+            <span class="mobile-nav-label">Scores</span>
+          </a>
+
+          <a href="attendance.html" class="mobile-nav-card mnc-attendance">
+            <div class="mobile-nav-icon">
+              <i class="fa-solid fa-clipboard-list"></i>
+            </div>
+            <span class="mobile-nav-label">Class Attendance</span>
+          </a>
+
+          <a href="teacher-cbt.html" class="mobile-nav-card mnc-cbt" style="grid-column: span 2;">
+            <div class="mobile-nav-icon">
+              <i class="fa-solid fa-laptop-code"></i>
+            </div>
+            <span class="mobile-nav-label">CBT</span>
+          </a>
+
+        </div>
+      </div>
+      <!-- /mobile nav cards -->
+
+      <!-- ---- DESKTOP / TABLET DASHBOARD CARDS ---- -->
       <div class="stats-grid">
 
+        <!-- Class Card -->
         <div class="clickable-card" id="classCard">
-          <div class="card-icon">🏫</div>
+          <div class="card-icon-wrap">
+            <i class="fa-solid fa-school"></i>
+          </div>
           <div class="card-title">Class</div>
           <div class="card-desc">Manage your homeroom class (if assigned)</div>
         </div>
 
+        <!-- Scores Card -->
         <div class="clickable-card" id="scoresCard">
-          <div class="card-icon">📊</div>
+          <div class="card-icon-wrap">
+            <i class="fa-solid fa-chart-bar"></i>
+          </div>
           <div class="card-title">Scores</div>
           <div class="card-desc">Enter and manage exam scores</div>
         </div>
 
-        <!-- NEW: Class Attendance Card -->
+        <!-- Attendance Card -->
         <div class="clickable-card" id="attendanceCard">
-          <div class="card-icon">📋</div>
+          <div class="card-icon-wrap">
+            <i class="fa-solid fa-clipboard-list"></i>
+          </div>
           <div class="card-title">Class Attendance</div>
-          <div class="card-desc">Track daily morning & afternoon attendance for your class</div>
+          <div class="card-desc">Track daily morning &amp; afternoon attendance for your class</div>
+        </div>
+
+        <!-- CBT Card -->
+        <div class="clickable-card" id="cbtCard">
+          <div class="card-icon-wrap">
+            <i class="fa-solid fa-laptop-code"></i>
+          </div>
+          <div class="card-title">CBT</div>
+          <div class="card-desc">Computer-Based Testing — set &amp; manage online assessments</div>
         </div>
 
       </div>
+      <!-- /stats-grid -->
+
     </div><!-- /.content -->
 
+    <!-- ---- FOOTER ---- -->
     <footer class="app-footer">
-      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+      <p>
+        <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
+        <span id="currentYear"></span> Acadex &mdash; All rights reserved.
+      </p>
     </footer>
+
   </main>
 </div>
 
+<!-- ===================== SCRIPTS ===================== -->
 <script type="module">
   import {
     protectTeacherPage,
@@ -179,10 +567,14 @@
     displayTeacherName,
     getHostClassId
   } from '../js/teacher-dashboard.js';
-  import { initMobileMenu }    from '../js/menu.js';
+  import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
-  document.getElementById('currentYear').innerText = new Date().getFullYear();
+  /* Year stamps */
+  const yr = new Date().getFullYear();
+  document.getElementById('currentYear').innerText = yr;
+  const sidebarYr = document.getElementById('sidebarYear');
+  if (sidebarYr) sidebarYr.innerText = yr;
 
   // ── Auth & init ──────────────────────────────────────────
   protectTeacherPage().then(async ({ teacherName }) => {
@@ -219,22 +611,25 @@
     document.getElementById('scoresCard')
       .addEventListener('click', () => { window.location.href = 'scores.html'; });
 
+    // ── CBT card ────────────────────────────────────────
+    const cbtCard = document.getElementById('cbtCard');
+    if (cbtCard) {
+      cbtCard.addEventListener('click', () => { window.location.href = 'teacher-cbt.html'; });
+    }
+
     // ── Attendance card & nav links ──────────────────────
-    const attendanceCard        = document.getElementById('attendanceCard');
-    const attendanceLink        = document.getElementById('attendanceLink');
-    const mobileAttendanceLink  = document.getElementById('mobileAttendanceLink');
+    const attendanceCard       = document.getElementById('attendanceCard');
+    const attendanceLink       = document.getElementById('attendanceLink');
+    const mobileAttendanceLink = document.getElementById('mobileAttendanceLink');
 
     const canAccessAttendance = isClassTeacher && !!hostClassId;
 
     if (!canAccessAttendance) {
-      // Disable card
       attendanceCard.classList.add('disabled-card');
       attendanceCard.addEventListener('click', e => {
         e.preventDefault();
         alert('You must be assigned as a class teacher (with a host class) to access attendance.');
       });
-
-      // Disable sidebar links
       [attendanceLink, mobileAttendanceLink].forEach(link => {
         if (!link) return;
         link.classList.add('disabled-nav-link');
