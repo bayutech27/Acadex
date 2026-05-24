@@ -131,7 +131,7 @@
 
     /* ── Scores results: always scroll horizontally, never card ── */
     .scores-results { margin-top: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .scores-table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 0.85rem; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+    .scores-table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 0.85rem; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
     .scores-table th { background: #f1f5f9; color: #1e293b; padding: 0.75rem 1rem; text-align: left; font-weight: 700; white-space: nowrap; }
     .scores-table td { padding: 0.65rem 1rem; border-bottom: 1px solid #eef2ff; color: #334155; white-space: nowrap; }
     .scores-table tr:last-child td { border-bottom: none; }
@@ -155,24 +155,12 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="class.html">
-        <i class="fa-solid fa-school"></i> Class
-      </a>
-      <a href="scores.html">
-        <i class="fa-solid fa-chart-bar"></i> Scores
-      </a>
-      <a href="attendance.html">
-        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
-      </a>
-      <a href="teacher-cbt.html">
-        <i class="fa-solid fa-laptop-code"></i> CBT
-      </a>
-      <a href="teacher-clock.html" class="active">
-        <i class="fa-solid fa-clock"></i> Clock In &amp; Out
-      </a>
+      <a href="teacher-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="class.html"><i class="fa-solid fa-school"></i> Class</a>
+      <a href="scores.html"><i class="fa-solid fa-chart-bar"></i> Scores</a>
+      <a href="attendance.html"><i class="fa-solid fa-clipboard-list"></i> Class Attendance</a>
+      <a href="teacher-cbt.html"><i class="fa-solid fa-laptop-code"></i> CBT</a>
+      <a href="teacher-clock.html"><i class="fa-solid fa-clock"></i> Clock In &amp; Out</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -181,37 +169,22 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="class.html">
-        <i class="fa-solid fa-school"></i> Class
-      </a>
-      <a href="scores.html">
-        <i class="fa-solid fa-chart-bar"></i> Scores
-      </a>
-      <a href="attendance.html">
-        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
-      </a>
-      <a href="teacher-cbt.html">
-        <i class="fa-solid fa-laptop-code"></i> CBT
-      </a>
-      <a href="teacher-clock.html" class="active">
-        <i class="fa-solid fa-clock"></i> Clock In &amp; Out
-      </a>
+      <a href="teacher-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="class.html"><i class="fa-solid fa-school"></i> Class</a>
+      <a href="scores.html"><i class="fa-solid fa-chart-bar"></i> Scores</a>
+      <a href="attendance.html"><i class="fa-solid fa-clipboard-list"></i> Class Attendance</a>
+      <a href="teacher-cbt.html"><i class="fa-solid fa-laptop-code"></i> CBT</a>
+      <a href="teacher-clock.html"><i class="fa-solid fa-clock"></i> Clock In &amp; Out</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
+
   <!-- Main Content -->
   <main class="main-content">
     <header class="header">
@@ -232,7 +205,7 @@
       </div>
       <div id="testsTableWrapper"><p class="no-data-msg"><i class="fas fa-spinner fa-spin"></i> Loading tests…</p></div>
 
-      <!-- ===== NEW: Assigned Students CBT Scores Section (no type dropdown) ===== -->
+      <!-- ===== Assigned Students CBT Scores Section (session/term filters) ===== -->
       <div class="cbt-scores-section">
         <h2><i class="fas fa-chart-line"></i> Assigned Students CBT Scores</h2>
         <div class="scores-filters">
@@ -246,6 +219,18 @@
             <label>Select Subject</label>
             <select id="scoresSubjectSelect">
               <option value="">-- Loading subjects --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Session</label>
+            <select id="scoresSessionSelect">
+              <option value="">-- Select Session --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Term</label>
+            <select id="scoresTermSelect">
+              <option value="">-- Select Term --</option>
             </select>
           </div>
           <button id="getScoresBtn"><i class="fas fa-search"></i> Get CBT Scores</button>

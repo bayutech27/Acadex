@@ -1,10 +1,12 @@
-// cbt/js/test.js - Acadex CBT Engine (modified redirect to cbt.html)
+// cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
 import { auth, db } from '../../js/firebase-config.js';
 import {
     collection, addDoc, getDoc, getDocs, doc, updateDoc,
     increment, serverTimestamp, setDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+// Academic calendar integration – session & term
+import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from '../../js/academic-calendar.js';
 
 // =============================================
 // WEAKNESS DETECTION & RECOMMENDATION ENGINE
@@ -309,6 +311,8 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.href = '../../index.html';
         } else {
             currentUser = user;
+            // Initialize academic calendar so we can get term/session later
+            await initAcademicCalendar().catch(e => console.warn('Academic calendar init failed:', e));
             await loadTestData();
         }
     });
@@ -575,7 +579,7 @@ function hideSubmitModal() { submitModal.style.display = 'none'; }
 function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(), 1000); }
 
 // =============================================
-// SAVE TEST RESULT TO FIRESTORE (with classId & className)
+// SAVE TEST RESULT TO FIRESTORE (with session & term and name)
 // =============================================
 async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores = null) {
     try {
@@ -587,9 +591,10 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) throw new Error("School ID missing");
 
-        // Fetch student's class information
+        // Fetch student's class information AND full name
         let classId = null;
         let className = null;
+        let studentFullName = '';               // NEW: store full name from students collection
         try {
             const studentDocRef = doc(db, 'students', currentUser.uid);
             const studentSnap = await getDoc(studentDocRef);
@@ -597,6 +602,7 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
                 const studentData = studentSnap.data();
                 classId = studentData.classId || null;
                 className = studentData.className || null;
+                studentFullName = studentData.name || '';   // NEW: full name
                 if (classId && !className) {
                     const classDoc = await getDoc(doc(db, 'classes', classId));
                     if (classDoc.exists()) {
@@ -627,6 +633,16 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             subject: q.subject || testData.subject
         }));
 
+        // Get current academic session and term
+        let session = '';
+        let term = '';
+        try {
+            session = getCurrentSession();
+            term = getCurrentTerm();
+        } catch (e) {
+            console.warn('Academic calendar not ready, using empty strings for session/term');
+        }
+
         const resultData = {
             completedAt: serverTimestamp(),
             correctAnswers: correctAnswers,
@@ -647,7 +663,10 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             schoolId: schoolId,
             cbtId: testData.cbtId || null,
             classId: classId,
-            className: className
+            className: className,
+            session: session,
+            term: term,
+            name: studentFullName            // NEW: full name from students collection
         };
 
         if (testData.mode === 'jamb_drill') {

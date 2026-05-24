@@ -1,4 +1,4 @@
-// teacher-cbt.js — Acadex Teacher CBT Manager (with fixed scores query, no type filter)
+// teacher-cbt.js — Acadex Teacher CBT Manager (session/term filter for scores)
 import { db } from './firebase-config.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
@@ -51,11 +51,13 @@ const csvStatusMsg     = document.getElementById('csvStatusMsg');
 const pendingQuestionsCount = document.getElementById('pendingQuestionsCount');
 
 // ==============================
-// NEW: DOM references for Scores Section (no type dropdown)
+// NEW: DOM references for Scores Section (session/term selects)
 // ==============================
-const scoresClassSelect = document.getElementById('scoresClassSelect');
+const scoresClassSelect   = document.getElementById('scoresClassSelect');
 const scoresSubjectSelect = document.getElementById('scoresSubjectSelect');
-const getScoresBtn = document.getElementById('getScoresBtn');
+const scoresSessionSelect = document.getElementById('scoresSessionSelect');
+const scoresTermSelect    = document.getElementById('scoresTermSelect');
+const getScoresBtn        = document.getElementById('getScoresBtn');
 const scoresResultsContainer = document.getElementById('scoresResultsContainer');
 
 // ==============================
@@ -791,16 +793,20 @@ async function loadSchoolInfo() {
 }
 
 // ============================================================
-// CBT SCORES MODULE — FIXED: Score = raw score, Percentage = (rawScore/total)*100
+// CBT SCORES MODULE — MODIFIED: session/term filter, session/term columns
 // ============================================================
 const cbtScoresModule = (() => {
   const classFilterEl   = () => document.getElementById('scoresClassSelect');
   const subjectFilterEl = () => document.getElementById('scoresSubjectSelect');
+  const sessionFilterEl = () => document.getElementById('scoresSessionSelect');
+  const termFilterEl    = () => document.getElementById('scoresTermSelect');
   const getScoresBtn    = () => document.getElementById('getScoresBtn');
   const resultsEl       = () => document.getElementById('scoresResultsContainer');
 
   let _teacherClasses = [];
   let _teacherSubjects = [];
+  let _distinctSessions = [];
+  let _distinctTerms = [];
   let _isFetching = false;
 
   function _formatDate(val) {
@@ -842,24 +848,77 @@ const cbtScoresModule = (() => {
     } catch (err) { console.warn(err); return []; }
   }
 
+  // Fetch distinct session/term values from test_results (CBT, mode=cbt) for this school
+  async function _fetchDistinctSessionsAndTerms() {
+    if (!currentSchoolId) return { sessions: [], terms: [] };
+    try {
+      const q = query(
+        collection(db, 'test_results'),
+        where('schoolId', '==', currentSchoolId),
+        where('examType', '==', 'CBT'),
+        where('mode', '==', 'cbt')
+      );
+      const snap = await getDocs(q);
+      const sessions = new Set();
+      const terms = new Set();
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (data.session) sessions.add(data.session);
+        if (data.term) terms.add(data.term);
+      });
+      return {
+        sessions: Array.from(sessions).sort(),
+        terms: Array.from(terms).sort()
+      };
+    } catch (err) {
+      console.warn('Error fetching distinct sessions/terms:', err);
+      return { sessions: [], terms: [] };
+    }
+  }
+
   async function populateDropdowns() {
     const classEl = classFilterEl();
     const subjectEl = subjectFilterEl();
-    if (!classEl || !subjectEl) return;
+    const sessionEl = sessionFilterEl();
+    const termEl = termFilterEl();
+    if (!classEl || !subjectEl || !sessionEl || !termEl) return;
+    
     classEl.innerHTML = '<option value="">Loading classes…</option>';
     subjectEl.innerHTML = '<option value="">Loading subjects…</option>';
-    const [classes, subjects] = await Promise.all([_fetchAssignedClasses(), _fetchAssignedSubjects()]);
+    sessionEl.innerHTML = '<option value="">Loading sessions…</option>';
+    termEl.innerHTML = '<option value="">Loading terms…</option>';
+    
+    const [classes, subjects, sessionTermData] = await Promise.all([
+      _fetchAssignedClasses(),
+      _fetchAssignedSubjects(),
+      _fetchDistinctSessionsAndTerms()
+    ]);
+    
     _teacherClasses = classes;
     _teacherSubjects = subjects;
+    _distinctSessions = sessionTermData.sessions;
+    _distinctTerms = sessionTermData.terms;
+    
     classEl.innerHTML = '<option value="">— Select Class —</option>' + (classes.length ? classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('') : '<option value="" disabled>No classes assigned</option>');
     subjectEl.innerHTML = '<option value="">— Select Subject —</option>' + (subjects.length ? subjects.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('') : '<option value="" disabled>No subjects assigned</option>');
+    sessionEl.innerHTML = '<option value="">— Select Session —</option>' + (_distinctSessions.length ? _distinctSessions.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('') : '<option value="" disabled>No sessions found</option>');
+    termEl.innerHTML = '<option value="">— Select Term —</option>' + (_distinctTerms.length ? _distinctTerms.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') : '<option value="" disabled>No terms found</option>');
   }
 
-  async function _queryTestResults(classId, subjectId) {
+  async function _queryTestResults(classId, subjectId, selectedSession, selectedTerm) {
     const selectedSubject = _teacherSubjects.find(s => s.id === subjectId);
     const subjectName = selectedSubject ? selectedSubject.name : null;
     if (!subjectName) return [];
-    const q = query(collection(db, 'test_results'), where('examType', '==', 'CBT'), where('classId', '==', classId), where('schoolId', '==', currentSchoolId));
+
+    const q = query(
+      collection(db, 'test_results'),
+      where('examType', '==', 'CBT'),
+      where('mode', '==', 'cbt'),
+      where('classId', '==', classId),
+      where('schoolId', '==', currentSchoolId),
+      where('session', '==', selectedSession),
+      where('term', '==', selectedTerm)
+    );
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(doc => doc.subject === subjectName);
   }
@@ -880,6 +939,8 @@ const cbtScoresModule = (() => {
         total: totalQuestions,
         percentage: percentage,
         completedAt: r.completedAt || null,
+        session: r.session || '',
+        term: r.term || ''
       });
     }
     for (const [, data] of map) {
@@ -899,7 +960,7 @@ const cbtScoresModule = (() => {
     const el = resultsEl();
     if (!el) return;
     let html = `<div class="table-scroll-wrapper"><table class="cbt-table scores-table">
-      <thead><tr><th>Student Name</th><th>Score</th><th>Total</th><th>Percentage</th><th>Date</th></tr></thead><tbody>`;
+      <thead><tr><th>Student Name</th><th>Score</th><th>Total</th><th>Percentage</th><th>Date</th><th>Session</th><th>Term</th></tr></thead><tbody>`;
     for (const [, data] of grouped) {
       data.attempts.forEach(att => {
         const pctDisplay = att.percentage != null ? `${att.percentage}%` : '—';
@@ -909,6 +970,8 @@ const cbtScoresModule = (() => {
           <td>${att.total}</td>
           <td><span class="percentage-badge">${pctDisplay}</span></td>
           <td>${_formatDate(att.completedAt)}</td>
+          <td>${escapeHtml(att.session || '—')}</td>
+          <td>${escapeHtml(att.term || '—')}</td>
         </tr>`;
       });
     }
@@ -925,29 +988,66 @@ const cbtScoresModule = (() => {
     if (_isFetching) return;
     const classEl = classFilterEl();
     const subjectEl = subjectFilterEl();
+    const sessionEl = sessionFilterEl();
+    const termEl = termFilterEl();
     const btn = getScoresBtn();
-    if (!classEl || !subjectEl) return;
+    if (!classEl || !subjectEl || !sessionEl || !termEl) return;
+
     const classId = classEl.value;
     const subjectId = subjectEl.value;
-    if (!classId || !subjectId) { showNotification('Please select class and subject.', 'error'); return; }
-    if (!currentSchoolId) { showNotification('School information not loaded.', 'error'); return; }
+    const selectedSession = sessionEl.value;
+    const selectedTerm = termEl.value;
+
+    if (!classId || !subjectId) {
+      showNotification('Please select class and subject.', 'error');
+      return;
+    }
+    if (!selectedSession || !selectedTerm) {
+      showNotification('Please select session and term.', 'error');
+      return;
+    }
+    if (!currentSchoolId) {
+      showNotification('School information not loaded.', 'error');
+      return;
+    }
+
     const className = _teacherClasses.find(c => c.id === classId)?.name || classId;
     const subjectName = _teacherSubjects.find(s => s.id === subjectId)?.name || subjectId;
+
     _isFetching = true;
     if (btn) btn.disabled = true;
-    _setResultsState('loading', 'Fetching scores…');
+    _setResultsState('loading', `Fetching CBT scores for ${selectedSession} - ${selectedTerm}…`);
     showLoader();
+
     try {
-      const results = await _queryTestResults(classId, subjectId);
-      if (results.length === 0) { _setResultsState('empty', `No CBT scores found for ${className} · ${subjectName}.`); hideLoader(); _isFetching = false; if (btn) btn.disabled = false; return; }
-      const grouped = _groupByStudent(results);
-      _renderTable(grouped, results.length, className, subjectName);
-      showNotification(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`, 'success');
-    } catch (err) { handleError(err, 'Failed to fetch CBT scores.'); _setResultsState('error', 'Error loading scores.'); } finally { hideLoader(); _isFetching = false; if (btn) btn.disabled = false; }
+      const results = await _queryTestResults(classId, subjectId, selectedSession, selectedTerm);
+      if (results.length === 0) {
+        _setResultsState('empty', `No CBT scores found for ${className} · ${subjectName} during ${selectedSession} ${selectedTerm}.`);
+      } else {
+        const grouped = _groupByStudent(results);
+        _renderTable(grouped, results.length, className, subjectName);
+        showNotification(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`, 'success');
+      }
+    } catch (err) {
+      handleError(err, 'Failed to fetch CBT scores.');
+      _setResultsState('error', 'Error loading scores.');
+    } finally {
+      hideLoader();
+      _isFetching = false;
+      if (btn) btn.disabled = false;
+    }
   }
 
-  function attachListener() { const btn = getScoresBtn(); if (btn) btn.addEventListener('click', handleGetScores); else console.warn('[cbtScoresModule] #getScoresBtn not found.'); }
-  async function init() { attachListener(); await populateDropdowns(); }
+  function attachListener() {
+    const btn = getScoresBtn();
+    if (btn) btn.addEventListener('click', handleGetScores);
+  }
+
+  async function init() {
+    attachListener();
+    await populateDropdowns();
+  }
+
   return { init, populateDropdowns };
 })();
 
