@@ -1,0 +1,268 @@
+/* =========================================================
+   AC A D E X — VISIONOS GLASS + DEPTH UI SYSTEM
+   FULL CSS REWRITE (CLASS PRESERVING)
+   ========================================================= */
+
+/* =========================
+   BASE DESIGN TOKENS
+   ========================= */
+:root {
+  --glass: rgba(255,255,255,0.72);
+  --glass-strong: rgba(255,255,255,0.85);
+  --stroke: rgba(255,255,255,0.25);
+  --shadow: 0 20px 60px rgba(0,0,0,0.12);
+  --shadow-soft: 0 8px 25px rgba(0,0,0,0.08);
+  --blur: 18px;
+  --radius: 18px;
+}
+
+/* =========================
+   GLOBAL RESET IMPROVEMENT
+   ========================= */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Nunito", sans-serif;
+  background: #f6f8fc;
+  color: #0f172a;
+}
+
+/* =========================
+   3D SURFACE CORE (APPLIED VIA JS)
+   ========================= */
+.stat-card,
+.mobile-nav-card,
+.payment-banner,
+.subscription-badge,
+.sidebar-nav a,
+.welcome-card,
+.header,
+.academic-badge {
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* =========================
+   GLASS MATERIAL BASE
+   ========================= */
+.stat-card,
+.mobile-nav-card,
+.payment-banner,
+.welcome-card,
+.subscription-badge {
+  background: var(--glass);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-soft);
+}
+
+/* =========================
+   3D HOVER LIFT (fallback if JS off)
+   ========================= */
+.stat-card:hover,
+.mobile-nav-card:hover,
+.sidebar-nav a:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow);
+}
+
+/* =========================================================
+   STAT CARDS (DESKTOP METRICS)
+   ========================================================= */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.stat-card {
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  overflow: hidden;
+  position: relative;
+}
+
+/* top glow strip */
+.stat-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg,#4361ee,#7c3aed);
+  opacity: 0.9;
+}
+
+.stat-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(67,97,238,0.12);
+  color: #4361ee;
+}
+
+.stat-number {
+  font-family: "Outfit", sans-serif;
+  font-size: 2.4rem;
+  font-weight: 800;
+  margin: 6px 0;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+}
+
+/* =========================================================
+   MOBILE MENU CARDS (VISIONOS GRID)
+   ========================================================= */
+.mobile-menu-section {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-section {
+    display: block;
+    margin-bottom: 20px;
+  }
+
+  .mobile-nav-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .mobile-nav-card {
+    border-radius: 18px;
+    padding: 16px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .mobile-nav-card i {
+    font-size: 1.4rem;
+  }
+
+  .mobile-nav-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+}
+
+/* gradient top line like VisionOS panels */
+.mobile-nav-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg,var(--card-a,#4361ee),var(--card-b,#7c3aed));
+}
+
+/* =========================================================
+   SIDEBAR LINKS (3D FLOAT)
+   ========================================================= */
+.sidebar-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #1e293b;
+  background: transparent;
+}
+
+.sidebar-nav a:hover {
+  background: rgba(255,255,255,0.6);
+}
+
+/* =========================================================
+   HEADER / TOP BAR
+   ========================================================= */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(var(--blur));
+  box-shadow: var(--shadow-soft);
+}
+
+/* =========================================================
+   BADGES
+   ========================================================= */
+.subscription-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* =========================================================
+   PAYMENT BANNER (HERO CARD)
+   ========================================================= */
+.payment-banner {
+  border-radius: 20px;
+  padding: 20px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  color: white;
+  background: linear-gradient(135deg,#0d1b2a,#1e3a5f,#1d4ed8);
+}
+
+.payment-banner::after {
+  content: "";
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  top: -60px;
+  right: -60px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 50%;
+}
+
+/* =========================================================
+   MOBILE OPTIMIZATION
+   ========================================================= */
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-number {
+    font-size: 2rem;
+  }
+}
+
+/* =========================================================
+   MICRO ANIMATION POLISH
+   ========================================================= */
+@keyframes softFloat {
+  0%,100% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+}
+
+.stat-card:hover {
+  animation: softFloat 1.8s ease-in-out infinite;
+}

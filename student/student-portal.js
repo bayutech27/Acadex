@@ -2,6 +2,7 @@
 // Attendance tab: aggregates morning/afternoon sessions from Firestore attendance collection.
 // Subjects tab: shows only subject names (scores removed, but remain in Results tab).
 // Calendar integration: uses academic-calendar.js subscription to get current term/session.
+// ADDED: Subscription check for CBT – disables access if school subscription is inactive.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -16,7 +17,8 @@ import {
   query,
   orderBy,
   where,
-  limit
+  limit,
+  onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 
 // academic-calendar.js — single source of truth for term/session state
@@ -38,6 +40,10 @@ let notificationsList  = [];
 let globalCurrentTerm    = '';
 let globalCurrentSession = '';
 
+// ─── SUBSCRIPTION STATE ─────────────────────────────────────────────────────
+let isSchoolSubscriptionActive = true;   // default true until proven otherwise
+let unsubscribeSubscription = null;
+
 // ─────────────────────────────────── Utilities ───────────────────────────────
 function safeVal(v) {
   if (v === null || v === undefined) return '';
@@ -51,6 +57,11 @@ function greeting() {
   if (h < 12) return 'Good Morning';
   if (h < 17) return 'Good Afternoon';
   return 'Good Evening';
+}
+
+function showNotification(message, type = 'error') {
+  // Simple alert for now – can be upgraded to toast later
+  alert(message);
 }
 
 // ─────────────────────────────────── Calendar ────────────────────────────────
@@ -444,13 +455,13 @@ function renderResultsSection(student, resultsArray) {
       }
       return `<td>${safeVal(r[col.key])}</td>`;
     }).join('');
-    return `<tr><td>${safeVal(r.name || r.subjectName) || '—'}</td>${cells}</tr>`;
+    return `<tr><td class="subject-name-cell">${safeVal(r.name || r.subjectName) || '—'}</td>${cells}</tr>`;
   }).join('');
 
   tableEl.innerHTML = `
     <div class="table-responsive-wrapper">
       <table class="data-table">
-        <thead><tr>${thCells}</tr></thead>
+        <thead><tr>${thCells}</td></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -550,6 +561,57 @@ async function resolveSubjects(rawSubjects) {
   return resolved;
 }
 
+// ─────────────────────────────────── Subscription listener (REAL-TIME) ───────
+function initSubscriptionListener(schoolId) {
+  if (!schoolId) return;
+  if (unsubscribeSubscription) unsubscribeSubscription();
+
+  const subDocRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+  unsubscribeSubscription = onSnapshot(subDocRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const locked = data.locked === true || data.locked === 'true';
+        const status = data.status || '';
+        const isInactive = status === 'inactive' || status === 'expired';
+        isSchoolSubscriptionActive = !(locked || isInactive);
+      } else {
+        // No subscription document → treat as inactive
+        isSchoolSubscriptionActive = false;
+      }
+      console.log(`[Subscription] Active: ${isSchoolSubscriptionActive}`);
+    },
+    (err) => {
+      console.error('[Subscription] Listener error:', err);
+      isSchoolSubscriptionActive = false;
+    }
+  );
+}
+
+// ─────────────────────────────────── CBT navigation with subscription check ───
+function attachCbtClickHandlers() {
+  const cbtLinks = document.querySelectorAll('[data-section="cbt"]');
+  cbtLinks.forEach(link => {
+    // Remove any existing inline listeners (by cloning) to avoid duplicates
+    const newLink = link.cloneNode(true);
+    link.parentNode.replaceChild(newLink, link);
+    newLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!isSchoolSubscriptionActive) {
+        showNotification('School subscription is inactive or has expired. Please contact the administrator to renew.', 'error');
+        return;
+      }
+      const schoolId = localStorage.getItem('userSchoolId');
+      const studentId = localStorage.getItem('studentId');
+      if (!schoolId || !studentId) {
+        showNotification('Unable to access CBT. Please log out and log in again.', 'error');
+        return;
+      }
+      window.location.href = '../cbt/html/cbt.html';
+    });
+  });
+}
+
 // ─────────────────────────────────── Master data loader ──────────────────────
 async function loadStudentDashboard() {
   const user = auth.currentUser;
@@ -564,6 +626,8 @@ async function loadStudentDashboard() {
     currentSchoolId = userData.schoolId;
     if (!currentSchoolId) throw new Error('No schoolId linked to user');
     localStorage.setItem('userSchoolId', currentSchoolId);
+    // Start listening to subscription status
+    initSubscriptionListener(currentSchoolId);
   } catch (err) {
     console.error('[StudentPortal] User/school resolve failed:', err);
     document.getElementById('profileTab').innerHTML =
@@ -711,7 +775,7 @@ function initDesktopNav() {
     link.addEventListener('click', e => {
       e.preventDefault();
       const section = link.getAttribute('data-section');
-      if (section === 'cbt')     { window.location.href = '../cbt/html/cbt.html'; return; }
+      if (section === 'cbt')     return; // handled by attachCbtClickHandlers
       if (section === 'results') { showSection('results');   return; }
       showSection('dashboard');
     });
@@ -734,7 +798,7 @@ function initMobileMenu() {
   document.querySelectorAll('.mobile-sidebar .sidebar-nav a').forEach(link => {
     link.addEventListener('click', () => {
       const section = link.getAttribute('data-section');
-      if (section === 'cbt') { window.location.href = '../cbt/html/cbt.html'; return; }
+      if (section === 'cbt') return; // handled by attachCbtClickHandlers
       showSection(section === 'results' ? 'results' : 'dashboard');
       close();
     });
@@ -783,6 +847,9 @@ onAuthStateChanged(auth, async user => {
     initNotificationBell();
     initDownload();
     showSection('dashboard');
+
+    // Attach CBT click handlers (replaces inline script logic)
+    attachCbtClickHandlers();
 
     document.getElementById('currentYear').innerText = new Date().getFullYear();
     document.getElementById('logoutBtn')?.addEventListener('click', logout);

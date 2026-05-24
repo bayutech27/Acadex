@@ -346,13 +346,13 @@
         <p>Monitor teacher clock-in &amp; clock-out, configure geofencing, and manage attendance records.</p>
       </div>
 
-      <!-- ======== GEOFENCE SETUP ======== -->
+      <!-- ======== GEOFENCE & ATTENDANCE SETTINGS ======== -->
       <div class="section-card">
         <div class="section-card-header">
           <div class="section-card-icon"><i class="fa-solid fa-location-crosshairs"></i></div>
           <div>
-            <div class="section-card-title">Geofence Setup</div>
-            <div class="section-card-sub">Set your school's GPS location and attendance radius</div>
+            <div class="section-card-title">Geofence &amp; Attendance Settings</div>
+            <div class="section-card-sub">Set your school's GPS location, official resumption time, and late threshold</div>
           </div>
         </div>
 
@@ -380,14 +380,26 @@
               <option value="500">500 m — Very large campus</option>
             </select>
           </div>
+          <!-- ★ NEW: Official Resumption Time -->
           <div class="form-group">
-            <label>Late after (minutes past 8 AM)</label>
+            <label>Official Resumption Time</label>
+            <select id="officialResumeTime">
+              <option value="07:00">7:00 AM</option>
+              <option value="07:30">7:30 AM</option>
+              <option value="08:00" selected>8:00 AM (default)</option>
+              <option value="08:30">8:30 AM</option>
+              <option value="09:00">9:00 AM</option>
+            </select>
+          </div>
+          <!-- ★ UPDATED: Late after minutes (grace period) -->
+          <div class="form-group">
+            <label>Late after (minutes past official time)</label>
             <select id="geofenceLateThreshold">
-              <option value="0">8:00 AM sharp</option>
-              <option value="15">8:15 AM</option>
-              <option value="30" selected>8:30 AM</option>
-              <option value="45">8:45 AM</option>
-              <option value="60">9:00 AM</option>
+              <option value="0">0 min — on time</option>
+              <option value="15">15 min</option>
+              <option value="30" selected>30 min</option>
+              <option value="45">45 min</option>
+              <option value="60">60 min</option>
             </select>
           </div>
         </div>
@@ -397,7 +409,7 @@
             <i class="fa-solid fa-location-arrow"></i> Use My Current Location
           </button>
           <button id="saveGeofenceBtn" class="btn-success">
-            <i class="fa-solid fa-floppy-disk"></i> Save Geofence
+            <i class="fa-solid fa-floppy-disk"></i> Save Settings
           </button>
           <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:#10b981;display:none;">
             <i class="fa-solid fa-circle-check"></i> Saved!

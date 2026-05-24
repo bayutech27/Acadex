@@ -274,7 +274,7 @@ img, video, canvas, svg { max-width: 100%; height: auto; }
   position: fixed;
   top: 0; left: -290px;
   width: 280px;
-  height: 80vh;
+  height: 100vh;
   background: var(--sidebar-bg);
   z-index: 10000;
   transition: left .3s var(--ease);
