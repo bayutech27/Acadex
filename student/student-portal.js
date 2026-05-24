@@ -18,7 +18,8 @@ import {
   orderBy,
   where,
   limit,
-  onSnapshot
+  onSnapshot,
+  updateDoc          // <-- added for passport update
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 
 // academic-calendar.js — single source of truth for term/session state
@@ -169,6 +170,174 @@ async function resolveClassName(schoolId, classId) {
   return '';
 }
 
+// ───────────────────────────── Passport photo edit ─────────────────────────
+// Inject minimal camera-icon styles (once)
+function injectPassportStyles() {
+  if (document.getElementById('passport-edit-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'passport-edit-styles';
+  style.textContent = `
+    .student-photo-wrapper {
+      position: relative;
+      display: inline-block;
+      cursor: pointer;
+    }
+    .student-photo-wrapper .camera-icon {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .student-photo-wrapper .camera-icon:hover {
+      background: rgba(0,0,0,0.75);
+    }
+    .passport-menu {
+      position: absolute;
+      top: 32px;
+      right: 0;
+      background: #fff;
+      border: 1px solid var(--gray-300, #ddd);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 1000;
+      min-width: 160px;
+    }
+    .passport-menu button {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      border: none;
+      background: none;
+      text-align: left;
+      font-size: 14px;
+      cursor: pointer;
+      color: var(--gray-800, #333);
+    }
+    .passport-menu button:hover {
+      background: var(--gray-100, #f5f5f5);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function openPassportMenu(e, photoWrapper) {
+  e.stopPropagation();
+  // Remove any existing menu
+  const existing = document.querySelector('.passport-menu');
+  if (existing) existing.remove();
+
+  const menu = document.createElement('div');
+  menu.className = 'passport-menu';
+  menu.innerHTML = `
+    <button id="uploadFromDeviceBtn"><i class="fas fa-upload"></i> Upload from device</button>
+  `;
+  photoWrapper.style.position = 'relative';
+  photoWrapper.appendChild(menu);
+
+  const closeMenu = () => { menu.remove(); document.removeEventListener('click', outsideClick); };
+  const outsideClick = (ev) => { if (!menu.contains(ev.target) && ev.target !== photoWrapper.querySelector('.camera-icon')) closeMenu(); };
+  document.addEventListener('click', outsideClick);
+
+  document.getElementById('uploadFromDeviceBtn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    closeMenu();
+    triggerFileInput();
+  });
+}
+
+function triggerFileInput() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    handlePassportFile(file);
+  };
+  input.click();
+}
+
+async function handlePassportFile(file) {
+  try {
+    let processed = file;
+    // Compress if file size > 950 KB
+    if (file.size > 950 * 1024) {
+      processed = await compressImage(file, 900, 950);
+    }
+    const base64 = await fileToBase64(processed);
+    // Save to Firestore
+    await updateDoc(doc(db, 'students', currentStudentId), { passport: base64 });
+    // Update local data and re-render hero
+    currentStudentData.passport = base64;
+    renderHero(currentStudentData);
+  } catch (err) {
+    console.error('Passport update failed:', err);
+    showNotification('Failed to update photo. Please try again.', 'error');
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressImage(file, targetKB, thresholdKB) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      // max dimension to keep reasonable quality
+      const MAX_DIM = 1200;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      let quality = 0.8;
+      const tryCompress = (q) => {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Compression failed'));
+            return;
+          }
+          if (blob.size <= targetKB * 1024 || q <= 0.2) {
+            resolve(blob);
+          } else {
+            tryCompress(q - 0.1);
+          }
+        }, 'image/jpeg', q);
+      };
+      tryCompress(quality);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 // ─────────────────────────────────── Hero card ───────────────────────────────
 function renderHero(student) {
   const container = document.getElementById('heroContainer');
@@ -182,14 +351,20 @@ function renderHero(student) {
   const fallback    = `https://ui-avatars.com/api/?background=4f46e5&color=fff&name=${encodeURIComponent(name)}&size=100`;
   const photoSrc    = passportUrl || fallback;
 
+  // Ensure camera styles are injected
+  injectPassportStyles();
+
   container.innerHTML = `
     <div class="hero-card">
-      <img
-        src="${photoSrc}"
-        class="student-photo"
-        alt="Passport photo"
-        onerror="this.onerror=null;this.src='${fallback}'"
-      >
+      <div class="student-photo-wrapper">
+        <img
+          src="${photoSrc}"
+          class="student-photo"
+          alt="Passport photo"
+          onerror="this.onerror=null;this.src='${fallback}'"
+        >
+        <i class="fas fa-camera camera-icon"></i>
+      </div>
       <div class="hero-info">
         <h2>${greeting()}, ${name}</h2>
         <div class="hero-meta">
@@ -198,6 +373,15 @@ function renderHero(student) {
         </div>
       </div>
     </div>`;
+
+  // Attach click handler for camera icon (delegated)
+  const cameraIcon = container.querySelector('.camera-icon');
+  if (cameraIcon) {
+    cameraIcon.addEventListener('click', (e) => {
+      const wrapper = container.querySelector('.student-photo-wrapper');
+      openPassportMenu(e, wrapper);
+    });
+  }
 }
 
 // ─────────────────────────────────── Profile tab ─────────────────────────────
