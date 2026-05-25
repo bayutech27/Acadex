@@ -1,323 +1,17 @@
-// cbt/js/test.js - Acadex CBT Engine (fully enhanced with anti-cheating, session lock, auto-save)
+// cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
 import { auth, db } from '../../js/firebase-config.js';
 import {
     collection, addDoc, getDoc, getDocs, doc, updateDoc,
     increment, serverTimestamp, setDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+// Academic calendar integration – session & term
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from '../../js/academic-calendar.js';
 
-// ==============================
-// GLOBAL CONFIGURATION & STATE
-// ==============================
-const MAX_VIOLATIONS = 3;
-const AUTO_SAVE_INTERVAL = 10000; // 10 seconds
+// =============================================
+// WEAKNESS DETECTION & RECOMMENDATION ENGINE
+// =============================================
 
-let testData = null;
-let timeRemaining = 0;
-let timerInterval = null;
-let currentQuestionIndex = 0;
-let currentUser = null;
-let subjectStartIndices = {};
-let subjectCounts = {};
-let isSubmitting = false;
-let examSessionToken = null;
-let restoreStateApplied = false;
-
-// ==============================
-// DOM ELEMENT CACHE (centralised)
-// ==============================
-const dom = {
-    testSubject: document.getElementById('testSubject'),
-    questionCounter: document.getElementById('questionCounter'),
-    currentQuestionSpan: document.getElementById('currentQuestion'),
-    totalQuestionsSpan: document.getElementById('totalQuestions'),
-    timerElement: document.getElementById('timer'),
-    questionContent: document.getElementById('questionContent'),
-    optionsContainer: document.getElementById('optionsContainer'),
-    progressBar: document.getElementById('progressBar'),
-    questionDots: document.getElementById('questionDots'),
-    prevBtn: document.getElementById('prevBtn'),
-    nextBtn: document.getElementById('nextBtn'),
-    getResultBtn: document.getElementById('getResultBtn'),
-    submitModal: document.getElementById('submitModal'),
-    resultsModal: document.getElementById('resultsModal'),
-    cancelSubmit: document.getElementById('cancelSubmit'),
-    confirmSubmit: document.getElementById('confirmSubmit'),
-    answeredCount: document.getElementById('answeredCount'),
-    totalQuestionsModal: document.getElementById('totalQuestionsModal'),
-    finalScore: document.getElementById('finalScore'),
-    scoreLabel: document.getElementById('scoreLabel'),
-    correctCount: document.getElementById('correctCount'),
-    totalQuestionsCount: document.getElementById('totalQuestionsCount'),
-    performanceMessage: document.getElementById('performanceMessage'),
-    backToDashboard: document.getElementById('backToDashboard'),
-    subjectTabs: document.getElementById('subjectTabs'),
-    subjectBreakdown: document.getElementById('subjectBreakdown'),
-    subjectBreakdownList: document.getElementById('subjectBreakdownList'),
-
-    // New elements
-    fullscreenWarning: document.getElementById('fullscreenWarningModal'),
-    antiCheatWarning: document.getElementById('antiCheatWarningModal'),
-    offlineBanner: document.getElementById('offlineBanner'),
-    autoSaveIndicator: document.getElementById('autoSaveIndicator'),
-    sessionRestoredNotification: document.getElementById('sessionRestoredNotification'),
-};
-
-// ==============================
-// MODULAR MANAGERS
-// ==============================
-
-// Fullscreen Manager
-const fullscreenManager = {
-    exitCount: 0,
-    exitTimestamps: [],
-
-    init() {
-        this.requestFullscreen();
-        document.addEventListener('fullscreenchange', () => {
-            if (!document.fullscreenElement) this.onFullscreenExit();
-        });
-        document.addEventListener('webkitfullscreenchange', () => {
-            if (!document.webkitFullscreenElement) this.onFullscreenExit();
-        });
-    },
-
-    requestFullscreen() {
-        const el = document.documentElement;
-        if (el.requestFullscreen) {
-            el.requestFullscreen().catch(() => {});
-        } else if (el.webkitRequestFullscreen) {
-            el.webkitRequestFullscreen();
-        }
-    },
-
-    onFullscreenExit() {
-        this.exitCount++;
-        this.exitTimestamps.push(new Date().toISOString());
-        violationLogger.log('fullscreen_exit');
-        if (dom.fullscreenWarning) {
-            dom.fullscreenWarning.style.display = 'flex';
-            setTimeout(() => { dom.fullscreenWarning.style.display = 'none'; }, 5000);
-        }
-        setTimeout(() => this.requestFullscreen(), 2000);
-    },
-
-    getSummary() {
-        return {
-            fullscreenExits: this.exitCount,
-            fullscreenExitTimestamps: this.exitTimestamps,
-        };
-    }
-};
-
-// Anti‑Cheat / Tab‑Switch Manager
-const antiCheatManager = {
-    violations: [],
-    warningCount: 0,
-
-    init() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) this.recordViolation('tab_hidden');
-        });
-        window.addEventListener('blur', () => {
-            this.recordViolation('window_blur');
-        });
-        window.addEventListener('pagehide', () => {
-            this.recordViolation('page_hide');
-        });
-    },
-
-    recordViolation(type) {
-        const timestamp = new Date().toISOString();
-        this.violations.push({ type, timestamp });
-        violationLogger.log(type);
-        this.warningCount++;
-
-        if (this.warningCount === 1) {
-            this.showWarning('Warning: Do not leave the exam screen. This is your first warning.');
-        } else if (this.warningCount === 2) {
-            this.showWarning('Second warning! Leaving the exam screen may result in automatic submission.');
-        } else if (this.warningCount >= MAX_VIOLATIONS) {
-            this.autoSubmitExam();
-        }
-    },
-
-    showWarning(msg) {
-        if (dom.antiCheatWarning) {
-            const msgEl = dom.antiCheatWarning.querySelector('.warning-message');
-            if (msgEl) msgEl.textContent = msg;
-            dom.antiCheatWarning.style.display = 'flex';
-            setTimeout(() => { dom.antiCheatWarning.style.display = 'none'; }, 6000);
-        }
-    },
-
-    autoSubmitExam() {
-        if (!isSubmitting) {
-            this.showWarning('Too many violations. Your test is being automatically submitted.');
-            setTimeout(() => submitTest(), 1000);
-        }
-    },
-
-    getSummary() {
-        return {
-            totalViolations: this.violations.length,
-            violationDetails: this.violations,
-        };
-    }
-};
-
-// Timer Manager
-const timerManager = {
-    start() {
-        updateTimerDisplay();
-        timerInterval = setInterval(() => {
-            timeRemaining--;
-            updateTimerDisplay();
-            if (timeRemaining <= 300) dom.timerElement.classList.add('warning');
-            if (timeRemaining <= 0) {
-                clearInterval(timerInterval);
-                autoSubmitTest();
-            }
-        }, 1000);
-    },
-
-    stop() {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-    },
-
-    getTimeRemaining() {
-        return timeRemaining;
-    }
-};
-
-// Exam Session Manager (lock & restore)
-const examSessionManager = {
-    tokenKey: 'active_exam_token',
-    stateKey: 'exam_autosave_state',
-
-    init() {
-        examSessionToken = Date.now().toString(36) + Math.random().toString(36).substr(2);
-        sessionStorage.setItem(this.tokenKey, examSessionToken);
-        window.addEventListener('storage', (e) => {
-            if (e.key === this.tokenKey && e.newValue !== examSessionToken) {
-                alert('Another exam tab was detected. This session may be invalidated.');
-            }
-        });
-    },
-
-    saveState() {
-        const state = {
-            userAnswers: testData.userAnswers,
-            timeRemaining: timerManager.getTimeRemaining(),
-            currentQuestionIndex: currentQuestionIndex,
-            violations: antiCheatManager.violations,
-            fullscreenExits: fullscreenManager.exitCount,
-        };
-        sessionStorage.setItem(this.stateKey, JSON.stringify(state));
-        if (dom.autoSaveIndicator) {
-            dom.autoSaveIndicator.style.display = 'block';
-            setTimeout(() => { dom.autoSaveIndicator.style.display = 'none'; }, 2000);
-        }
-    },
-
-    restoreState() {
-        const saved = sessionStorage.getItem(this.stateKey);
-        if (saved && !restoreStateApplied) {
-            restoreStateApplied = true;
-            try {
-                const state = JSON.parse(saved);
-                if (state.userAnswers) testData.userAnswers = state.userAnswers;
-                timeRemaining = state.timeRemaining || timeRemaining;
-                currentQuestionIndex = state.currentQuestionIndex || 0;
-                antiCheatManager.violations = state.violations || [];
-                fullscreenManager.exitCount = state.fullscreenExits || 0;
-                updateTimerDisplay();
-                loadQuestion(currentQuestionIndex);
-                generateQuestionDots();
-                updateAnsweredCount();
-                if (dom.sessionRestoredNotification) {
-                    dom.sessionRestoredNotification.style.display = 'block';
-                    setTimeout(() => { dom.sessionRestoredNotification.style.display = 'none'; }, 5000);
-                }
-                return true;
-            } catch (e) {}
-        }
-        return false;
-    }
-};
-
-// Auto‑Save Manager
-const autoSaveManager = {
-    intervalId: null,
-
-    start() {
-        this.intervalId = setInterval(() => {
-            examSessionManager.saveState();
-        }, AUTO_SAVE_INTERVAL);
-    },
-
-    stop() {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
-        }
-    }
-};
-
-// Violation Logger
-const violationLogger = {
-    log(type) {
-        console.log(`[VIOLATION] ${type} at ${new Date().toISOString()}`);
-    }
-};
-
-// Question Renderer (with CBT randomization)
-const questionRenderer = {
-    shouldRandomize() {
-        return testData && (testData.examType === 'CBT' || testData.mode === 'cbt');
-    },
-
-    shuffle(arr) {
-        const a = [...arr];
-        for (let i = a.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
-    },
-
-    randomizeQuestions() {
-        if (!this.shouldRandomize()) return;
-        testData.originalQuestions = testData.questions.map(q => ({...q}));
-        testData.questions = this.shuffle(testData.questions);
-        testData.userAnswers = Array(testData.questions.length).fill(null);
-    },
-
-    randomizeOptions(question) {
-        if (!this.shouldRandomize()) return question.options;
-        const optionKeys = Object.keys(question.options);
-        const optionsList = optionKeys.map(k => ({ letter: k, text: question.options[k] }));
-        const shuffled = this.shuffle(optionsList);
-        const newOptions = {};
-        const letterMap = {};
-        shuffled.forEach((item, idx) => {
-            const newLetter = optionKeys[idx];
-            newOptions[newLetter] = item.text;
-            letterMap[item.letter] = newLetter;
-        });
-        question.options = newOptions;
-        question.correctAnswer = letterMap[question.correctAnswer];
-        return newOptions;
-    }
-};
-
-// ==============================
-// WEAKNESS DETECTION & RECOMMENDATION ENGINE (fully preserved)
-// ==============================
 function getTopicFromQuestion(question) {
     if (question.topic && typeof question.topic === 'string' && question.topic.trim() !== '') {
         return question.topic.trim();
@@ -559,9 +253,82 @@ function generateSmartRecommendations(weakTopics) {
     return selected;
 }
 
-// ==============================
+// =============================================
+// DOM Elements
+// =============================================
+const testSubject = document.getElementById('testSubject');
+const questionCounter = document.getElementById('questionCounter');
+const currentQuestionSpan = document.getElementById('currentQuestion');
+const totalQuestionsSpan = document.getElementById('totalQuestions');
+const timerElement = document.getElementById('timer');
+const questionContent = document.getElementById('questionContent');
+const optionsContainer = document.getElementById('optionsContainer');
+const progressBar = document.getElementById('progressBar');
+const questionDots = document.getElementById('questionDots');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const getResultBtn = document.getElementById('getResultBtn');
+const submitModal = document.getElementById('submitModal');
+const resultsModal = document.getElementById('resultsModal');
+const cancelSubmit = document.getElementById('cancelSubmit');
+const confirmSubmit = document.getElementById('confirmSubmit');
+const answeredCount = document.getElementById('answeredCount');
+const totalQuestionsModal = document.getElementById('totalQuestionsModal');
+const finalScore = document.getElementById('finalScore');
+const scoreLabel = document.getElementById('scoreLabel');
+const correctCount = document.getElementById('correctCount');
+const totalQuestionsCount = document.getElementById('totalQuestionsCount');
+const performanceMessage = document.getElementById('performanceMessage');
+const backToDashboard = document.getElementById('backToDashboard');
+const subjectTabs = document.getElementById('subjectTabs');
+const subjectBreakdown = document.getElementById('subjectBreakdown');
+const subjectBreakdownList = document.getElementById('subjectBreakdownList');
+
+let testData = null;
+let timeRemaining = 0;
+let timerInterval = null;
+let currentQuestionIndex = 0;
+let currentUser = null;
+let subjectStartIndices = {};
+let subjectCounts = {};
+
+// =============================================
+// INITIALIZATION with Acadex session validation
+// =============================================
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+    const schoolId = localStorage.getItem('userSchoolId');
+    const studentId = localStorage.getItem('studentId');
+    if (!schoolId || !studentId) {
+        alert('Invalid session. Please log in again.');
+        window.location.href = '../../index.html';
+        return;
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+            window.location.href = '../../index.html';
+        } else {
+            currentUser = user;
+            // Initialize academic calendar so we can get term/session later
+            await initAcademicCalendar().catch(e => console.warn('Academic calendar init failed:', e));
+            await loadTestData();
+        }
+    });
+
+    prevBtn.addEventListener('click', showPreviousQuestion);
+    nextBtn.addEventListener('click', showNextQuestion);
+    getResultBtn.addEventListener('click', showSubmitModal);
+    cancelSubmit.addEventListener('click', hideSubmitModal);
+    confirmSubmit.addEventListener('click', submitTest);
+    backToDashboard.addEventListener('click', goToDashboard);
+    document.addEventListener('keydown', handleKeyboardNavigation);
+});
+
+// =============================================
 // HELPER FUNCTIONS
-// ==============================
+// =============================================
 function fixExcelFraction(value) {
     if (typeof value !== "string") return value;
     const months = { Jan: "1", Feb: "2", Mar: "3", Apr: "4", May: "5", Jun: "6", Jul: "7", Aug: "8", Sep: "9", Oct: "10", Nov: "11", Dec: "12" };
@@ -592,9 +359,9 @@ function processSolutionText(text) {
     return processed.replace(/\n/g, '<br>');
 }
 
-// ==============================
-// LOAD TEST DATA & INITIALISE
-// ==============================
+// =============================================
+// LOAD TEST DATA
+// =============================================
 async function loadTestData() {
     const savedTest = sessionStorage.getItem('currentTest');
     if (!savedTest) {
@@ -619,13 +386,12 @@ function initializeTest() {
         window.location.href = '../../student/student-portal.html';
         return;
     }
-    console.log("🔥 CBT test.js loaded - VERSION 2");
-    // UI heading
+
     if (testData.mode === 'cbt') {
-        dom.testSubject.innerHTML = `<i class="fas fa-laptop"></i> CBT: ${testData.title || 'Assigned Test'}`;
+        testSubject.innerHTML = `<i class="fas fa-laptop"></i> CBT: ${testData.title || 'Assigned Test'}`;
     } else if (testData.mode === 'jamb_drill') {
         const subjectsList = testData.subjects.map(s => s.name).join(' + ');
-        dom.testSubject.innerHTML = `<i class="fas fa-graduation-cap"></i> JAMB Drill: ${subjectsList}`;
+        testSubject.innerHTML = `<i class="fas fa-graduation-cap"></i> JAMB Drill: ${subjectsList}`;
         let idx = 0;
         testData.subjects.forEach(subj => {
             subjectStartIndices[subj.value] = idx;
@@ -635,93 +401,35 @@ function initializeTest() {
         renderSubjectTabs();
     } else if (testData.mode === 'waec_neco') {
         const subjectName = testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject';
-        dom.testSubject.innerHTML = `<i class="fas fa-school"></i> WAEC/NECO Drill: ${subjectName}`;
+        testSubject.innerHTML = `<i class="fas fa-school"></i> WAEC/NECO Drill: ${subjectName}`;
     } else {
         const subjectName = testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject';
-        dom.testSubject.innerHTML = `<i class="fas fa-book"></i> Quick Test: ${subjectName} - ${testData.examType || 'Test'}`;
+        testSubject.innerHTML = `<i class="fas fa-book"></i> Quick Test: ${subjectName} - ${testData.examType || 'Test'}`;
     }
 
-    // Randomize questions if CBT mode
-    questionRenderer.randomizeQuestions();
-
-    // Session restore or fresh start
-    examSessionManager.init();
-    if (!examSessionManager.restoreState()) {
-        dom.totalQuestionsSpan.textContent = testData.totalQuestions || testData.questions.length;
-        dom.totalQuestionsModal.textContent = testData.totalQuestions || testData.questions.length;
-        timeRemaining = testData.totalTime || (testData.questions.length * 120);
-        currentQuestionIndex = 0;
-        testData.userAnswers = Array(testData.questions.length).fill(null);
-    }
-
-    // Start core timers & auto‑save
+    totalQuestionsSpan.textContent = testData.totalQuestions || testData.questions.length;
+    totalQuestionsModal.textContent = testData.totalQuestions || testData.questions.length;
+    timeRemaining = testData.totalTime || (testData.questions.length * 120);
     updateTimerDisplay();
-    timerManager.start();
-    autoSaveManager.start();
+    startTimer();
     generateQuestionDots();
-    loadQuestion(currentQuestionIndex);
+    if (!testData.userAnswers) testData.userAnswers = Array(testData.questions.length).fill(null);
+    loadQuestion(0);
     updateProgressBar();
     updateAnsweredCount();
-
-    // Activate security features
-    fullscreenManager.init();
-    antiCheatManager.init();
-
-    // Network detection
-    window.addEventListener('online', () => {
-        if (dom.offlineBanner) dom.offlineBanner.style.display = 'none';
-    });
-    window.addEventListener('offline', () => {
-        if (dom.offlineBanner) dom.offlineBanner.style.display = 'block';
-    });
-
-    // Block cheating actions (copy, paste, etc.)
-    blockCheatingActions();
 }
 
-function blockCheatingActions() {
-    document.addEventListener('contextmenu', e => e.preventDefault());
-    document.addEventListener('copy', e => e.preventDefault());
-    document.addEventListener('cut', e => e.preventDefault());
-    document.addEventListener('paste', e => e.preventDefault());
-    document.body.style.webkitUserSelect = 'none';
-    document.body.style.mozUserSelect = 'none';
-    document.body.style.msUserSelect = 'none';
-    document.body.style.userSelect = 'none';
-
-    document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey || e.metaKey) {
-            const key = e.key.toLowerCase();
-            if (key === 'c' || key === 'x' || key === 'a' || key === 's' || key === 'p' || key === 'u') {
-                e.preventDefault();
-                return false;
-            }
-            if (e.shiftKey && (key === 'i' || key === 'j')) {
-                e.preventDefault();
-                return false;
-            }
-        }
-        if (e.key === 'F12') {
-            e.preventDefault();
-            return false;
-        }
-    });
-}
-
-// ==============================
-// QUESTION RENDERING & NAVIGATION
-// ==============================
 function renderSubjectTabs() {
-    if (!dom.subjectTabs || testData.mode !== 'jamb_drill') return;
-    dom.subjectTabs.style.display = 'block';
-    dom.subjectTabs.innerHTML = '';
+    if (!subjectTabs || testData.mode !== 'jamb_drill') return;
+    subjectTabs.style.display = 'block';
+    subjectTabs.innerHTML = '';
     testData.subjects.forEach((subj) => {
         const tab = document.createElement('button');
         tab.className = 'subject-tab';
         tab.dataset.subject = subj.value;
         tab.textContent = subj.name;
         tab.addEventListener('click', () => switchToSubject(subj.value));
-        dom.subjectTabs.appendChild(tab);
+        subjectTabs.appendChild(tab);
     });
     document.querySelectorAll('.subject-tab').forEach(tab => {
         tab.style.padding = '10px 20px';
@@ -762,11 +470,7 @@ function loadQuestion(index) {
     const question = testData.questions[index];
     if (!question) return;
 
-    // Randomize options for CBT (returns new options object)
-    const rawOptions = question.options || { A: question.optionA || "", B: question.optionB || "", C: question.optionC || "", D: question.optionD || "" };
-    const options = questionRenderer.randomizeOptions({...rawOptions});
-
-    dom.questionContent.innerHTML = '';
+    questionContent.innerHTML = '';
     const hasQuestionText = question.questionText && question.questionText.trim() !== '';
     const hasQuestionImage = question.questionImage;
     let questionHTML = '';
@@ -779,24 +483,26 @@ function loadQuestion(index) {
     } else {
         questionHTML = `<div class="question-text-content">Question content not available</div>`;
     }
-    dom.questionContent.innerHTML = questionHTML;
-    dom.currentQuestionSpan.textContent = index + 1;
+    questionContent.innerHTML = questionHTML;
+    currentQuestionSpan.textContent = index + 1;
+    optionsContainer.innerHTML = '';
 
-    dom.optionsContainer.innerHTML = '';
-    const optionKeys = Object.keys(options);
-    optionKeys.forEach(letter => {
-        const text = options[letter];
-        const optionElement = document.createElement('div');
-        optionElement.className = 'option';
-        optionElement.dataset.option = letter;
-        if (testData.userAnswers[index] === letter) optionElement.classList.add('selected');
-        optionElement.innerHTML = `<div class="option-letter">${letter}</div><div class="option-text">${text}</div>`;
-        optionElement.addEventListener('click', () => selectOption(letter));
-        dom.optionsContainer.appendChild(optionElement);
+    const rawOptions = question.options || { A: question.optionA || "", B: question.optionB || "", C: question.optionC || "", D: question.optionD || "" };
+    const options = { A: fixExcelFraction(rawOptions.A), B: fixExcelFraction(rawOptions.B), C: fixExcelFraction(rawOptions.C), D: fixExcelFraction(rawOptions.D) };
+    ['A', 'B', 'C', 'D'].forEach(letter => {
+        if (options[letter]) {
+            const optionElement = document.createElement('div');
+            optionElement.className = 'option';
+            optionElement.dataset.option = letter;
+            if (testData.userAnswers[index] === letter) optionElement.classList.add('selected');
+            optionElement.innerHTML = `<div class="option-letter">${letter}</div><div class="option-text">${options[letter]}</div>`;
+            optionElement.addEventListener('click', () => selectOption(letter));
+            optionsContainer.appendChild(optionElement);
+        }
     });
 
-    dom.prevBtn.disabled = index === 0;
-    dom.nextBtn.disabled = index === testData.questions.length - 1;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === testData.questions.length - 1;
     updateActiveDot(index);
     updateProgressBar();
     if (testData.mode === 'jamb_drill' && question.subject) highlightActiveSubjectTab(question.subject);
@@ -809,12 +515,11 @@ function selectOption(optionLetter) {
     testData.userAnswers[currentQuestionIndex] = optionLetter;
     updateAnsweredDot(currentQuestionIndex);
     updateAnsweredCount();
-    examSessionManager.saveState();
 }
 
 function generateQuestionDots() {
     if (!testData || !testData.questions) return;
-    dom.questionDots.innerHTML = '';
+    questionDots.innerHTML = '';
     for (let i = 0; i < testData.questions.length; i++) {
         const dot = document.createElement('div');
         dot.className = 'dot';
@@ -822,7 +527,7 @@ function generateQuestionDots() {
         if (testData.userAnswers && testData.userAnswers[i] !== null) dot.classList.add('answered');
         dot.dataset.index = i;
         dot.addEventListener('click', () => loadQuestion(i));
-        dom.questionDots.appendChild(dot);
+        questionDots.appendChild(dot);
     }
 }
 
@@ -841,45 +546,41 @@ function updateAnsweredDot(index) {
 function updateProgressBar() {
     if (!testData || !testData.questions) return;
     const progress = ((currentQuestionIndex + 1) / testData.questions.length) * 100;
-    dom.progressBar.style.width = `${progress}%`;
+    progressBar.style.width = `${progress}%`;
 }
 
 function updateAnsweredCount() {
     if (!testData || !testData.userAnswers) return;
     const answered = testData.userAnswers.filter(a => a !== null).length;
-    dom.answeredCount.textContent = answered;
+    answeredCount.textContent = answered;
 }
 
-function showPreviousQuestion() {
-    if (currentQuestionIndex > 0) {
-        loadQuestion(currentQuestionIndex - 1);
-        examSessionManager.saveState();
-    }
+function showPreviousQuestion() { if (currentQuestionIndex > 0) loadQuestion(currentQuestionIndex - 1); }
+function showNextQuestion() { if (currentQuestionIndex < testData.questions.length - 1) loadQuestion(currentQuestionIndex + 1); }
+
+function startTimer() {
+    updateTimerDisplay();
+    timerInterval = setInterval(() => {
+        timeRemaining--;
+        updateTimerDisplay();
+        if (timeRemaining <= 300) timerElement.classList.add('warning');
+        if (timeRemaining <= 0) { clearInterval(timerInterval); autoSubmitTest(); }
+    }, 1000);
 }
 
-function showNextQuestion() {
-    if (currentQuestionIndex < testData.questions.length - 1) {
-        loadQuestion(currentQuestionIndex + 1);
-        examSessionManager.saveState();
-    }
-}
-
-function startTimer() { timerManager.start(); }
 function updateTimerDisplay() {
     const minutes = Math.floor(timeRemaining / 60);
     const seconds = timeRemaining % 60;
-    dom.timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
-function showSubmitModal() { updateAnsweredCount(); dom.submitModal.style.display = 'flex'; }
-function hideSubmitModal() { dom.submitModal.style.display = 'none'; }
-function autoSubmitTest() {
-    dom.getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...';
-    setTimeout(() => submitTest(), 1000);
+    timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-// ==============================
-// SAVE TEST RESULT TO FIRESTORE (including violation data)
-// ==============================
+function showSubmitModal() { updateAnsweredCount(); submitModal.style.display = 'flex'; }
+function hideSubmitModal() { submitModal.style.display = 'none'; }
+function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(), 1000); }
+
+// =============================================
+// SAVE TEST RESULT TO FIRESTORE (with session & term)
+// =============================================
 async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores = null) {
     try {
         if (!currentUser) {
@@ -890,7 +591,9 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) throw new Error("School ID missing");
 
-        let classId = null, className = null, studentFullName = '';
+        // Fetch student's class information
+        let classId = null;
+        let className = null;
         try {
             const studentDocRef = doc(db, 'students', currentUser.uid);
             const studentSnap = await getDoc(studentDocRef);
@@ -898,17 +601,22 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
                 const studentData = studentSnap.data();
                 classId = studentData.classId || null;
                 className = studentData.className || null;
-                studentFullName = studentData.name || '';
                 if (classId && !className) {
                     const classDoc = await getDoc(doc(db, 'classes', classId));
-                    if (classDoc.exists()) className = classDoc.data().name || null;
+                    if (classDoc.exists()) {
+                        className = classDoc.data().name || null;
+                    }
                 }
+            } else {
+                console.warn("Student document not found for UID:", currentUser.uid);
             }
-        } catch (err) { console.warn("Could not fetch student info:", err); }
+        } catch (err) {
+            console.warn("Could not fetch student class info:", err);
+        }
 
-        const subjectName = testData.mode === 'quick' ?
-            (testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject') :
-            testData.mode === 'jamb_drill' ? 'JAMB Drill' : testData.mode === 'waec_neco' ? 'WAEC/NECO Drill' : (testData.title || 'CBT Test');
+        const subjectName = testData.mode === 'quick'
+            ? (testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject')
+            : testData.mode === 'jamb_drill' ? 'JAMB Drill' : testData.mode === 'waec_neco' ? 'WAEC/NECO Drill' : (testData.title || 'CBT Test');
 
         let userName = currentUser.displayName || '';
         if (!userName && currentUser.email) userName = currentUser.email.split('@')[0];
@@ -923,16 +631,15 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             subject: q.subject || testData.subject
         }));
 
-        let session = '', term = '';
+        // Get current academic session and term
+        let session = '';
+        let term = '';
         try {
             session = getCurrentSession();
             term = getCurrentTerm();
-        } catch (e) { console.warn('Academic calendar not ready'); }
-
-        const violationSummary = {
-            ...fullscreenManager.getSummary(),
-            ...antiCheatManager.getSummary(),
-        };
+        } catch (e) {
+            console.warn('Academic calendar not ready, using empty strings for session/term');
+        }
 
         const resultData = {
             completedAt: serverTimestamp(),
@@ -955,10 +662,8 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             cbtId: testData.cbtId || null,
             classId: classId,
             className: className,
-            session: session,
-            term: term,
-            name: studentFullName,
-            violationSummary: violationSummary,   // <-- new field
+            session: session,          // <-- new
+            term: term                 // <-- new
         };
 
         if (testData.mode === 'jamb_drill') {
@@ -1002,17 +707,14 @@ function showToast(message, type = 'success') {
     }, 5000);
 }
 
-// ==============================
-// SUBMIT TEST (hardened)
-// ==============================
+// =============================================
+// SUBMIT TEST (with retry for permission errors)
+// =============================================
 async function submitTest() {
-    if (isSubmitting) return;
-    isSubmitting = true;
     hideSubmitModal();
-    timerManager.stop();
-    autoSaveManager.stop();
-    dom.getResultBtn.classList.add('btn-loading');
-    dom.getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating Score...';
+    if (timerInterval) clearInterval(timerInterval);
+    getResultBtn.classList.add('btn-loading');
+    getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating Score...';
 
     try {
         let correctAnswers = 0;
@@ -1031,17 +733,20 @@ async function submitTest() {
                 }
             });
             finalDisplayScore = Math.round((correctAnswers / testData.totalQuestions) * 400);
-            dom.scoreLabel.textContent = '/400 Score';
+            scoreLabel.textContent = '/400 Score';
         } else if (testData.mode === 'waec_neco') {
             subjectScores = {};
             subjectScores[testData.subject] = { correct: correctAnswers, total: testData.totalQuestions };
             finalDisplayScore = Math.round((correctAnswers / testData.questions.length) * 100);
-            dom.scoreLabel.textContent = '% Score';
+            scoreLabel.textContent = '% Score';
         } else {
             finalDisplayScore = Math.round((correctAnswers / testData.questions.length) * 100);
-            dom.scoreLabel.textContent = '% Score';
+            scoreLabel.textContent = '% Score';
         }
 
+        // =========================================================
+        // MODIFICATION: Skip weakness/recommendation for CBT exams
+        // =========================================================
         const isCbtExam = (testData.examType === 'CBT' || testData.mode === 'cbt');
         if (!isCbtExam) {
             const topicStats = generateWeaknessReport(testData.userAnswers, testData.questions);
@@ -1062,6 +767,7 @@ async function submitTest() {
                 testData.recommendations = [];
             }
         } else {
+            // For CBT exams, clear any weakness/recommendation data
             testData.weakTopics = [];
             testData.strongTopics = [];
             testData.recommendations = [];
@@ -1106,23 +812,22 @@ async function submitTest() {
         showResults(finalDisplayScore, correctAnswers, message, subjectScores);
     } catch (error) {
         console.error('Error in submitTest:', error);
-        dom.getResultBtn.classList.remove('btn-loading');
-        dom.getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
+        getResultBtn.classList.remove('btn-loading');
+        getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
         alert(`❌ Error submitting test: ${error.message || 'Please try again.'}`);
-        isSubmitting = false;
     }
 }
 
-// ==============================
-// SHOW RESULTS (unchanged)
-// ==============================
+// =============================================
+// SHOW RESULTS (hide weakness/recommendation for CBT)
+// =============================================
 function showResults(score, correctAnswers, message, subjectScores) {
-    dom.getResultBtn.classList.remove('btn-loading');
-    dom.getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
-    dom.finalScore.textContent = score;
-    dom.correctCount.textContent = correctAnswers;
-    dom.totalQuestionsCount.textContent = testData.questions.length;
-    if (dom.performanceMessage) dom.performanceMessage.textContent = message;
+    getResultBtn.classList.remove('btn-loading');
+    getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
+    finalScore.textContent = score;
+    correctCount.textContent = correctAnswers;
+    totalQuestionsCount.textContent = testData.questions.length;
+    if (performanceMessage) performanceMessage.textContent = message;
 
     const isCbtExam = (testData.examType === 'CBT' || testData.mode === 'cbt');
 
@@ -1158,7 +863,7 @@ function showResults(score, correctAnswers, message, subjectScores) {
     }
 
     if (subjectScores && (testData.mode === 'jamb_drill' || testData.mode === 'waec_neco')) {
-        dom.subjectBreakdown.style.display = 'block';
+        subjectBreakdown.style.display = 'block';
         let html = '';
         if (testData.mode === 'jamb_drill') {
             testData.subjects.forEach(subj => {
@@ -1170,12 +875,12 @@ function showResults(score, correctAnswers, message, subjectScores) {
             const data = subjectScores[testData.subject] || { correct: correctAnswers, total: testData.totalQuestions };
             html += `<div style="margin: 5px 0;"><strong>${subjName}:</strong> ${data.correct}/${data.total}</div>`;
         }
-        dom.subjectBreakdownList.innerHTML = html;
+        subjectBreakdownList.innerHTML = html;
     } else {
-        dom.subjectBreakdown.style.display = 'none';
+        subjectBreakdown.style.display = 'none';
     }
 
-    dom.resultsModal.style.display = 'flex';
+    resultsModal.style.display = 'flex';
     addSolutionButton();
     sessionStorage.removeItem('currentTest');
     try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers, completedAt: new Date().toISOString() })); } catch(e) {}
@@ -1198,11 +903,11 @@ function addSolutionButton() {
     solutionBtn.style.backgroundColor = '#17a2b8';
     solutionBtn.style.cursor = 'pointer';
     solutionBtn.addEventListener('click', () => {
-        dom.resultsModal.style.display = 'none';
+        resultsModal.style.display = 'none';
         showSolutionsModal(testData.questions, testData.userAnswers);
     });
 
-    const backBtn = dom.backToDashboard;
+    const backBtn = document.getElementById('backToDashboard');
     if (backBtn) modalButtons.insertBefore(solutionBtn, backBtn);
     else modalButtons.appendChild(solutionBtn);
 }
@@ -1303,13 +1008,16 @@ function createSolutionItem(question, userAnswer, displayNumber) {
     return solutionItem;
 }
 
+// =============================================
+// GO TO DASHBOARD (redirect to cbt.html)
+// =============================================
 function goToDashboard() {
     window.location.href = 'cbt.html';
 }
 
 function handleKeyboardNavigation(e) {
-    if (dom.submitModal.style.display === 'flex' || dom.resultsModal.style.display === 'flex') {
-        if (e.key === 'Escape') { hideSubmitModal(); dom.resultsModal.style.display = 'none'; }
+    if (submitModal.style.display === 'flex' || resultsModal.style.display === 'flex') {
+        if (e.key === 'Escape') { hideSubmitModal(); resultsModal.style.display = 'none'; }
         return;
     }
     switch(e.key) {
@@ -1326,42 +1034,3 @@ function handleKeyboardNavigation(e) {
         case 'Escape': showSubmitModal(); break;
     }
 }
-
-// ==============================
-// INITIALISATION
-// ==============================
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('currentYear').textContent = new Date().getFullYear();
-
-    const schoolId = localStorage.getItem('userSchoolId');
-    const studentId = localStorage.getItem('studentId');
-    if (!schoolId || !studentId) {
-        alert('Invalid session. Please log in again.');
-        window.location.href = '../../index.html';
-        return;
-    }
-
-    onAuthStateChanged(auth, async (user) => {
-        if (!user) {
-            window.location.href = '../../index.html';
-        } else {
-            currentUser = user;
-            await initAcademicCalendar().catch(e => console.warn('Academic calendar init failed:', e));
-            await loadTestData();
-        }
-    });
-
-    dom.prevBtn.addEventListener('click', showPreviousQuestion);
-    dom.nextBtn.addEventListener('click', showNextQuestion);
-    dom.getResultBtn.addEventListener('click', showSubmitModal);
-    dom.cancelSubmit.addEventListener('click', hideSubmitModal);
-    dom.confirmSubmit.addEventListener('click', submitTest);
-    dom.backToDashboard.addEventListener('click', goToDashboard);
-    document.addEventListener('keydown', handleKeyboardNavigation);
-
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', () => {
-        timerManager.stop();
-        autoSaveManager.stop();
-    });
-});

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="author" content="Acadex">
+  
   <title>Acadex CBT | Test</title>
   <link rel="icon" type="image/png" href="../img/Smart-brain-icon.png">
 
@@ -61,13 +62,6 @@
         window.location.href = '../../index.html';
       }
     })();
-  </script>
-
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-      if (caches) caches.keys().then(names => names.forEach(name => caches.delete(name)));
-    }
   </script>
 
   <!-- HEADER - MOBILE FIRST -->
