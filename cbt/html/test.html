@@ -12,13 +12,46 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
   
-  <!-- correct relative paths from cbt/html/ to cbt/css/ -->
   <link rel="stylesheet" href="../css/styles.css">
   <link rel="stylesheet" href="../css/cbt.css">
   <link rel="stylesheet" href="../css/test.css">
+
+  <style>
+    /* Anti-cheat UI additions */
+    .anti-cheat-modal {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: #fff; border: 2px solid #d32f2f; border-radius: 12px;
+      padding: 2rem 2.5rem; z-index: 10000; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      display: none; flex-direction: column; align-items: center;
+      text-align: center; max-width: 90vw;
+    }
+    .anti-cheat-modal h3 {
+      margin: 0 0 1rem 0; color: #b71c1c; font-size: 1.4rem;
+    }
+    .anti-cheat-modal p {
+      margin: 0; font-size: 1rem; color: #333;
+    }
+    .offline-banner {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #ff9800; color: #fff; text-align: center;
+      padding: 10px; z-index: 10000; font-weight: bold; display: none;
+    }
+    .auto-save-indicator {
+      position: fixed; bottom: 20px; right: 20px;
+      background: rgba(0,0,0,0.7); color: #fff; padding: 6px 14px;
+      border-radius: 20px; font-size: 0.8rem; z-index: 9999; display: none;
+    }
+    .restore-notification {
+      position: fixed; top: 20px; right: 20px;
+      background: #4caf50; color: #fff; padding: 12px 20px;
+      border-radius: 8px; z-index: 9999; display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .restore-notification i { margin-right: 8px; }
+  </style>
 </head>
 <body>
-  <!-- Acadex session validation -->
+  <!-- Acadex session validation (inline) -->
   <script>
     (function() {
       const schoolId = localStorage.getItem('userSchoolId');
@@ -153,7 +186,6 @@
           <ul id="recommendationsList" style="margin: 8px 0 0 20px; padding-left: 0; list-style-type: disc;"></ul>
         </div>
       </div>
-      <!-- premium notification (hidden by js) -->
       <div id="premiumNotification">
         <p style="margin: 0; font-size: 0.9rem; color: #666;">
           <i class="fas fa-crown" style="color: #ffd700; margin-right: 8px;"></i>
@@ -161,7 +193,6 @@
         </p>
       </div>
       <div class="modal-buttons">
-        <!-- solution button will be inserted by js -->
         <button class="modal-btn confirm" id="backToDashboard">Back to Dashboard</button>
       </div>
     </div>
@@ -180,11 +211,38 @@
     </div>
   </div>
 
-  <!-- scripts (correct relative paths from cbt/html/ to cbt/js/) -->
+  <!-- NEW: Fullscreen Warning Modal -->
+  <div id="fullscreenWarningModal" class="anti-cheat-modal" style="display:none;">
+    <h3><i class="fas fa-expand"></i> Fullscreen Mode Exited!</h3>
+    <p>Please re-enter fullscreen to continue the exam securely.</p>
+  </div>
+
+  <!-- NEW: Anti‑Cheat Warning Modal -->
+  <div id="antiCheatWarningModal" class="anti-cheat-modal" style="display:none;">
+    <h3><i class="fas fa-exclamation-triangle"></i> Warning</h3>
+    <p class="warning-message"></p>
+  </div>
+
+  <!-- NEW: Offline Banner -->
+  <div id="offlineBanner" class="offline-banner" style="display:none;">
+    <i class="fas fa-wifi"></i> You are offline. The exam will continue, but please reconnect to save your progress.
+  </div>
+
+  <!-- NEW: Auto‑Save Indicator -->
+  <div id="autoSaveIndicator" class="auto-save-indicator" style="display:none;">
+    <i class="fas fa-save"></i> Auto‑saved
+  </div>
+
+  <!-- NEW: Session Restored Notification -->
+  <div id="sessionRestoredNotification" class="restore-notification" style="display:none;">
+    <i class="fas fa-check-circle"></i> Your previous session has been restored.
+  </div>
+
+  <!-- scripts -->
   <script type="module" src="../js/script.js"></script>
   <script type="module" src="../js/test.js"></script>
 
-  <!-- ANTI-COPY SCRIPT (preserved) -->
+  <!-- ANTI-COPY SCRIPT (preserved for extra safety) -->
   <script>
     (function() {
       document.addEventListener('contextmenu', function(e) {
