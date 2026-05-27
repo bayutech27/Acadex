@@ -209,19 +209,25 @@ function calcWeekStats(week) {
 /**
  * Aggregate term statistics across all effective, non-holiday days.
  * 
- * MODIFIED: totalOpenedSessions = sum of (2 per non-holiday day)
- *            totalPresent = sum of checked boxes (unchanged)
- *            avgPercentage = (totalPresent / totalOpenedSessions) * 100
+ * FIXED: Average Class Attendance now calculates the average of each week's
+ *        percentage (from the Weekly Summary) instead of the overall
+ *        totalPresent/totalOpenedSessions.
+ *
+ * Returns:
+ *   { totalOpenedSessions: number,
+ *     totalPresent: number,
+ *     avgPercentage: number }   // average of weekly percentages
  */
 function calcTermStats() {
   const lastWeek = effectiveLastWeek();
   let totalOpenedSessions = 0;
   let totalPresent = 0;
 
+  // First pass: calculate totals for the first two cards (unchanged)
   for (let w = 1; w <= lastWeek; w++) {
     for (const day of DAYS) {
       if (isHoliday(w, day)) continue;
-      totalOpenedSessions += STATE.students.length * 2;   // each student has M + A on that day
+      totalOpenedSessions += 2;   // M + A
       for (const s of STATE.students) {
         if (getVal(s.id, w, day, 'M')) totalPresent++;
         if (getVal(s.id, w, day, 'A')) totalPresent++;
@@ -229,12 +235,24 @@ function calcTermStats() {
     }
   }
 
+  // Second pass: compute average of weekly percentages
+  let weeklyPercentagesSum = 0;
+  let weeksWithData = 0;
+  for (let w = 1; w <= lastWeek; w++) {
+    const ws = calcWeekStats(w);
+    if (ws.percentage !== null) {
+      weeklyPercentagesSum += ws.percentage;
+      weeksWithData++;
+    }
+  }
+  const avgPercentage = weeksWithData > 0
+    ? Math.round(weeklyPercentagesSum / weeksWithData)
+    : 0;
+
   return {
     totalOpenedSessions,
     totalPresent,
-    avgPercentage: totalOpenedSessions > 0
-      ? Math.round((totalPresent / totalOpenedSessions) * 100)
-      : 0
+    avgPercentage
   };
 }
 
@@ -408,14 +426,14 @@ function buildTableHeader() {
     const cls = w % 2 === 0 ? 'th-week even' : 'th-week';
     r1 += `<th colspan="10" class="${cls}">Week ${w}</th>`;
   }
-  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></table>';
+  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></tr>';
 
   // Row 2: Mon(×2) Tue(×2) … × 15 weeks
   let r2 = '<tr class="day-header-row">';
   for (let w = 0; w < WEEKS; w++) {
     DAYS.forEach(d => { r2 += `<th colspan="2" class="th-day">${DAY_LABELS[d]}</th>`; });
   }
-  r2 += '</td>';
+  r2 += '</tr>';
 
   // Row 3: M A × 75
   let r3 = '<tr class="period-header-row">';
@@ -532,7 +550,7 @@ function renderWeeklySummary() {
 
   for (let w = 1; w <= lastWeek; w++) {
     const ws = calcWeekStats(w);
-    html += `<tr><td class="week-label">Week ${w}</td>`;
+    html += `<td><td class="week-label">Week ${w}</td>`;
 
     DAYS.forEach(day => {
       if (ws.days[day].holiday) {
@@ -557,7 +575,7 @@ function renderWeeklySummary() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// RENDERING — TERM SUMMARY (UPDATED to use sessions)
+// RENDERING — TERM SUMMARY (UPDATED to use average of weekly percentages)
 // ═════════════════════════════════════════════════════════════════════════════
 function renderTermSummary() {
   const el = document.getElementById('termSummaryContainer');
@@ -857,7 +875,7 @@ function downloadCSV() {
     rows.push(row);
   });
 
-  // Term summary block
+  // Term summary block (uses the same calcTermStats)
   const { totalOpenedSessions, totalPresent, avgPercentage } = calcTermStats();
   rows.push([]);
   rows.push(['Total Number of Times School Opened', totalOpenedSessions]);
