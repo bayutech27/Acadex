@@ -435,7 +435,7 @@
     }
 
     /* =========================================================
-       GRADE BADGES
+       GRADE BADGES (for results table – kept for compatibility)
        ========================================================= */
     .grade-A { background: #d1fae5; color: #065f46; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-B { background: #dbeafe; color: #1e40af; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
@@ -444,6 +444,39 @@
 
     /* Results table wrapper */
     .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
+
+    /* =========================================================
+       WELCOME CARD (Results Section) – ADDED explicit visibility styles
+       ========================================================= */
+    .welcome-card {
+      background: linear-gradient(135deg, #fff 0%, #f8faff 100%);
+      border-radius: 18px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 1.8rem;
+      border: 1px solid rgba(67,97,238,.15);
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
+      text-align: left;
+    }
+    .welcome-card h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #0d1b2a;
+      margin: 0 0 0.3rem 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .welcome-card h1 i {
+      color: #4361ee;
+      font-size: 1.3rem;
+    }
+    .welcome-card p {
+      font-size: 0.9rem;
+      color: #475569;
+      margin: 0;
+      line-height: 1.4;
+    }
 
     /* =========================================================
        MOBILE MENU CARDS  (≤ 768 px — identical to admin/teacher)
@@ -658,7 +691,7 @@
     <header class="header">
       <div class="school-header-left">
         <!-- Logo: read-only, no camera overlay -->
-       <!--  <div class="school-logo-readonly">
+        <!-- <div class="school-logo-readonly">
           <img
             id="schoolLogoImg"
             alt="School Logo"
@@ -794,13 +827,15 @@
            RESULTS SECTION
            ====================================================== -->
       <div id="resultsSection" class="dynamic-section" style="display:none;">
+        <!-- Welcome message – now fully visible with dedicated styles -->
         <div class="welcome-card">
           <h1>
             <i class="fa-solid fa-chart-bar" style="opacity:.8; margin-right:8px;"></i>
-            Academic Performance
+            Assigned CBT Performance
           </h1>
-          <p>Your termly results and subject breakdown.</p>
+          <p>Your assigned CBT results breakdown.</p>
         </div>
+        <!-- Results summary container (empty – no cards shown) -->
         <div id="resultsSummaryContainer" class="summary-stats"></div>
         <div style="background:#fff; border-radius:16px; padding:1.4rem; box-shadow:0 2px 0 rgba(0,0,0,.05),0 6px 22px rgba(13,27,42,.07); border:1px solid rgba(67,97,238,.07);">
           <h3 style="font-family:'Outfit',sans-serif; font-size:1.05rem; margin-bottom:.25rem; display:flex; align-items:center; gap:.5rem;">

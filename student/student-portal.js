@@ -8,6 +8,9 @@
 //   * CBT: subjectName, type, teacher name (fetched), scheduled date, status (started/assigned).
 //   * Badge shows unread count based on a localStorage lastSeen timestamp.
 //   * Dropdown holds the 10 latest items, styled beautifully.
+//
+// MODIFIED: Results tab now shows assigned CBT scores from test_results collection.
+//   Columns: Subject, Score, Term/Session, Date.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -387,45 +390,114 @@ function renderAssignments(assignments) {
   container.innerHTML = `<div>${cards}</div>`;
 }
 
-// ─────────────────────────────────── Results section ─────────────────────────
-function gradeClass(g) {
-  if (!g) return '';
-  switch (String(g).trim().toUpperCase()[0]) {
-    case 'A': return 'grade-A';
-    case 'B': return 'grade-B';
-    case 'C': return 'grade-C';
-    default:  return 'grade-D';
+// ======================= NEW: CBT SCORES FOR RESULTS TAB =======================
+
+/**
+ * Fetch all CBT scores for the current student from test_results collection.
+ * Returns array of objects: { subject, rawScore, term, session, completedAt }
+ */
+async function fetchCbtScores() {
+  if (!currentStudentId || !currentSchoolId) return [];
+  try {
+    const q = query(
+      collection(db, 'test_results'),
+      where('userId', '==', currentStudentId),
+      where('examType', '==', 'CBT'),
+      where('mode', '==', 'cbt'),
+      orderBy('completedAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    const results = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      results.push({
+        subject: data.subject || 'Unknown Subject',
+        score: data.rawScore ?? data.correctAnswers ?? 0,
+        term: data.term || '—',
+        session: data.session || '—',
+        date: data.completedAt ? data.completedAt.toDate() : null
+      });
+    });
+    return results;
+  } catch (err) {
+    console.error('[StudentPortal] Failed to fetch CBT scores:', err);
+    return [];
   }
 }
-const SCORE_COLS = [
-  { key: 'ca',    label: 'C.A'   },
-  { key: 'exam',  label: 'Exam'  },
-  { key: 'total', label: 'Total' },
-  { key: 'grade', label: 'Grade' },
-];
-function renderResultsSection(student, resultsArray) {
+
+/**
+ * Render the Results tab with CBT scores table.
+ * No summary cards – only the table with columns: Subject, Score, Term/Session, Date.
+ */
+async function renderResultsSection() {
   const summaryEl = document.getElementById('resultsSummaryContainer');
   const tableEl   = document.getElementById('resultsTableContainer');
   if (!summaryEl || !tableEl) return;
-  if (!student) { summaryEl.innerHTML = '<div class="card">No student data.</div>'; tableEl.innerHTML = '<p>No results.</p>'; return; }
-  summaryEl.innerHTML = `
-    <div class="stat-badge"><div class="number">${safeVal(student.currentAverage)||'—'}</div><div>Average Score</div></div>
-    <div class="stat-badge"><div class="number">${subjectsList.length}</div><div>Subjects</div></div>
-    <div class="stat-badge"><div class="number">${safeVal(student.classPosition)||'N/A'}</div><div>Position</div></div>`;
-  const data = resultsArray.length
-    ? resultsArray
-    : subjectsList.map(s => ({ name: s.name||s.subjectName, ca: s.ca, exam: s.exam||s.examScore, total: s.total||s.average, grade: s.grade }));
-  if (!data.length) { tableEl.innerHTML = '<p style="color:var(--gray-500)">No result data for this term.</p>'; return; }
-  const activeCols = SCORE_COLS.filter(col => data.some(r => hasValue(r[col.key])));
-  const thCells = ['<th>Subject</th>', ...activeCols.map(c => `<th>${c.label}</th>`)].join('');
-  const rows = data.map(r => {
-    const cells = activeCols.map(col => {
-      if (col.key === 'grade') { const g = safeVal(r.grade); return `<td>${g ? `<span class="${gradeClass(g)}">${g}</span>` : ''}</td>`; }
-      return `<td>${safeVal(r[col.key])}</td>`;
-    }).join('');
-    return `<tr><td class="subject-name-cell">${safeVal(r.name||r.subjectName)||'—'}</td>${cells}</tr>`;
-  }).join('');
-  tableEl.innerHTML = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr>${thCells}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // Clear summary container (remove old cards)
+  summaryEl.innerHTML = '';
+
+  // Show loading state
+  tableEl.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading CBT results...</div>';
+
+  try {
+    const scores = await fetchCbtScores();
+
+    if (!scores.length) {
+      tableEl.innerHTML = `
+        <div style="text-align:center; padding:2rem; color: var(--gray-500);">
+          <i class="fa-solid fa-clipboard-list" style="font-size:2rem; margin-bottom:0.5rem; display:block;"></i>
+          No CBT scores found yet.<br>
+          Complete a CBT test to see your results here.
+        </div>`;
+      return;
+    }
+
+    // Build table
+    let html = `
+      <div class="table-responsive-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Score</th>
+              <th>Term / Session</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    scores.forEach(item => {
+      const dateStr = item.date ? item.date.toLocaleDateString('en-NG', { year:'numeric', month:'short', day:'numeric' }) : '—';
+      const termSession = `${item.term} ${item.session}`.trim();
+      html += `
+        <tr>
+          <td class="subject-name-cell">${escapeHtml(item.subject)}</td>
+          <td class="score-highlight">${item.score}</td>
+          <td>${escapeHtml(termSession || '—')}</td>
+          <td>${dateStr}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    tableEl.innerHTML = html;
+  } catch (err) {
+    console.error('[StudentPortal] Error rendering CBT results:', err);
+    tableEl.innerHTML = '<div class="card" style="color:red; text-align:center;">Failed to load results. Please try again later.</div>';
+  }
+}
+
+// Helper escape (reuse existing)
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 }
 
 // ─────────────────────────── NOTIFICATIONS (CBT + SCORES) ──────────────────
@@ -668,6 +740,7 @@ function initNotificationBell() {
 }
 
 // ─────────────────────────────────── Subject resolver (with scores for Results) ───────
+// Note: This function is kept for subjects tab, not used for results anymore.
 async function resolveSubjects(rawSubjects) {
   if (!Array.isArray(rawSubjects) || rawSubjects.length === 0) return [];
   let resolved = [];
@@ -834,18 +907,16 @@ async function loadStudentDashboard() {
     currentStudentId
   );
 
-  let resultsArr = [];
-  try {
-    const snap = await getDocs(collection(db, 'students', currentStudentId, 'results'));
-    if (!snap.empty) resultsArr = snap.docs.map(d => d.data());
-  } catch (err) { console.warn('Results fail:', err); }
+  // OLD RESULTS FETCHING REMOVED – replaced by CBT scores
+  // No need to fetch from students/{id}/results anymore.
 
   renderHero(currentStudentData);
   renderProfile(currentStudentData);
   renderAttendance(attendanceRecords);
   renderSubjects(subjectsList);
   renderAssignments(assignmentsList);
-  renderResultsSection(currentStudentData, resultsArr);
+  // NEW: Render Results tab with CBT scores
+  await renderResultsSection();
 }
 
 // ─────────────────────────────────── Navigation ──────────────────────────────
@@ -856,6 +927,8 @@ function initDesktopNav() {
       const section = link.getAttribute('data-section');
       if (section === 'cbt') return;
       showSection(section === 'results' ? 'results' : 'dashboard');
+      // When results section is shown, refresh CBT results
+      if (section === 'results') renderResultsSection();
     });
   });
 }
@@ -875,6 +948,7 @@ function initMobileMenu() {
       const section = link.getAttribute('data-section');
       if (section === 'cbt') return;
       showSection(section === 'results' ? 'results' : 'dashboard');
+      if (section === 'results') renderResultsSection();
       close();
     });
   });
