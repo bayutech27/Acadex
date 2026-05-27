@@ -8,6 +8,7 @@ import {
 import { getSchoolById } from './app.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { createBulkNotifications } from './notification-service.js';
 
 // ==============================
 // STATE
@@ -681,6 +682,33 @@ async function saveTestToFirestore() {
       await addDoc(collection(db, 'cbt'), testData);
       showNotification('Test created successfully.', 'success');
     }
+
+// --- AFTER THE TEST HAS BEEN SAVED (both create and update) ---
+// Trigger notifications to all students in the assigned class
+try {
+  const studentsQuery = query(
+    collection(db, 'students'),
+    where('schoolId', '==', currentSchoolId),
+    where('classId', '==', testData.classId)
+  );
+  const studentsSnap = await getDocs(studentsQuery);
+  if (!studentsSnap.empty) {
+    const studentIds = studentsSnap.docs.map(d => d.id);
+    const notifications = studentIds.map(sid => ({
+      studentId: sid,
+      schoolId: currentSchoolId,
+      title: 'New CBT Assigned',
+      message: `${testData.subjectName} ${testData.type} has been assigned to your class.`,
+      type: 'cbt',
+      relatedId: editingTestId || null   // will be updated after creation if new
+    }));
+    await createBulkNotifications(notifications);
+  }
+} catch (notifErr) {
+  console.error('Failed to create notifications:', notifErr);
+  // Non‑critical – do not throw
+}
+
     closeModal();
   } catch (err) {
     handleError(err, 'Failed to save test');

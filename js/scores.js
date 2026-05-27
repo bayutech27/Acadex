@@ -6,6 +6,7 @@ import {
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
+import { createBulkNotifications } from './notification-service.js';
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -480,6 +481,24 @@ async function saveScores() {
   showLoader();
   try {
     await saveAllScores(unlockedScores);
+    // --- After scores have been successfully saved ---
+if (unlockedScores.length > 0) {
+  try {
+    const subjectName = subjectsMap.get(selectedSubjectId) || '';
+    const notifications = unlockedScores.map(score => ({
+      studentId: score.studentId,
+      schoolId: currentSchoolId,
+      title: 'New Score Uploaded',
+      message: `Your ${subjectName} score has been uploaded.`,
+      type: 'score',
+      relatedId: null
+    }));
+    await createBulkNotifications(notifications);
+  } catch (notifErr) {
+    console.error('Failed to create score notifications:', notifErr);
+    // Not critical – continue
+  }
+}
     showNotification(`Scores saved successfully for ${unlockedScores.length} student(s).`, "success");
     await renderScoreTable();
   } catch (err) {

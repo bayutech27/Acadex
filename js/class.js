@@ -5,6 +5,9 @@
 // Summary and Attendance moved to top
 // Subjects table extreme left, skills tables extreme right – clear gap between them
 // Fully responsive: scales with zoom, stacks on mobile
+// ADDED: Print/Download buttons for both report and broadsheet (exactly as in results.js)
+// ADDED: WhatsApp sharing for report card (parent phone)
+// UPDATED: Print comments now appear inline (same line as label)
 
 import { db } from './firebase-config.js';
 import {
@@ -13,7 +16,7 @@ import {
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
-import { renderReportCardUI } from './reportCardRenderer.js';   // <--- NEW: import external renderer
+import { renderReportCardUI } from './reportCardRenderer.js';
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -73,11 +76,13 @@ async function checkSubscription() {
 function disableSubscriptionFeatures() {
   const saveBtn = document.getElementById('saveReportBtn');
   const printBtn = document.getElementById('printReportBtn');
+  const whatsappBtn = document.getElementById('whatsappReportBtn');
   const generateBtn = document.getElementById('generateBroadsheetBtn');
   const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
   const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '0.5'; }
   if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = '0.5'; }
+  if (whatsappBtn) { whatsappBtn.disabled = true; whatsappBtn.style.opacity = '0.5'; }
   if (generateBtn) generateBtn.disabled = true;
   if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
   if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
@@ -95,11 +100,13 @@ function disableSubscriptionFeatures() {
 function enableSubscriptionFeatures() {
   const saveBtn = document.getElementById('saveReportBtn');
   const printBtn = document.getElementById('printReportBtn');
+  const whatsappBtn = document.getElementById('whatsappReportBtn');
   const generateBtn = document.getElementById('generateBroadsheetBtn');
   const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
   const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; }
   if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = '1'; }
+  if (whatsappBtn) { whatsappBtn.disabled = false; whatsappBtn.style.opacity = '1'; }
   if (generateBtn) generateBtn.disabled = false;
   if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = false;
   if (printBroadsheetBtn) printBroadsheetBtn.disabled = false;
@@ -259,7 +266,8 @@ async function loadStudentsList() {
       id: doc.id, name: doc.data().name, classId: doc.data().classId,
       admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
       dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
-      subjects: doc.data().subjects || [], schoolId: doc.data().schoolId
+      subjects: doc.data().subjects || [], schoolId: doc.data().schoolId,
+      parentPhone: doc.data().parentPhone || null
     }));
   } catch (err) {
     handleError(err, "Failed to load students.");
@@ -353,7 +361,7 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
 }
 
-// ==================== REPORT CARD LOADING (uses external renderer) ====================
+// ==================== REPORT CARD LOADING ====================
 async function loadReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -386,6 +394,12 @@ async function loadReportCard(studentId, studentName) {
   await loadGradingSetting(reportState.session, reportState.term, classLevel);
   const isPrimary = (classLevel === 'primary');
 
+  if (student && student.parentPhone) {
+    reportState.selectedStudent.parentPhone = student.parentPhone;
+  } else {
+    reportState.selectedStudent.parentPhone = null;
+  }
+
   showLoader();
   try {
     const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
@@ -416,10 +430,10 @@ async function loadReportCard(studentId, studentName) {
       gender:   student.gender   || '—',
       dob:      student.dob      || '',
       club:     student.club     || '—',
-      passport: student.passport || null
+      passport: student.passport || null,
+      parentPhone: student.parentPhone || null
     };
 
-    // ─── USE THE EXTERNAL RENDERER (reportCardRenderer.js) ───
     await renderReportCardUI({
       student: studentData, scores: scoresWithNames, className: classNameCache,
       school, grading: currentGrading, psychomotor: reportState.psychomotor,
@@ -515,35 +529,63 @@ async function saveReportCard() {
   }
 }
 
-// ========== PRINT HANDLER ==========
-function printReportCard() {
+// ========== PRINT HANDLER (UPDATED FOR INLINE COMMENTS) ==========
+function handlePrint() {
+  const teacherText    = document.getElementById('teacherCommentText');
+  const printTeacher   = document.getElementById('printTeacherComment');
+  if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
+  const principalText  = document.getElementById('principalCommentText');
+  const printPrincipal = document.getElementById('printPrincipalComment');
+  if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
+
   const reportContent = document.getElementById('reportCardContent');
-  if (!reportContent || reportContent.children.length === 0) {
-    showNotification("Report not ready.", "error");
+  if (!reportContent || reportContent.children.length === 0 ||
+      (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
+       reportContent.children[0].textContent.includes('Select a student'))) {
+    showNotification('Report not ready yet. Please select a student and ensure the report is loaded.', 'error');
     return;
   }
+
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { showNotification("Please allow popups to print.", "error"); return; }
+  if (!printWindow) { showNotification('Please allow popups for this site to print the report.', 'error'); return; }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
+  // ✅ UPDATED CSS: comments appear inline (same line as label)
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
     body, .print-container { margin: 0; padding: 0; background: white; }
     .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
-    .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8.5pt; background: #fdf8f2 !important; }
+    .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
     .rc-school-name { font-size: 22pt !important; }
-    .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
-    .rc-att-input, .rc-tick-row, select, textarea, button { display: none !important; }
-    .rc-print-val, .rc-print-comment { display: block !important; }
-    .rc-rating-cell .rc-print-val { display: inline !important; }
-    .rc-details-band { background: #1a3a5c !important; }
-    .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+    .rc-main-row { display: grid !important; grid-template-columns: 62fr 35fr !important; gap: 14px !important; }
+    .rc-col-left, .rc-col-right { min-width: 0; }
+    .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
+    .rc-print-val     { display: inline !important; }
+    .rc-print-comment { display: inline !important; }   /* inline instead of block */
+    .rc-scroll-outer  { overflow: visible !important; }
+    .rc-details-band  { background: #1a3a5c !important; }
+    .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
     .rc-details-cell strong { color: #a8d8f0 !important; }
-    .rc-scroll-outer { overflow: visible !important; }
+    .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale { break-inside: avoid; page-break-inside: avoid; }
     *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
+    .rc-grade-scale th { background: #FFD700 !important; }
+    .rc-comments { background: #f9f9f9 !important; }
+
+    /* Ensure comment rows are flex to keep label and text on same line */
+    .rc-comment-row, .rc-comment-item {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: baseline !important;
+      gap: 8px !important;
+      flex-wrap: wrap !important;
+    }
+    .rc-comment-label, .rc-comment-item strong {
+      white-space: nowrap !important;
+    }
   `;
 
   printWindow.document.write(`
@@ -568,6 +610,77 @@ function printReportCard() {
   `);
   printWindow.document.close();
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
+}
+
+// ========== WHATSAPP SHARE FUNCTION ==========
+function sendToWhatsApp() {
+  if (!reportState.selectedStudent) {
+    showNotification('No student selected. Please select a student first.', 'error');
+    return;
+  }
+
+  let phone = reportState.selectedStudent.parentPhone;
+  if (!phone || phone.trim() === '') {
+    showNotification('Parent phone number is not available for this student. Please update the student record with a valid phone number.', 'error');
+    return;
+  }
+
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('8')) {
+    digits = '234' + digits;
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    digits = '234' + digits.substring(1);
+  } else if (digits.length === 13 && digits.startsWith('234')) {
+    // already correct
+  } else if (digits.length === 14 && digits.startsWith('234')) {
+    digits = digits.substring(3);
+  } else if (digits.length === 10 && /^[789]/.test(digits)) {
+    digits = '234' + digits;
+  } else {
+    showNotification(`Phone number could not be normalised. Raw input: ${phone}. Please use a valid Nigerian number.`, 'error');
+    return;
+  }
+  if (!digits.startsWith('234')) {
+    showNotification(`Phone number does not start with Nigeria country code. Raw: ${phone}`, 'error');
+    return;
+  }
+  if (digits.length !== 13) {
+    showNotification(`Phone number normalised to ${digits} (length ${digits.length}) – expected 13 digits. Raw: ${phone}`, 'error');
+    return;
+  }
+
+  const message = `Please find attached the report card for ${reportState.selectedStudent.name}.`;
+  const whatsappUrl = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+  window.open(whatsappUrl, '_blank');
+}
+
+// ========== BROADSHEET PRINT ==========
+function printBroadsheet() {
+  const container = document.getElementById('broadsheetContainer');
+  if (!container || !container.innerHTML.trim()) { showNotification('No broadsheet to download.', 'error'); return; }
+  const originalContent = container.cloneNode(true);
+  const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) { showNotification('Please allow popups.', 'error'); return; }
+  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+  const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+  const printCSS = `
+    @page { size: A4 landscape; margin: 1cm; }
+    body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; font-size:10px; }
+    .broadsheet-table { width:100%; border-collapse:collapse; font-size:8px; }
+    .broadsheet-table th, .broadsheet-table td { border:1px solid #000; padding:4px 3px; text-align:center; vertical-align:middle; }
+    .student-name-cell { text-align:left !important; }
+    .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
+    tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
+  `;
+  printWindow.document.write(`
+    <!DOCTYPE html><html><head><title>${title}</title>
+    <link rel="stylesheet" href="${externalCssUrl}">
+    <style>${inlineStyles}${printCSS}</style>
+    </head><body>${originalContent.outerHTML}</body></html>
+  `);
+  printWindow.document.close();
+  printWindow.print();
 }
 
 async function loadClassStudents() {
@@ -794,32 +907,6 @@ async function saveBroadsheetToFirestore() {
   }
 }
 
-function printBroadsheet() {
-  const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { showNotification("No broadsheet to print.", "error"); return; }
-  const originalContent = container.cloneNode(true);
-  const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) { showNotification("Please allow popups.", "error"); return; }
-  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
-  printWindow.document.write(`
-    <!DOCTYPE html><html><head><title>${title}</title>
-    <link rel="stylesheet" href="${externalCssUrl}">
-    <style>
-      body { font-family:'Segoe UI',sans-serif; margin:20px; }
-      .broadsheet-table { width:100%; border-collapse:collapse; font-size:11px; }
-      .broadsheet-table th, .broadsheet-table td { border:1px solid #000; padding:6px 4px; text-align:center; }
-      .student-name-cell { text-align:left; }
-      @media print { @page { size:landscape; margin:1cm; } body { margin:0; } }
-      ${inlineStyles}
-    </style></head>
-    <body>${originalContent.outerHTML}</body></html>
-  `);
-  printWindow.document.close();
-  printWindow.print();
-}
-
 // ------------------- Initialisation -------------------
 export async function initClassReportPage() {
   teacherData = getTeacherData();
@@ -884,7 +971,8 @@ export async function initClassReportPage() {
   document.getElementById('sessionSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('refreshStudentsBtn')?.addEventListener('click', () => loadClassStudents());
   document.getElementById('saveReportBtn')?.addEventListener('click', saveReportCard);
-  document.getElementById('printReportBtn')?.addEventListener('click', printReportCard);
+  document.getElementById('printReportBtn')?.addEventListener('click', handlePrint);
+  document.getElementById('whatsappReportBtn')?.addEventListener('click', sendToWhatsApp);
   document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);

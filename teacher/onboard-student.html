@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Onboard Students/Pupils</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Global Styles -->
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/card-3d.css">
+
+  <style>
+    /* ========== PAGE-SPECIFIC STYLES (Teacher onboard) ========== */
+    .academic-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
+    }
+
+    .school-address {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    .subscription-badge {
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+    /* Students Table */
+    .filter-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .filter-btn {
+      background: #e2e8f0;
+      color: #2d3748;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-btn.active {
+      background: #667eea;
+      color: white;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 650px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .modal-header h2 {
+      margin: 0;
+    }
+    .close-modal {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #718096;
+    }
+    .form-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    select[multiple] {
+      height: 120px;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .status-active {
+      background: #c6f6d5;
+      color: #22543d;
+    }
+    .status-inactive {
+      background: #fed7d7;
+      color: #742a2a;
+    }
+    .status-graduated {
+      background: #bee3f8;
+      color: #2c5282;
+    }
+    .status-select {
+      padding: 4px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      font-size: 0.8rem;
+    }
+    .passport-preview {
+      margin-top: 8px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #e2e8f0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .student-passport {
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      background: #f8fafc;
+      display: block;
+      margin: 0 auto;
+    }
+    .table-container {
+      overflow-x: auto;
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+    .data-table {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      min-width: 700px;
+    }
+    .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 60px; text-align: center; }
+    .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 110px; }
+    .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 160px; }
+    .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 170px; }
+    .data-table th:nth-child(5), .data-table td:nth-child(5) { width: 100px; }
+    .data-table th:nth-child(6), .data-table td:nth-child(6) { width: 100px; }
+    .data-table th:nth-child(7), .data-table td:nth-child(7) { width: 80px; }
+    .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 120px; }
+    .data-table th, .data-table td {
+      padding: 10px 8px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: middle;
+      word-wrap: break-word;
+    }
+    .data-table td:last-child { white-space: nowrap; }
+    .data-table td:last-child button { margin: 0 2px; padding: 4px 8px; font-size: 0.75rem; }
+    .status-select { width: 100%; max-width: 100px; }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .form-row .form-group {
+      flex: 1;
+      min-width: 120px;
+    }
+    .readonly-field {
+      background: #f1f5f9;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #475569;
+    }
+    .form-group small {
+      display: block;
+      font-size: 11px;
+      color: #718096;
+      margin-top: 4px;
+    }
+    .class-badge {
+      display: inline-block;
+      background: #eef2ff;
+      padding: 5px 12px;
+      border-radius: 30px;
+      font-weight: 600;
+      color: #4f46e5;
+      margin: 0 0 15px 0;
+    }
+    .info-message {
+      background: #fef9c3;
+      border-left: 5px solid #eab308;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      color: #854d0e;
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 768px) {
+      .modal-content { width: 95%; padding: 16px; }
+      .data-table th, .data-table td { padding: 6px 4px; font-size: 0.8rem; }
+      .student-passport { width: 35px; height: 35px; }
+      .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 45px; }
+      .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 80px; }
+      .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 120px; }
+      .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 120px; }
+      .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 100px; }
+      .data-table td:last-child button { padding: 2px 6px; font-size: 0.7rem; }
+    }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
+    }
+
+    /* ========== FIXES FOR VISIBILITY ========== */
+    /* Fix for the Add Student button */
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+      color: white !important;
+      border: none !important;
+      padding: 10px 20px !important;
+      border-radius: 8px !important;
+      font-weight: 600 !important;
+      font-size: 0.9rem !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      cursor: pointer !important;
+      transition: all 0.2s ease !important;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #5b52e0, #6d28d9) !important;
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 14px rgba(79, 70, 229, 0.3) !important;
+    }
+    .btn-primary i {
+      color: white !important;
+    }
+
+    /* Fix for the welcome card heading and paragraph */
+    .welcome-card {
+      display: block !important;
+      background: #ffffff !important;
+      padding: 24px 28px !important;
+      border-radius: 20px !important;
+      margin-bottom: 24px !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+      border: 1px solid #eef2ff !important;
+    }
+    .welcome-card h1 {
+      font-size: 1.8rem !important;
+      font-weight: 800 !important;
+      color: #0f172a !important;
+      margin: 0 0 8px 0 !important;
+      font-family: 'Outfit', sans-serif !important;
+    }
+    .welcome-card h1 i {
+      color: #4f46e5 !important;
+      margin-right: 12px !important;
+    }
+    .welcome-card p {
+      font-size: 1rem !important;
+      color: #475569 !important;
+      margin: 0 !important;
+      line-height: 1.5 !important;
+    }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+
+  <!-- DESKTOP SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="onboard-student.html" class="active">
+        <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
+      </a>
+       <a href="scores.html">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="attendance.html">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
+      <a href="teacher-clock.html">
+        <i class="fa-solid fa-clock"></i> Clock In & Out
+      </a>
+    </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
+  </aside>
+
+  <!-- MOBILE SIDEBAR -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar" aria-label="Close menu">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="teacher-dashboard.html">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+      <a href="onboard-student.html" class="active">
+        <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
+      </a>
+      <a href="scores.html">
+        <i class="fa-solid fa-chart-bar"></i> Scores
+      </a>
+      <a href="class.html">
+        <i class="fa-solid fa-school"></i> Class
+      </a>
+      <a href="attendance.html">
+        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
+      </a>
+      <a href="teacher-cbt.html">
+        <i class="fa-solid fa-laptop-code"></i> CBT
+      </a>
+      <a href="teacher-clock.html">
+        <i class="fa-solid fa-clock"></i> Clock In & Out
+      </a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
+          <div id="cameraIcon" class="camera-icon" title="Change logo">
+            <i class="fa-solid fa-camera"></i>
+          </div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <div id="subscriptionBadge" class="subscription-badge">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+        </div>
+        <button id="logoutBtn" class="logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
+      </div>
+    </header>
+
+    <!-- Academic Calendar Badge -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span>
+        &nbsp;|&nbsp;
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="welcome-card">
+        <h1><i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils</h1>
+        <p>Manage students in your assigned class. Add new students, edit records, update status.</p>
+        <button id="addStudentBtn" class="btn-primary"><i class="fa-solid fa-plus"></i> Add Student</button>
+      </div>
+
+      <!-- Class badge & info -->
+      <div id="classInfoContainer" class="class-badge">Loading class information...</div>
+
+      <!-- Students List Table -->
+      <div id="studentsList">
+        <p>Loading students...</p>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <p><i class="fa-regular fa-copyright"></i> <span id="currentYear"></span> Acadex — All rights reserved.</p>
+    </footer>
+  </main>
+</div>
+
+<!-- MODAL for Add/Edit Student -->
+<div id="studentModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add Student</h2>
+      <button class="close-modal">&times;</button>
+    </div>
+    <form id="studentForm">
+      <div class="form-group">
+        <label for="studentAdmissionNo">Admission Number</label>
+        <input type="text" id="studentAdmissionNo" placeholder="Auto-generated if left empty">
+        <small>Leave empty to auto-generate, or enter a custom number (must be unique).</small>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="studentSurname">Surname *</label><input type="text" id="studentSurname" required></div>
+        <div class="form-group"><label for="studentFirstName">First Name *</label><input type="text" id="studentFirstName" required></div>
+        <div class="form-group"><label for="studentOtherName">Other Name</label><input type="text" id="studentOtherName"><small>Optional</small></div>
+      </div>
+      <div class="form-group"><label for="studentEmail">Email *</label><input type="email" id="studentEmail" required></div>
+      <div class="form-group"><label for="studentLevel">Level *</label>
+        <input type="text" id="studentLevelDisplay" class="readonly-field" readonly disabled>
+        <input type="hidden" id="studentLevelHidden">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="studentGender">Gender *</label><select id="studentGender" required><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+        <div class="form-group"><label for="studentDob">Date of Birth *</label><input type="date" id="studentDob" required></div>
+        <div class="form-group"><label>Age (auto)</label><div id="studentAgeDisplay" class="readonly-field">-</div></div>
+      </div>
+      <div class="form-group">
+        <label>Class (Fixed) *</label>
+        <input type="text" id="studentClassDisplay" class="readonly-field" readonly disabled>
+        <input type="hidden" id="studentClassHidden">
+      </div>
+      <div class="form-group"><label for="studentSubjects">Subjects</label><select id="studentSubjects" multiple><option value="">-- Select level first --</option></select><small>Hold Ctrl (or Cmd) to select multiple</small></div>
+      <div class="form-group"><label for="studentClub">Club / Society</label><input type="text" id="studentClub" placeholder="e.g., Science Club, Debate Team"><small>Optional</small></div>
+
+      <!-- NEW FIELDS (Nationality, State, Religion, Parent Phone) -->
+      <div class="form-row">
+        <div class="form-group"><label for="studentNationality">Nationality *</label><select id="studentNationality" required><option value="">-- Select Country --</option></select></div>
+        <div class="form-group"><label for="studentState">State (Nigeria) *</label><select id="studentState" required><option value="">-- Select State --</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="studentReligion">Religion *</label><select id="studentReligion" required><option value="">-- Select Religion --</option><option value="Christianity">Christianity</option><option value="Islam">Islam</option><option value="Others">Others</option></select></div>
+        <div class="form-group"><label for="studentParentPhone">Parent Phone (WhatsApp) *</label><input type="tel" id="studentParentPhone" required placeholder="e.g., +234 812 345 6789"></div>
+      </div>
+
+      <div class="form-group"><label for="studentPassport">Passport Photograph (max 800KB)</label><input type="file" id="studentPassport" accept="image/jpeg, image/png, image/jpg"><div id="passportPreviewContainer"></div><small id="passportError" style="color:red; display:none;"></small></div>
+      <div class="form-group"><label for="studentStatus">Status</label><select id="studentStatus" required><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option></select></div>
+      <div class="form-actions">
+        <button type="button" id="cancelModalBtn" class="btn-secondary">Cancel</button>
+        <button type="submit" id="saveStudentBtn" class="btn-primary">Save Student</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
+  import { initMobileMenu } from '../js/menu.js';
+  import { subscribeToCalendar } from '../js/academic-calendar.js';
+  import { initOnboardStudentPage } from '../js/onboard-student.js';
+
+  document.getElementById('currentYear').innerText = new Date().getFullYear();
+  document.getElementById('sidebarYear').innerText = new Date().getFullYear();
+
+  protectTeacherPage().then(async ({ teacherName }) => {
+    await loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
+    setupLogoUpload();
+    initMobileMenu();
+
+    const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
+    const headerLogoutBtn = document.getElementById('logoutBtn');
+    if (mobileLogoutBtn && headerLogoutBtn) {
+      mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
+
+    await initOnboardStudentPage();
+  });
+
+  subscribeToCalendar(state => {
+    const termEl = document.getElementById('currentTermDisplay');
+    const sessionEl = document.getElementById('currentSessionDisplay');
+    if (termEl) termEl.textContent = state.currentTerm;
+    if (sessionEl) sessionEl.textContent = state.currentSession;
+    if (state.manualOverride) termEl?.classList.add('override-badge');
+    else termEl?.classList.remove('override-badge');
+  });
+</script>
+</body>
+</html>

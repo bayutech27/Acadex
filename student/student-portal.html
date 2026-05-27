@@ -118,26 +118,38 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(67,97,238,.3);
     }
-    .notification-badge-dot {
+    /* Red badge with white number, top‑right */
+    .notification-badge-counter {
       position: absolute;
-      top: 3px; right: 3px;
-      width: 8px; height: 8px;
+      top: -6px;
+      right: -6px;
       background: #ef4444;
+      color: #fff;
       border-radius: 50%;
-      border: 1.5px solid #fff;
+      min-width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0 4px;
+      box-sizing: border-box;
+      border: 2px solid #fff;
+      display: none;              /* hidden when count is 0 */
     }
 
     .notification-dropdown {
       position: absolute;
       top: 48px; right: 0;
-      width: 320px;
+      width: 340px;
       background: #fff;
       border-radius: 16px;
       box-shadow: 0 20px 40px rgba(13,27,42,.15), 0 4px 10px rgba(13,27,42,.08);
       z-index: 1000;
       display: none;
       flex-direction: column;
-      max-height: 400px;
+      max-height: 500px;
       overflow-y: auto;
       border: 1px solid rgba(67,97,238,.1);
       animation: modalIn .2s ease both;
@@ -161,16 +173,59 @@
       color: #0d1b2a;
     }
     .notification-header i { color: #4361ee; }
+
+    /* Notification item – beautiful, creative style */
     .notification-item {
-      padding: .7rem 1rem;
+      padding: .75rem 1rem;
       border-bottom: 1px solid #f8fafc;
-      font-size: .83rem;
-      color: #475569;
+      font-size: .85rem;
+      color: #334155;
       font-weight: 500;
       line-height: 1.5;
-      transition: background .15s ease;
+      transition: all .15s ease;
+      display: flex;
+      align-items: flex-start;
+      gap: .5rem;
+      border-left: 4px solid transparent;
+      background: #fff;
     }
-    .notification-item:hover { background: #f8faff; }
+    .notification-item:hover {
+      background: #f8faff;
+      border-left-color: #4361ee;
+      transform: translateX(2px);
+    }
+    .notification-item[data-type="cbt"] {
+      border-left-color: transparent;
+    }
+    .notification-item[data-type="cbt"]:hover {
+      border-left-color: #10b981;
+    }
+    .notification-item[data-type="score"]:hover {
+      border-left-color: #f59e0b;
+    }
+
+    .notification-item .notif-icon {
+      width: 22px;
+      text-align: center;
+      flex-shrink: 0;
+      font-size: .95rem;
+      margin-top: 1px;
+    }
+    .notification-item .notif-body {
+      flex: 1;
+    }
+    .notification-item .notif-body .notif-text {
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: .15rem;
+      font-family: 'Outfit', sans-serif;
+    }
+    .notification-item .notif-body .notif-meta {
+      font-size: .73rem;
+      color: #64748b;
+      font-weight: 400;
+    }
+
     .notification-item:last-child { border-bottom: none; }
     .empty-notification {
       padding: 1.5rem;
@@ -628,10 +683,11 @@
         <div id="subscriptionBadge" class="subscription-badge">
           <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
         </div>
-        <!-- Notification bell -->
+        <!-- Notification bell (badge added) -->
         <div style="position:relative;">
           <button id="notificationBell" class="notification-bell" aria-label="Notifications">
             <i class="fa-solid fa-bell"></i>
+            <span id="notificationBadge" class="notification-badge-counter"></span>
           </button>
           <div id="notificationDropdown" class="notification-dropdown">
             <div class="notification-header">
@@ -775,7 +831,7 @@
 </div>
 
 <!-- ===================== SCRIPTS ===================== -->
- <script src="../js/card-3d-effects.js"></script>
+<script src="../js/card-3d-effects.js"></script>
 <script type="module" src="./student-portal.js"></script>
 
 <script>

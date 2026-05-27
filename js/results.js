@@ -4,6 +4,7 @@
 // ADDED: Alphabetical sorting of students, class options, and subject options.
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
+// UPDATED: Print comments now appear inline (same line as label)
 
 import { db } from './firebase-config.js';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
@@ -101,7 +102,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></table></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody></table>`;
+  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -187,7 +188,6 @@ async function loadAllStudents() {
       state: doc.data().state || null,
       religion: doc.data().religion || null
     }));
-    // ✅ Sort students alphabetically by name
     studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     console.error('Failed to load students:', err);
@@ -334,7 +334,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// ------------------- MODIFIED renderReportCard (attendance fix + store parentPhone) -------------------
+// ------------------- renderReportCard -------------------
 async function renderReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -377,7 +377,6 @@ async function renderReportCard(studentId, studentName) {
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
-  // ─── include classId, schoolId and parentPhone in studentData ───
   const studentData = {
     id: studentId, name: studentName,
     classId: student.classId,
@@ -389,7 +388,6 @@ async function renderReportCard(studentId, studentName) {
     passport: student.passport || null,
     parentPhone: student.parentPhone || null
   };
-  // Store parentPhone in editorState for quick access
   editorState.selectedStudent.parentPhone = student.parentPhone || null;
 
   const comments   = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
@@ -465,6 +463,7 @@ async function saveEditorReport() {
   }
 }
 
+// ==================== MODIFIED PRINT FUNCTION ====================
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -488,6 +487,7 @@ function handlePrint() {
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
+  // ✅ UPDATED CSS: comments appear inline (same line as label)
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
     body, .print-container { margin: 0; padding: 0; background: white; }
@@ -498,7 +498,7 @@ function handlePrint() {
     .rc-col-left, .rc-col-right { min-width: 0; }
     .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
     .rc-print-val     { display: inline !important; }
-    .rc-print-comment { display: block  !important; }
+    .rc-print-comment { display: inline !important; }   /* inline instead of block */
     .rc-scroll-outer  { overflow: visible !important; }
     .rc-details-band  { background: #1a3a5c !important; }
     .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
@@ -508,6 +508,18 @@ function handlePrint() {
     .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
     .rc-grade-scale th { background: #FFD700 !important; }
     .rc-comments { background: #f9f9f9 !important; }
+
+    /* Ensure comment rows are flex to keep label and text on same line */
+    .rc-comment-row, .rc-comment-item {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: baseline !important;
+      gap: 8px !important;
+      flex-wrap: wrap !important;
+    }
+    .rc-comment-label, .rc-comment-item strong {
+      white-space: nowrap !important;
+    }
   `;
 
   printWindow.document.write(`
@@ -534,9 +546,8 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ─────────── NEW: Send to WhatsApp function (robust normalisation) ───────────
+// ─────────── Send to WhatsApp function ───────────
 function sendToWhatsApp() {
-  // 1) No student selected
   if (!editorState.selectedStudent) {
     showNotification('No student selected. Please select a student first.', 'error');
     return;
@@ -548,7 +559,6 @@ function sendToWhatsApp() {
     return;
   }
 
-  // 2) Normalise the phone number
   let digits = phone.replace(/\D/g, '');
   
   if (digits.length === 10 && digits.startsWith('8')) {
@@ -558,7 +568,6 @@ function sendToWhatsApp() {
   } else if (digits.length === 13 && digits.startsWith('234')) {
     // already correct
   } else if (digits.length === 14 && digits.startsWith('234')) {
-    // Sometimes +234... gives 14 digits? Actually + is removed, so 234... is 13. But if extra, strip first 3.
     if (digits.startsWith('234234')) digits = digits.substring(3);
   } else if (digits.length === 10 && /^[789]/.test(digits)) {
     digits = '234' + digits;
@@ -581,7 +590,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ------------------- Broadsheet Functions (unchanged) -------------------
+// ------------------- Broadsheet Functions -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -690,7 +699,7 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
@@ -931,7 +940,6 @@ export async function initResultsPage() {
   const downloadReportBtn = document.getElementById('printReportBtn');
   if (downloadReportBtn) downloadReportBtn.textContent = 'Print/Download';
 
-  // ─── ADD SEND TO WHATSAPP BUTTON ───
   const reportActions = document.getElementById('reportActions');
   if (reportActions && !document.getElementById('whatsappReportBtn')) {
     const whatsappBtn = document.createElement('button');
