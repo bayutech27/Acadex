@@ -3,6 +3,7 @@
 // FULLY INTEGRATED with Central Academic Calendar Engine
 // EXTENDED: Added getCurrentTeacherId(), getCurrentSchoolId(), getHostClassId() exports
 //           for attendance.js consumption. All existing functions are UNTOUCHED.
+// MODIFIED: displayTeacherName now shows dynamic time‑based greeting (Good morning/afternoon/evening).
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -17,6 +18,14 @@ let currentSchoolId = null;
 let teacherData = null;
 let userRoleData = null;
 let teacherName = null;
+
+// ------------------- Helper: Time-based greeting -------------------
+function getTimeBasedGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 // ------------------- Auth Protection (NO REDIRECT on missing teacher doc) -------------------
 export async function protectTeacherPage() {
@@ -108,13 +117,17 @@ export async function protectTeacherPage() {
   });
 }
 
+// MODIFIED: Now uses dynamic time-based greeting (Good morning/afternoon/evening)
 export function displayTeacherName(name) {
+  if (!name) name = 'Teacher';
+  const greeting = getTimeBasedGreeting();
+  const fullGreeting = `${greeting}, ${name}`;
   const welcomeHeading = document.getElementById('welcomeHeading');
   if (welcomeHeading) {
-    welcomeHeading.textContent = `Welcome, ${name}`;
+    welcomeHeading.textContent = fullGreeting;
   } else {
     const fallback = document.querySelector('.welcome-card h1');
-    if (fallback) fallback.textContent = `Welcome, ${name}`;
+    if (fallback) fallback.textContent = fullGreeting;
   }
 }
 
