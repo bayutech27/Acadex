@@ -353,23 +353,10 @@
         <button id="addStudentBtn" class="btn-primary">Add Student</button>
       </div>
 
-      <div class="filter-buttons">
+      <!-- ========== DYNAMIC FILTER BUTTONS ========== -->
+      <!-- The "All Students" button remains static; class-specific buttons will be injected by students.js -->
+      <div id="classFilterContainer" class="filter-buttons">
         <button class="filter-btn active" data-class="all">All Students</button>
-        <button class="filter-btn" data-class="Nursery 1">Nursery 1</button>
-        <button class="filter-btn" data-class="Nursery 2">Nursery 2</button>
-        <button class="filter-btn" data-class="Kindergarten (KG)">Kindergarten (KG)</button>
-        <button class="filter-btn" data-class="Primary 1">Primary 1</button>
-        <button class="filter-btn" data-class="Primary 2">Primary 2</button>
-        <button class="filter-btn" data-class="Primary 3">Primary 3</button>
-        <button class="filter-btn" data-class="Primary 4">Primary 4</button>
-        <button class="filter-btn" data-class="Primary 5">Primary 5</button>
-        <button class="filter-btn" data-class="Primary 6">Primary 6</button>
-        <button class="filter-btn" data-class="JSS 1">JSS 1</button>
-        <button class="filter-btn" data-class="JSS 2">JSS 2</button>
-        <button class="filter-btn" data-class="JSS 3">JSS 3</button>
-        <button class="filter-btn" data-class="SSS 1">SSS 1</button>
-        <button class="filter-btn" data-class="SSS 2">SSS 2</button>
-        <button class="filter-btn" data-class="SSS 3">SSS 3</button>
       </div>
 
       <div id="studentsList">
@@ -383,7 +370,7 @@
   </main>
 </div>
 
-<!-- Modal for Add/Edit Student (updated with new fields) -->
+<!-- Modal for Add/Edit Student (unchanged) -->
 <div id="studentModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">

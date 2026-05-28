@@ -7,6 +7,7 @@
 // ADDED: Alphabetical sorting of students by full name in the student list table.
 // MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
 // ADDED: Nationality (all countries), State (Nigerian states), Religion, Parent Phone – mandatory fields.
+// UPDATED: Class filter buttons are now loaded dynamically from the Firestore `classes` collection.
 
 import { db, auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -229,6 +230,11 @@ export async function initStudentsPage() {
 
   await loadAllClasses();
   await loadAllSubjects();
+  
+  // ───────── NEW: Generate dynamic class filter buttons ─────────
+  await generateClassFilterButtons();
+  // ─────────────────────────────────────────────────────────────
+
   await loadAndDisplayStudents();
 
   document.getElementById('addStudentBtn')?.addEventListener('click', () => openModal());
@@ -260,17 +266,58 @@ export async function initStudentsPage() {
     });
   }
 
-  document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+  // Ensure "All Students" button works
+  const allBtn = document.querySelector('.filter-btn[data-class="all"]');
+  if (allBtn) {
+    allBtn.addEventListener('click', () => {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentFilter = btn.getAttribute('data-class');
+      allBtn.classList.add('active');
+      currentFilter = 'all';
       loadAndDisplayStudents();
     });
-  });
+  }
 
   setupSubscriptionUI();
   initSubscriptionListener();
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// DYNAMIC CLASS FILTER BUTTONS (new)
+// ───────────────────────────────────────────────────────────────────────────────
+async function generateClassFilterButtons() {
+  const container = document.getElementById('classFilterContainer');
+  if (!container) return;
+
+  // Keep the "All Students" button (already present as the first child)
+  const allButton = container.querySelector('.filter-btn[data-class="all"]');
+  // Remove any existing class-specific buttons (except the "All Students" button)
+  const existingClassButtons = container.querySelectorAll('.filter-btn:not([data-class="all"])');
+  existingClassButtons.forEach(btn => btn.remove());
+
+  try {
+    const classesQuery = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
+    const snapshot = await getDocs(classesQuery);
+    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    // Sort alphabetically by class name
+    classes.sort((a, b) => a.name.localeCompare(b.name));
+
+    classes.forEach(cls => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-btn';
+      btn.setAttribute('data-class', cls.name);
+      btn.textContent = cls.name;
+      btn.addEventListener('click', () => {
+        // Update active state
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = cls.name;
+        loadAndDisplayStudents();
+      });
+      container.appendChild(btn);
+    });
+  } catch (err) {
+    handleError(err, 'Failed to load classes for filter buttons.');
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -604,26 +651,25 @@ async function loadAndDisplayStudents() {
                     ? `<img src="${passportSrc}" class="student-passport" alt="passport"
                             style="width:40px;height:40px;object-fit:cover;border-radius:50%;">`
                     : '<div class="student-passport" style="width:40px;height:40px;background:#e2e8f0;border-radius:50%;"></div>'}
-                 </td>
-                 <td>${escapeHtml(student.admissionNumber || '—')}</td>
-                 <td>${escapeHtml(student.name)}</td>
-                 <td>${escapeHtml(student.email)}</td>
-                 <td>${escapeHtml(className)}</td>
-                 <td>
+                  </td>
+                  <td>${escapeHtml(student.admissionNumber || '—')}</td>
+                  <td>${escapeHtml(student.name)}</td>
+                  <td>${escapeHtml(student.email)}</td>
+                  <td>${escapeHtml(className)}</td>
+                  <td>
                   <select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
                     <option value="active"    ${(student.status || 'active') === 'active'    ? 'selected' : ''}>Active</option>
                     <option value="inactive"  ${student.status === 'inactive'  ? 'selected' : ''}>Inactive</option>
                     <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
                   </select>
-                 </td>
-                 <td>${student.locked ? 'Yes' : 'No'}</td>
-                 <td>
+                </td>
+                  <td>${student.locked ? 'Yes' : 'No'}</td>
+                  <td>
                   <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
                   <button class="btn-danger"    onclick="window.deleteStudent('${student.id}')">Delete</button>
-                 </td>
-               </tr>
-            `;
-          }).join('')}
+                </td>
+                `
+            }).join('')}
         </tbody>
       </table>
     </div>
