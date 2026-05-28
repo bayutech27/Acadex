@@ -1,4 +1,7 @@
 // cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
+// ADDED: Tab‑switching detector – first violation warns, second auto‑submits.
+// ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
+// FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
 import { auth, db } from '../../js/firebase-config.js';
 import {
     collection, addDoc, getDoc, getDocs, doc, updateDoc,
@@ -293,6 +296,135 @@ let subjectStartIndices = {};
 let subjectCounts = {};
 
 // =============================================
+// ANTI-CHEAT — tab switch detector + refresh block
+// =============================================
+
+/* Path to student dashboard (root/student/student-portal.html) */
+const DASHBOARD_URL = '../../student/student-portal.html';
+
+let tabSwitchCount = 0;
+let isSubmitting = false;
+let warningTimeout = null;
+
+/* Timestamp of the last visibility-loss event — used to deduplicate
+   cases where both 'blur' and 'visibilitychange' fire in the same tick. */
+let lastViolationTs = 0;
+
+const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
+const warningMessageElement = antiCheatWarningModal?.querySelector('.warning-message');
+
+function showAntiCheatModal(message, autoCloseMs = 5000) {
+    if (!antiCheatWarningModal || !warningMessageElement) return;
+    if (warningTimeout) clearTimeout(warningTimeout);
+    warningMessageElement.textContent = message;
+    antiCheatWarningModal.style.display = 'flex';
+    warningTimeout = setTimeout(() => {
+        antiCheatWarningModal.style.display = 'none';
+        warningTimeout = null;
+    }, autoCloseMs);
+}
+
+/**
+ * Called only by the 'visibilitychange' listener.
+ * Fires once per tab-switch because we only listen to this single event.
+ */
+function handleVisibilityLoss() {
+    /* Only act when the tab is actually hidden */
+    if (!document.hidden) return;
+    /* Safety guard — if submission already in progress, ignore */
+    if (isSubmitting) return;
+
+    /* Debounce: some browsers fire the event twice in quick succession */
+    const now = Date.now();
+    if (now - lastViolationTs < 800) return;
+    lastViolationTs = now;
+
+    tabSwitchCount++;
+
+    if (tabSwitchCount === 1) {
+        showAntiCheatModal(
+            '⚠️ Tab switching detected! This is your only warning. ' +
+            'Switching tabs again will immediately auto-submit your test.',
+            7000
+        );
+    } else {
+        /* Second (or later) violation — auto-submit and redirect */
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        showAntiCheatModal(
+            '❌ Test auto-submitted: repeated tab switching detected. Redirecting to dashboard…',
+            4000
+        );
+        /* Give the modal 1.5 s to display before navigating away */
+        setTimeout(() => { forceSubmitAndRedirect(); }, 1500);
+    }
+}
+
+/**
+ * Block F5 / Ctrl+R / Cmd+R keyboard shortcuts.
+ * The beforeunload handler covers the browser-button refresh.
+ */
+function preventRefresh(e) {
+    const key = e.key;
+    const isRefreshKey =
+        key === 'F5' ||
+        (e.ctrlKey  && (key === 'r' || key === 'R')) ||
+        (e.ctrlKey  && e.shiftKey && (key === 'r' || key === 'R')) ||
+        (e.metaKey  && (key === 'r' || key === 'R'));
+
+    if (isRefreshKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        showAntiCheatModal(
+            '⚠️ Page refresh is not allowed during the test. Please continue.',
+            4000
+        );
+        return false;
+    }
+}
+
+/**
+ * Block browser-button / address-bar navigations that would refresh the page.
+ * Removed automatically just before a legitimate redirect so it doesn't
+ * interfere with the post-submit navigation.
+ */
+function preventBeforeUnload(e) {
+    e.preventDefault();
+    /* Modern browsers require returnValue to be set */
+    e.returnValue = 'Your test is in progress. Leaving this page will discard your answers.';
+    return e.returnValue;
+}
+
+function initAntiCheat() {
+    /* Single listener — visibilitychange is the authoritative tab-switch event.
+       We do NOT add a 'blur' listener; blur fires on any focus loss (devtools,
+       address bar click, etc.) and would cause false double-counts. */
+    document.addEventListener('visibilitychange', handleVisibilityLoss);
+
+    /* Block keyboard-shortcut refreshes */
+    window.addEventListener('keydown', preventRefresh, true);
+
+    /* Block browser-button / address-bar refreshes */
+    window.addEventListener('beforeunload', preventBeforeUnload);
+}
+
+/**
+ * Called when auto-submit is triggered by the anti-cheat system.
+ * Removes the beforeunload guard first so the redirect can proceed cleanly.
+ */
+async function forceSubmitAndRedirect() {
+    /* Prevent double invocation */
+    if (isSubmitting) {
+        window.removeEventListener('beforeunload', preventBeforeUnload);
+        window.location.href = DASHBOARD_URL;
+        return;
+    }
+    /* Remove the refresh block before we intentionally navigate */
+    window.removeEventListener('beforeunload', preventBeforeUnload);
+    /* submitTest manages the isSubmitting flag internally */
+    await submitTest(/* redirectAfter = */ true);
+}
+
+// =============================================
 // INITIALIZATION with Acadex session validation
 // =============================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -311,7 +443,6 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.href = '../../index.html';
         } else {
             currentUser = user;
-            // Initialize academic calendar so we can get term/session later
             await initAcademicCalendar().catch(e => console.warn('Academic calendar init failed:', e));
             await loadTestData();
         }
@@ -321,9 +452,11 @@ document.addEventListener('DOMContentLoaded', () => {
     nextBtn.addEventListener('click', showNextQuestion);
     getResultBtn.addEventListener('click', showSubmitModal);
     cancelSubmit.addEventListener('click', hideSubmitModal);
-    confirmSubmit.addEventListener('click', submitTest);
+    confirmSubmit.addEventListener('click', () => submitTest(false));
     backToDashboard.addEventListener('click', goToDashboard);
     document.addEventListener('keydown', handleKeyboardNavigation);
+
+    initAntiCheat();
 });
 
 // =============================================
@@ -366,7 +499,7 @@ async function loadTestData() {
     const savedTest = sessionStorage.getItem('currentTest');
     if (!savedTest) {
         alert('No test found. Please start a test from the dashboard.');
-        window.location.href = '../../student/student-portal.html';
+        window.location.href = DASHBOARD_URL;
         return;
     }
     try {
@@ -376,14 +509,14 @@ async function loadTestData() {
     } catch (error) {
         console.error('Error loading test data:', error);
         alert('Error loading test. Please try again.');
-        window.location.href = '../../student/student-portal.html';
+        window.location.href = DASHBOARD_URL;
     }
 }
 
 function initializeTest() {
     if (!testData || !testData.questions) {
         alert('Error: Test questions not loaded properly.');
-        window.location.href = '../../student/student-portal.html';
+        window.location.href = DASHBOARD_URL;
         return;
     }
 
@@ -564,7 +697,7 @@ function startTimer() {
         timeRemaining--;
         updateTimerDisplay();
         if (timeRemaining <= 300) timerElement.classList.add('warning');
-        if (timeRemaining <= 0) { clearInterval(timerInterval); autoSubmitTest(); }
+        if (timeRemaining <= 0) { clearInterval(timerInterval); timerInterval = null; autoSubmitTest(); }
     }, 1000);
 }
 
@@ -576,7 +709,7 @@ function updateTimerDisplay() {
 
 function showSubmitModal() { updateAnsweredCount(); submitModal.style.display = 'flex'; }
 function hideSubmitModal() { submitModal.style.display = 'none'; }
-function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(), 1000); }
+function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(false), 1000); }
 
 // =============================================
 // SAVE TEST RESULT TO FIRESTORE (with session & term)
@@ -591,7 +724,6 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) throw new Error("School ID missing");
 
-        // Fetch student's class information
         let classId = null;
         let className = null;
         try {
@@ -631,7 +763,6 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             subject: q.subject || testData.subject
         }));
 
-        // Get current academic session and term
         let session = '';
         let term = '';
         try {
@@ -662,8 +793,8 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             cbtId: testData.cbtId || null,
             classId: classId,
             className: className,
-            session: session,          // <-- new
-            term: term                 // <-- new
+            session: session,
+            term: term
         };
 
         if (testData.mode === 'jamb_drill') {
@@ -703,16 +834,24 @@ function showToast(message, type = 'success') {
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transition = 'opacity 0.5s';
-        setTimeout(() => document.body.removeChild(toast), 500);
+        setTimeout(() => { if (toast.parentNode) document.body.removeChild(toast); }, 500);
     }, 5000);
 }
 
 // =============================================
-// SUBMIT TEST (with retry for permission errors)
+// SUBMIT TEST
 // =============================================
-async function submitTest() {
+async function submitTest(redirectAfter = false) {
+    /* Prevent re-entry */
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    /* Always remove the beforeunload guard before any navigation or
+       long async work — prevents the browser blocking our redirect */
+    window.removeEventListener('beforeunload', preventBeforeUnload);
+
     hideSubmitModal();
-    if (timerInterval) clearInterval(timerInterval);
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     getResultBtn.classList.add('btn-loading');
     getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating Score...';
 
@@ -744,9 +883,6 @@ async function submitTest() {
             scoreLabel.textContent = '% Score';
         }
 
-        // =========================================================
-        // MODIFICATION: Skip weakness/recommendation for CBT exams
-        // =========================================================
         const isCbtExam = (testData.examType === 'CBT' || testData.mode === 'cbt');
         if (!isCbtExam) {
             const topicStats = generateWeaknessReport(testData.userAnswers, testData.questions);
@@ -767,7 +903,6 @@ async function submitTest() {
                 testData.recommendations = [];
             }
         } else {
-            // For CBT exams, clear any weakness/recommendation data
             testData.weakTopics = [];
             testData.strongTopics = [];
             testData.recommendations = [];
@@ -795,6 +930,12 @@ async function submitTest() {
 
         if (!saveSuccess) throw new Error("Failed to save test result after retry.");
 
+        /* ── Auto-submit path: redirect straight to dashboard ── */
+        if (redirectAfter) {
+            window.location.href = DASHBOARD_URL;
+            return;
+        }
+
         let message = "";
         if (testData.mode === 'jamb_drill') {
             const percent = (correctAnswers / testData.questions.length) * 100;
@@ -815,11 +956,14 @@ async function submitTest() {
         getResultBtn.classList.remove('btn-loading');
         getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
         alert(`❌ Error submitting test: ${error.message || 'Please try again.'}`);
+        isSubmitting = false;
+        /* Re-attach the beforeunload guard since we're still on the page */
+        window.addEventListener('beforeunload', preventBeforeUnload);
     }
 }
 
 // =============================================
-// SHOW RESULTS (hide weakness/recommendation for CBT)
+// SHOW RESULTS
 // =============================================
 function showResults(score, correctAnswers, message, subjectScores) {
     getResultBtn.classList.remove('btn-loading');
@@ -884,6 +1028,7 @@ function showResults(score, correctAnswers, message, subjectScores) {
     addSolutionButton();
     sessionStorage.removeItem('currentTest');
     try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers, completedAt: new Date().toISOString() })); } catch(e) {}
+    isSubmitting = false;
 }
 
 function addSolutionButton() {
@@ -994,7 +1139,7 @@ function createSolutionItem(question, userAnswer, displayNumber) {
         <h4><i class="fas fa-question-circle"></i> Question ${displayNumber}</h4>
         ${questionHtml}
         <div class="solution-options">
-            <p><strong>Your Answer:</strong> <span class="user-answer">${userAnswer || 'Not answered'}</span> 
+            <p><strong>Your Answer:</strong> <span class="user-answer">${userAnswer || 'Not answered'}</span>
             <span class="${isCorrect ? 'option-correct' : 'option-incorrect'}">${isCorrect ? '✓ Correct' : '✗ Incorrect'}</span></p>
             <p><strong>Correct Answer:</strong> <span class="correct-answer">${correctAnswer || 'Not specified'}</span></p>
         </div>
@@ -1009,10 +1154,11 @@ function createSolutionItem(question, userAnswer, displayNumber) {
 }
 
 // =============================================
-// GO TO DASHBOARD (redirect to cbt.html)
+// GO TO DASHBOARD
 // =============================================
 function goToDashboard() {
-    window.location.href = 'cbt.html';
+    window.removeEventListener('beforeunload', preventBeforeUnload);
+    window.location.href = DASHBOARD_URL;
 }
 
 function handleKeyboardNavigation(e) {
