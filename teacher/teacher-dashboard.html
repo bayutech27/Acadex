@@ -69,6 +69,39 @@
     .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
     /* =========================================================
+       WELCOME CARD – Made fully visible (fixed)
+       ========================================================= */
+    .welcome-card {
+      background: linear-gradient(135deg, #fff 0%, #f8faff 100%);
+      border-radius: 18px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 1.8rem;
+      border: 1px solid rgba(67,97,238,.15);
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
+      text-align: left;
+    }
+    .welcome-card h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #0d1b2a;
+      margin: 0 0 0.3rem 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .welcome-card h1 i {
+      color: #4361ee;
+      font-size: 1.3rem;
+    }
+    .welcome-card p {
+      font-size: 0.9rem;
+      color: #475569;
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    /* =========================================================
        TEACHER NAV CARDS  (same grid as admin)
        ========================================================= */
     .stats-grid {
@@ -457,7 +490,7 @@
     <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content">
 
-      <!-- Welcome card -->
+      <!-- Welcome card – now fully visible with explicit styles -->
       <div class="welcome-card">
         <h1>
           <i class="fa-solid fa-chalkboard-user" style="opacity:.8; margin-right:8px;"></i>
