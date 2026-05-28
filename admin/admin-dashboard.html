@@ -14,9 +14,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
   <!-- Global Styles -->
-    <link rel="stylesheet" href="../css/card-3d.css">
+  <link rel="stylesheet" href="../css/card-3d.css">
   <link rel="stylesheet" href="../css/styles.css">
-  
 
   <style>
     /* =========================================================
@@ -357,7 +356,7 @@
 </head>
 <body>
 <div class="dashboard-container">
-<!-- ===================== DESKTOP SIDEBAR ===================== -->
+  <!-- ===================== DESKTOP SIDEBAR ===================== -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -486,7 +485,45 @@
       <div id="subscriptionFeeContainer"></div>
       <div id="pendingExtraContainer"></div>
 
-      <!-- ---- MOBILE NAVIGATION CARDS (visible ≤ 768px) ---- -->
+      <!-- ---- STATS GRID (moved up) ---- -->
+      <div class="stats-grid">
+
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <div class="stat-label">Total Students</div>
+          <div class="stat-number" id="totalStudents">0</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fa-solid fa-user-check"></i>
+          </div>
+          <div class="stat-label">Active Students</div>
+          <div class="stat-number" id="activeStudents">0</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fa-solid fa-chalkboard-user"></i>
+          </div>
+          <div class="stat-label">Total Teachers</div>
+          <div class="stat-number" id="totalTeachers">0</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon">
+            <i class="fa-solid fa-book"></i>
+          </div>
+          <div class="stat-label">Total Subjects</div>
+          <div class="stat-number" id="totalSubjects">0</div>
+        </div>
+
+      </div>
+      <!-- /stats grid -->
+
+      <!-- ---- MOBILE NAVIGATION CARDS (moved below stats grid) ---- -->
       <div class="mobile-menu-section">
         <div class="mobile-menu-title">
           <i class="fa-solid fa-grip"></i> Quick Navigation
@@ -532,44 +569,6 @@
       </div>
       <!-- /mobile nav cards -->
 
-      <!-- ---- STATS GRID ---- -->
-      <div class="stats-grid">
-
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fa-solid fa-users"></i>
-          </div>
-          <div class="stat-label">Total Students</div>
-          <div class="stat-number" id="totalStudents">0</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fa-solid fa-user-check"></i>
-          </div>
-          <div class="stat-label">Active Students</div>
-          <div class="stat-number" id="activeStudents">0</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fa-solid fa-chalkboard-user"></i>
-          </div>
-          <div class="stat-label">Total Teachers</div>
-          <div class="stat-number" id="totalTeachers">0</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fa-solid fa-book"></i>
-          </div>
-          <div class="stat-label">Total Subjects</div>
-          <div class="stat-number" id="totalSubjects">0</div>
-        </div>
-
-      </div>
-      <!-- /stats grid -->
-
     </div>
     <!-- /content -->
 
@@ -579,15 +578,13 @@
         <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
         <span id="currentYear"></span> Acadex &mdash; All rights reserved.
       </p>
-
-      
     </footer>
 
   </main>
 </div>
 
 <!-- ===================== SCRIPTS ===================== -->
- <script src="../js/card-3d-effects.js"></script>
+<script src="../js/card-3d-effects.js"></script>
 <script type="module">
   import {
     protectAdminPage,
