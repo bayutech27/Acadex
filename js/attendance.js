@@ -23,7 +23,8 @@ import {
   initAcademicCalendar,
   getCurrentTerm,
   getCurrentSession,
-  subscribeToCalendar
+  subscribeToCalendar,
+  calculateTermAndSessionFromDate  // fallback client-side calculation
 } from './academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from './calendar-sync.js';
 
@@ -252,17 +253,33 @@ function calcTermStats() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// FIRESTORE — LOAD ATTENDANCE (via service)
+// FIRESTORE — LOAD ATTENDANCE (via service) with robust error handling
 // ═════════════════════════════════════════════════════════════════════════════
 async function loadAttendanceFromFirestore() {
   const { session, term } = STATE.academic;
   const { id: classId }   = STATE.class;
 
+  if (!STATE.school.id || !classId || !session || !term) {
+    console.warn('[Attendance] Cannot load attendance: missing data', {
+      schoolId: STATE.school.id,
+      classId,
+      session,
+      term
+    });
+    return;
+  }
+
   try {
-    // Use service.getAttendanceByClass (cached, but we bypass cache for live data)
-    // The service method returns an array of attendance records.
+    if (typeof service.getAttendanceByClass !== 'function') {
+      throw new Error('service.getAttendanceByClass is not a function');
+    }
     const records = await service.getAttendanceByClass(STATE.school.id, classId, session, term);
     
+    if (!Array.isArray(records)) {
+      console.warn('[Attendance] Expected array from getAttendanceByClass, got', records);
+      return;
+    }
+
     records.forEach(record => {
       const { studentId, weekNumber, days } = record;
       if (!studentId || !weekNumber || !days) return;
@@ -274,8 +291,10 @@ async function loadAttendanceFromFirestore() {
         fri: { ...blankDay(), ...days.fri }
       };
     });
+    console.log(`[Attendance] Loaded ${Object.keys(STATE.attendance).length} attendance records`);
   } catch (err) {
-    handleError(err, 'Failed to load attendance records from Firestore.');
+    console.error('[Attendance] loadAttendanceFromFirestore error:', err);
+    handleError(err, 'Failed to load attendance records.');
   }
 }
 
@@ -288,13 +307,17 @@ async function saveAttendanceToFirestore() {
     return;
   }
 
+  if (!STATE.school.id || !STATE.class.id || !STATE.academic.session || !STATE.academic.term) {
+    showNotification('Cannot save: missing school, class, session or term.', 'error');
+    return;
+  }
+
   showLoader();
   try {
     const { session, term } = STATE.academic;
     const { id: classId }   = STATE.class;
     const keys = Array.from(STATE.modified);
 
-    // Build an array of operations for service.saveAttendanceBatch
     const operations = [];
     for (const key of keys) {
       const wIdx      = key.lastIndexOf('_w');
@@ -325,16 +348,23 @@ async function saveAttendanceToFirestore() {
       });
     }
 
-    // Use service.saveAttendanceBatch (handles online/offline, caching, queue)
+    if (operations.length === 0) {
+      STATE.modified.clear();
+      showNotification('No valid attendance records to save.', 'info');
+      return;
+    }
+
+    if (typeof service.saveAttendanceBatch !== 'function') {
+      throw new Error('service.saveAttendanceBatch is not defined');
+    }
+
     await service.saveAttendanceBatch(operations);
     STATE.modified.clear();
     showNotification(`Attendance saved successfully!`, 'success');
-
-    // Re-render summaries (effective week may have changed)
     renderWeeklySummary();
     renderTermSummary();
-
   } catch (err) {
+    console.error('[Attendance] Save error:', err);
     handleError(err, 'Failed to save attendance. Please try again.');
   } finally {
     hideLoader();
@@ -366,7 +396,6 @@ function renderClassStats() {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // RENDERING — MAIN ATTENDANCE TABLE
-// Uses DocumentFragment + event delegation for efficient DOM updates.
 // ═════════════════════════════════════════════════════════════════════════════
 function renderAttendanceTable() {
   const container = document.getElementById('attendanceTableContainer');
@@ -384,24 +413,20 @@ function renderAttendanceTable() {
   table.className = 'attendance-table';
   table.id = 'mainAttendanceTable';
 
-  // ── thead ──────────────────────────────────────────────
   const thead = document.createElement('thead');
   thead.innerHTML = buildTableHeader();
   table.appendChild(thead);
 
-  // ── tbody via DocumentFragment ──────────────────────────
   table.appendChild(buildTableBody());
 
   wrapper.appendChild(table);
   container.innerHTML = '';
   container.appendChild(wrapper);
 
-  // Single delegated change listener covers all 150+ checkboxes
   table.addEventListener('change', onCheckboxChange);
 }
 
 function buildTableHeader() {
-  // Row 1: S/N | Name | Week 1 (×10) … Week 15 (×10) | Total
   let r1 = '<tr class="week-header-row">'
     + '<th rowspan="3" class="th-sn  sticky-col sticky-sn">S/N</th>'
     + '<th rowspan="3" class="th-name sticky-col sticky-name">Student Name</th>';
@@ -410,16 +435,14 @@ function buildTableHeader() {
     const cls = w % 2 === 0 ? 'th-week even' : 'th-week';
     r1 += `<th colspan="10" class="${cls}">Week ${w}</th>`;
   }
-  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></table>';
+  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></tr>';
 
-  // Row 2: Mon(×2) Tue(×2) … × 15 weeks
   let r2 = '<tr class="day-header-row">';
   for (let w = 0; w < WEEKS; w++) {
     DAYS.forEach(d => { r2 += `<th colspan="2" class="th-day">${DAY_LABELS[d]}</th>`; });
   }
   r2 += '</tr>';
 
-  // Row 3: M A × 75
   let r3 = '<tr class="period-header-row">';
   for (let w = 0; w < WEEKS; w++) {
     DAYS.forEach(() => { r3 += '<th class="th-period">M</th><th class="th-period">A</th>'; });
@@ -436,62 +459,50 @@ function buildTableBody() {
     const tr = document.createElement('tr');
     tr.dataset.studentId = student.id;
 
-    // S/N (sticky)
     const tdSn = document.createElement('td');
     tdSn.className = 'td-sn sticky-col sticky-sn';
     tdSn.textContent = idx + 1;
     tr.appendChild(tdSn);
 
-    // Name (sticky)
     const tdName = document.createElement('td');
     tdName.className = 'td-name sticky-col sticky-name';
     tdName.textContent = student.name;
-
-    // Increase row height and visibility
     tdName.style.paddingTop = '14px';
     tdName.style.paddingBottom = '14px';
     tdName.style.minHeight = '56px';
     tdName.style.fontSize = '0.95rem';
     tdName.style.verticalAlign = 'middle';
-
     tr.appendChild(tdName);
 
-    // 15 weeks × 5 days × 2 periods = 150 checkbox cells
     for (let w = 1; w <= WEEKS; w++) {
       DAYS.forEach(day => {
         PERIODS.forEach(period => {
           const td = document.createElement('td');
           td.className = 'td-check';
-
-          // Increase checkbox row height
           td.style.paddingTop = '10px';
           td.style.paddingBottom = '10px';
           td.style.minHeight = '56px';
           td.style.verticalAlign = 'middle';
 
           const cb = document.createElement('input');
-          cb.type      = 'checkbox';
+          cb.type = 'checkbox';
           cb.className = 'att-checkbox';
-
-          // Bigger checkbox for visibility
           cb.style.width = '18px';
           cb.style.height = '18px';
           cb.style.cursor = 'pointer';
-          cb.checked   = getVal(student.id, w, day, period);
+          cb.checked = getVal(student.id, w, day, period);
           cb.dataset.studentId = student.id;
-          cb.dataset.week      = w;
-          cb.dataset.day       = day;
-          cb.dataset.period    = period;
+          cb.dataset.week = w;
+          cb.dataset.day = day;
+          cb.dataset.period = period;
           cb.setAttribute('aria-label',
             `${student.name} Wk${w} ${DAY_LABELS[day]} ${period === 'M' ? 'Morning' : 'Afternoon'}`);
-
           td.appendChild(cb);
           tr.appendChild(td);
         });
       });
     }
 
-    // Total (sticky right)
     const tdTotal = document.createElement('td');
     tdTotal.className = 'td-total sticky-col sticky-total';
     tdTotal.id = `total-${student.id}`;
@@ -559,7 +570,7 @@ function renderWeeklySummary() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// RENDERING — TERM SUMMARY (UPDATED to use average of weekly percentages)
+// RENDERING — TERM SUMMARY
 // ═════════════════════════════════════════════════════════════════════════════
 function renderTermSummary() {
   const el = document.getElementById('termSummaryContainer');
@@ -594,7 +605,7 @@ function renderTermSummary() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// LIVE TOTAL UPDATE — refreshes one student's total cell without re-rendering
+// LIVE TOTAL UPDATE
 // ═════════════════════════════════════════════════════════════════════════════
 function refreshStudentTotal(studentId) {
   const cell = document.getElementById(`total-${studentId}`);
@@ -602,7 +613,7 @@ function refreshStudentTotal(studentId) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// EVENT HANDLER — checkbox change (delegated from the table)
+// EVENT HANDLER — checkbox change
 // ═════════════════════════════════════════════════════════════════════════════
 let _summaryDebounce = null;
 
@@ -614,7 +625,6 @@ function onCheckboxChange(e) {
   setVal(studentId, parseInt(week, 10), day, period, cb.checked);
   refreshStudentTotal(studentId);
 
-  // Debounce summary re-renders — they touch many DOM nodes
   clearTimeout(_summaryDebounce);
   _summaryDebounce = setTimeout(() => {
     renderWeeklySummary();
@@ -623,17 +633,8 @@ function onCheckboxChange(e) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// PRINT ENGINE — optimized for A4 landscape, compresses all content into one page
+// PRINT ENGINE
 // ═════════════════════════════════════════════════════════════════════════════
-
-/**
- * Injects print-specific CSS that:
- *   - Hides all non-essential UI elements
- *   - Forces A4 landscape, minimal margins
- *   - Compresses the attendance table to fit horizontally
- *   - Reduces font sizes and padding for printing
- *   - Shows only the main content (attendance table + summaries)
- */
 function injectPrintStyles() {
   if (document.getElementById('attendance-print-styles')) return;
 
@@ -641,169 +642,46 @@ function injectPrintStyles() {
   style.id = 'attendance-print-styles';
   style.textContent = `
     @media print {
-      /* Hide all non-essential UI */
       .sidebar, .hamburger-menu, .header-right, .school-header-left .camera-icon,
       .app-footer, .logout-btn, .mobile-sidebar, .overlay, .hamburger-menu,
       .btn-primary, .btn-secondary, .create-test-btn, .cbt-header,
       #saveAttendanceBtn, #printAttendanceBtn, #downloadAttendanceBtn,
-      .attendance-filters, .no-data-msg, .empty-state {
-        display: none !important;
-      }
-
-      /* Keep the school header and class info */
-      .header {
-        display: flex !important;
-        justify-content: space-between !important;
-        margin-bottom: 10px !important;
-        padding: 0 !important;
-      }
-      .school-header-left {
-        display: flex !important;
-        align-items: center !important;
-        gap: 15px !important;
-      }
-      .school-logo img {
-        max-width: 50px !important;
-      }
-      .school-name h1 {
-        font-size: 1.2rem !important;
-        margin: 0 !important;
-      }
-      .school-address {
-        font-size: 0.8rem !important;
-      }
-      .academic-badge-row {
-        margin: 5px 0 10px !important;
-        text-align: center !important;
-      }
-      .academic-badge {
-        font-size: 0.9rem !important;
-        background: none !important;
-        padding: 0 !important;
-      }
-
-      /* Page setup */
-      @page {
-        size: A4 landscape;
-        margin: 0.5cm;
-      }
-      body {
-        margin: 0;
-        padding: 0;
-        font-size: 9pt !important;
-        line-height: 1.2 !important;
-      }
-
-      /* Main content area */
-      .main-content {
-        margin: 0 !important;
-        padding: 0 !important;
-        width: 100% !important;
-      }
-      .content {
-        padding: 0 !important;
-      }
-
-      /* Attendance table – compress to fit */
-      .attendance-table {
-        font-size: 7pt !important;
-        border-collapse: collapse !important;
-        width: 100% !important;
-        table-layout: fixed !important;
-      }
-      .attendance-table th,
-      .attendance-table td {
-        padding: 2px 2px !important;
-        border: 1px solid #ccc !important;
-        white-space: nowrap !important;
-      }
-      .attendance-table .th-week {
-        font-size: 6pt !important;
-        padding: 1px !important;
-      }
-      .attendance-table .th-day {
-        font-size: 6pt !important;
-        padding: 1px !important;
-      }
-      .attendance-table .th-period {
-        font-size: 6pt !important;
-        padding: 1px !important;
-      }
-      .attendance-table .td-check input {
-        transform: scale(0.7);
-        width: 12px !important;
-        height: 12px !important;
-        margin: 0 auto !important;
-        display: block !important;
-      }
-      .attendance-table .td-sn,
-      .attendance-table .td-name,
-      .attendance-table .td-total {
-        font-size: 6pt !important;
-        padding: 2px 2px !important;
-      }
-
-      /* Remove sticky positioning for print (causes issues) */
-      .sticky-col {
-        position: static !important;
-      }
-
-      /* Weekly summary table */
-      .summary-table {
-        font-size: 7pt !important;
-        width: 100% !important;
-        border-collapse: collapse !important;
-        margin-top: 10px !important;
-      }
-      .summary-table th, .summary-table td {
-        padding: 2px 4px !important;
-        border: 1px solid #ccc !important;
-      }
-
-      /* Term summary cards */
-      .term-summary-grid {
-        display: flex !important;
-        justify-content: space-between !important;
-        gap: 10px !important;
-        margin-top: 10px !important;
-      }
-      .term-stat {
-        background: #f5f5f5 !important;
-        padding: 5px !important;
-        border-radius: 4px !important;
-        text-align: center !important;
-        flex: 1 !important;
-      }
-      .term-stat-label {
-        font-size: 8pt !important;
-        font-weight: bold !important;
-      }
-      .term-stat-value {
-        font-size: 10pt !important;
-        font-weight: bold !important;
-      }
-
-      /* Section titles */
-      .section-title {
-        font-size: 10pt !important;
-        margin: 10px 0 5px !important;
-      }
-
-      /* Ensure the table wrapper allows horizontal scroll if needed (but we hope it fits) */
-      .table-scroll-wrapper {
-        overflow-x: visible !important;
-      }
+      .attendance-filters, .no-data-msg, .empty-state { display: none !important; }
+      .header { display: flex !important; justify-content: space-between !important; margin-bottom: 10px !important; padding: 0 !important; }
+      .school-header-left { display: flex !important; align-items: center !important; gap: 15px !important; }
+      .school-logo img { max-width: 50px !important; }
+      .school-name h1 { font-size: 1.2rem !important; margin: 0 !important; }
+      .school-address { font-size: 0.8rem !important; }
+      .academic-badge-row { margin: 5px 0 10px !important; text-align: center !important; }
+      .academic-badge { font-size: 0.9rem !important; background: none !important; padding: 0 !important; }
+      @page { size: A4 landscape; margin: 0.5cm; }
+      body { margin: 0; padding: 0; font-size: 9pt !important; line-height: 1.2 !important; }
+      .main-content { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+      .content { padding: 0 !important; }
+      .attendance-table { font-size: 7pt !important; border-collapse: collapse !important; width: 100% !important; table-layout: fixed !important; }
+      .attendance-table th, .attendance-table td { padding: 2px 2px !important; border: 1px solid #ccc !important; white-space: nowrap !important; }
+      .attendance-table .th-week { font-size: 6pt !important; padding: 1px !important; }
+      .attendance-table .th-day { font-size: 6pt !important; padding: 1px !important; }
+      .attendance-table .th-period { font-size: 6pt !important; padding: 1px !important; }
+      .attendance-table .td-check input { transform: scale(0.7); width: 12px !important; height: 12px !important; margin: 0 auto !important; display: block !important; }
+      .attendance-table .td-sn, .attendance-table .td-name, .attendance-table .td-total { font-size: 6pt !important; padding: 2px 2px !important; }
+      .sticky-col { position: static !important; }
+      .summary-table { font-size: 7pt !important; width: 100% !important; border-collapse: collapse !important; margin-top: 10px !important; }
+      .summary-table th, .summary-table td { padding: 2px 4px !important; border: 1px solid #ccc !important; }
+      .term-summary-grid { display: flex !important; justify-content: space-between !important; gap: 10px !important; margin-top: 10px !important; }
+      .term-stat { background: #f5f5f5 !important; padding: 5px !important; border-radius: 4px !important; text-align: center !important; flex: 1 !important; }
+      .term-stat-label { font-size: 8pt !important; font-weight: bold !important; }
+      .term-stat-value { font-size: 10pt !important; font-weight: bold !important; }
+      .section-title { font-size: 10pt !important; margin: 10px 0 5px !important; }
+      .table-scroll-wrapper { overflow-x: visible !important; }
     }
   `;
   document.head.appendChild(style);
 }
 
 function printAttendance() {
-  // Inject print-specific styles
   injectPrintStyles();
 
-  // Prepare the print header (already populated in the DOM by normal rendering)
-  // Ensure the print-only header elements are filled (they are already set by loadSchoolInfo etc.)
   const setPrintText = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value || '—';
@@ -814,12 +692,11 @@ function printAttendance() {
   setPrintText('printTerm', STATE.academic.term);
   setPrintText('printTeacher', STATE.teacher.name);
 
-  // Trigger browser print
   window.print();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// DOWNLOAD ENGINE — CSV export (opens in Excel, no extra libraries needed)
+// DOWNLOAD ENGINE — CSV export
 // ═════════════════════════════════════════════════════════════════════════════
 function downloadCSV() {
   if (STATE.students.length === 0) {
@@ -828,16 +705,13 @@ function downloadCSV() {
   }
 
   const rows = [];
-
-  // Metadata block
   rows.push(['School',  STATE.school.name  || '']);
   rows.push(['Class',   STATE.class.name   || '']);
   rows.push(['Session', STATE.academic.session || '']);
   rows.push(['Term',    STATE.academic.term    || '']);
   rows.push(['Teacher', STATE.teacher.name     || '']);
-  rows.push([]);   // blank separator
+  rows.push([]);
 
-  // Column header row
   const header = ['S/N', 'Student Name'];
   for (let w = 1; w <= WEEKS; w++) {
     DAYS.forEach(d => {
@@ -847,7 +721,6 @@ function downloadCSV() {
   header.push('Total');
   rows.push(header);
 
-  // Student data rows
   STATE.students.forEach((s, i) => {
     const row = [i + 1, `"${s.name.replace(/"/g, '""')}"`];
     for (let w = 1; w <= WEEKS; w++) {
@@ -859,7 +732,6 @@ function downloadCSV() {
     rows.push(row);
   });
 
-  // Term summary block (uses the same calcTermStats)
   const { totalOpenedSessions, totalPresent, avgPercentage } = calcTermStats();
   rows.push([]);
   rows.push(['Total Number of Times School Opened', totalOpenedSessions]);
@@ -887,12 +759,9 @@ function downloadCSV() {
 // UI SETUP HELPERS
 // ═════════════════════════════════════════════════════════════════════════════
 function setupButtons() {
-  document.getElementById('saveAttendanceBtn')
-    ?.addEventListener('click', saveAttendanceToFirestore);
-  document.getElementById('printAttendanceBtn')
-    ?.addEventListener('click', printAttendance);
-  document.getElementById('downloadAttendanceBtn')
-    ?.addEventListener('click', downloadCSV);
+  document.getElementById('saveAttendanceBtn')?.addEventListener('click', saveAttendanceToFirestore);
+  document.getElementById('printAttendanceBtn')?.addEventListener('click', printAttendance);
+  document.getElementById('downloadAttendanceBtn')?.addEventListener('click', downloadCSV);
 }
 
 function setupSidebar() {
@@ -913,12 +782,6 @@ function setupLogout() {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // ACADEMIC CALENDAR — real-time subscription + periodic sync
-//
-// subscribeToCalendar keeps the header display current.
-// If the term/session rolls over while the teacher is on the page, the
-// display updates automatically.  The currently-loaded attendance data
-// remains valid for the session/term it was fetched for; a page reload
-// would load the new term's data.
 // ═════════════════════════════════════════════════════════════════════════════
 function setupCalendarDisplay() {
   subscribeToCalendar(calState => {
@@ -931,11 +794,12 @@ function setupCalendarDisplay() {
     }
     if (sessionEl) sessionEl.textContent = calState.currentSession || '';
 
-    // Keep STATE in sync so any subsequent save uses the correct keys.
-    // NOTE: changing term mid-session is an edge case; the page should
-    // ideally be reloaded to fetch the correct attendance records.
-    if (calState.currentTerm    && calState.currentTerm    !== STATE.academic.term)    STATE.academic.term    = calState.currentTerm;
-    if (calState.currentSession && calState.currentSession !== STATE.academic.session) STATE.academic.session = calState.currentSession;
+    if (calState.currentTerm && calState.currentTerm !== STATE.academic.term) {
+      STATE.academic.term = calState.currentTerm;
+    }
+    if (calState.currentSession && calState.currentSession !== STATE.academic.session) {
+      STATE.academic.session = calState.currentSession;
+    }
   });
 }
 
@@ -966,6 +830,11 @@ async function loadSchoolInfo() {
 }
 
 async function loadClassInfo(classId) {
+  if (!classId) {
+    STATE.class.id = classId;
+    STATE.class.name = 'Unknown Class';
+    return;
+  }
   try {
     const classData = await service.getClassById(classId);
     STATE.class.id   = classId;
@@ -978,9 +847,12 @@ async function loadClassInfo(classId) {
 }
 
 async function loadClassStudents() {
+  if (!STATE.school.id || !STATE.class.id) {
+    STATE.students = [];
+    return;
+  }
   try {
     const students = await service.getStudentsByClass(STATE.school.id, STATE.class.id);
-    // Ensure the list is sorted alphabetically (service already sorts, but double-check)
     const list = students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     STATE.students     = list;
     STATE.stats.boys   = list.filter(s => (s.gender || '').toLowerCase() === 'male').length;
@@ -998,21 +870,18 @@ async function loadClassStudents() {
 function authenticateTeacher() {
   return new Promise((resolve, reject) => {
     const unsub = onAuthStateChanged(auth, async user => {
-      unsub();   // only need one callback
+      unsub();
 
       if (!user) { window.location.href = '/'; resolve(null); return; }
 
       try {
-        // Use service.getUserById to check role
         const userData = await service.getUserById(user.uid);
         if (!userData || userData.role !== 'teacher') {
           window.location.href = '/'; resolve(null); return;
         }
         if (!userData.schoolId) { window.location.href = '/'; resolve(null); return; }
 
-        // Load teacher document for hostClassId (service.getTeacherById)
         const teacherData = await service.getTeacherById(user.uid);
-
         resolve({ user, userData, teacherData });
       } catch (err) { reject(err); }
     });
@@ -1025,7 +894,7 @@ function authenticateTeacher() {
 function showNoClassWarning() {
   setupSidebar();
   setupLogout();
-  try { initMobileMenu(); } catch (_) { /* menu.js optional */ }
+  try { initMobileMenu(); } catch (_) { }
 
   const content = document.querySelector('.content');
   if (!content) return;
@@ -1042,13 +911,28 @@ function showNoClassWarning() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// HELPER: Ensure calendar is ready with fallback
+// ═════════════════════════════════════════════════════════════════════════════
+async function ensureCalendarReady() {
+  try {
+    await initAcademicCalendar();
+    await syncAcademicCalendar();
+    // Try to get the current values – if still not initialized, use client fallback
+    let session = getCurrentSession();
+    let term = getCurrentTerm();
+    if (!session || !term) throw new Error('Calendar returned empty values');
+    return { session, term };
+  } catch (err) {
+    console.warn('[Attendance] Calendar init failed, using client-side fallback:', err);
+    const now = new Date();
+    const fallback = calculateTermAndSessionFromDate(now);
+    return { session: fallback.session, term: fallback.term };
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // EXPORTED HELPER FOR REPORTCARD RENDERER
 // ═════════════════════════════════════════════════════════════════════════════
-/**
- * Returns attendance summary for a given student.
- * @param {string} studentId - The student's document ID.
- * @returns {{ totalOpened: number, present: number, absent: number }}
- */
 export function getStudentAttendanceSummary(studentId) {
   const { totalOpenedSessions } = calcTermStats();
   const present = calcStudentTotal(studentId);
@@ -1060,8 +944,7 @@ export function getStudentAttendanceSummary(studentId) {
 // MAIN ENTRY POINT (exported — called by attendance.html)
 // ═════════════════════════════════════════════════════════════════════════════
 export async function initAttendancePage() {
-
-  // ── 1. Authenticate ────────────────────────────────────────────────────────
+  // ── 1. Authenticate ──
   let authResult;
   try {
     authResult = await authenticateTeacher();
@@ -1070,45 +953,45 @@ export async function initAttendancePage() {
     window.location.href = '/';
     return;
   }
-  if (!authResult) return;   // redirected inside authenticateTeacher()
+  if (!authResult) return;
 
   const { user, userData, teacherData } = authResult;
 
-  // ── 2. Verify host class assignment ────────────────────────────────────────
+  // ── 2. Verify host class assignment ──
   const hostClassId = teacherData?.hostClassId || null;
   if (!hostClassId) {
     showNoClassWarning();
     return;
   }
 
-  // ── 3. Populate state ──────────────────────────────────────────────────────
+  // ── 3. Populate state ──
   STATE.teacher.id         = user.uid;
   STATE.teacher.schoolId   = userData.schoolId;
   STATE.teacher.name       = teacherData?.name || userData.email?.split('@')[0] || 'Teacher';
   STATE.teacher.hostClassId = hostClassId;
   STATE.school.id          = userData.schoolId;
 
-  // ── 4. Academic calendar — init, sync, then read ───────────────────────────
-  // initAcademicCalendar sets up the Firestore real-time listener.
-  // syncAcademicCalendar performs a rollover check and updates Firestore if needed.
-  // startPeriodicSync keeps rolling over every 30 minutes while on the page.
+  // ── 4. Academic calendar — ensure it's ready (with fallback) ──
+  showLoader();
   try {
-    await initAcademicCalendar();
-    await syncAcademicCalendar();
-    STATE.stopSync = startPeriodicSync(30);
+    const calendar = await ensureCalendarReady();
+    STATE.academic.session = calendar.session;
+    STATE.academic.term    = calendar.term;
+    // Start periodic sync only if calendar is available (non‑critical)
+    try { STATE.stopSync = startPeriodicSync(30); } catch (e) { console.warn(e); }
   } catch (err) {
-    // Calendar errors must not block attendance — fall back to client-side calc
-    console.warn('[Attendance] Calendar init/sync warning:', err);
+    console.error('[Attendance] Fatal calendar error:', err);
+    handleError(err, 'Unable to determine current academic term. Please refresh.');
+    hideLoader();
+    return;
+  } finally {
+    hideLoader();
   }
-
-  // Read the now-guaranteed-current session and term
-  STATE.academic.session = getCurrentSession();
-  STATE.academic.term    = getCurrentTerm();
 
   // Subscribe to live calendar changes (header display + STATE sync)
   setupCalendarDisplay();
 
-  // ── 5. Load school + class + students ─────────────────────────────────────
+  // ── 5. Load school + class + students ──
   showLoader();
   try {
     await loadSchoolInfo();
@@ -1120,14 +1003,13 @@ export async function initAttendancePage() {
     hideLoader();
   }
 
-  // ── 6. Update class name display ───────────────────────────────────────────
+  // ── 6. Update class name display ──
   const classNameEl = document.getElementById('classNameDisplay');
   if (classNameEl) {
-    classNameEl.textContent =
-      `${STATE.class.name} — ${STATE.academic.term}, ${STATE.academic.session}`;
+    classNameEl.textContent = `${STATE.class.name} — ${STATE.academic.term}, ${STATE.academic.session}`;
   }
 
-  // ── 7. Restore saved attendance from Firestore ─────────────────────────────
+  // ── 7. Restore saved attendance from Firestore ──
   showLoader();
   try {
     await loadAttendanceFromFirestore();
@@ -1137,20 +1019,19 @@ export async function initAttendancePage() {
     hideLoader();
   }
 
-  // ── 8. Render all sections ─────────────────────────────────────────────────
+  // ── 8. Render all sections ──
   renderClassStats();
   renderAttendanceTable();
   renderWeeklySummary();
   renderTermSummary();
 
-  // ── 9. Wire up UI ─────────────────────────────────────────────────────────
+  // ── 9. Wire up UI ──
   setupButtons();
   setupSidebar();
   setupLogout();
 
-  try { initMobileMenu(); } catch (_) { /* safe if menu.js absent */ }
+  try { initMobileMenu(); } catch (_) { }
 
-  // Footer year
   const yearEl = document.getElementById('currentYear');
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 

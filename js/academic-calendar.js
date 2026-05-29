@@ -1,10 +1,10 @@
-// Central Academic Calendar Engine - SINGLE SOURCE OF TRUTH
-// This file is the ONLY source of truth for current term, session, and rollover logic.
-// All Firestore operations go through service.js (cache + offline queue).
+// academic-calendar.js - Central Academic Calendar Engine (Robust)
+// Manually read/write Firestore, with client-side fallback.
 
+import { db } from './firebase-config.js';
+import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as service from './service.js';
 
-// ----------------------------------- State -----------------------------------
 let calendarState = {
   initialized: false,
   currentSession: null,
@@ -12,321 +12,220 @@ let calendarState = {
   termStart: null,
   termEnd: null,
   manualOverride: false,
-  overrideSession: null,
-  overrideTerm: null,
   lastUpdated: null,
+  offlineMode: false,
   listeners: []
 };
 
-let unsubscribeFirestore = null;
+let retryCount = 0;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
-// ----------------------------------- Core Calculation (UTC) -----------------------------------
-/**
- * Calculate term, session, and term start/end dates based on a given date (default now).
- * @param {Date} date - JavaScript Date object (will be interpreted in UTC)
- * @returns {Object} { term, session, termStart, termEnd }
- */
+// Pure client-side calculation (no Firestore)
 export function calculateTermAndSessionFromDate(date = new Date()) {
-  // Use UTC methods to avoid timezone shifts
   const utcYear = date.getUTCFullYear();
-  const utcMonth = date.getUTCMonth();   // 0-11 (Jan=0, Dec=11)
+  const utcMonth = date.getUTCMonth();
   const utcDay = date.getUTCDate();
-
-  let term = null;
-  let termStart = null;
-  let termEnd = null;
-
-  // ---- TERM DETERMINATION (based on Nigerian academic calendar) ----
+  let term = null, termStart = null, termEnd = null;
   if ((utcMonth === 8 && utcDay >= 1) || (utcMonth > 8 && utcMonth <= 11)) {
-    // First Term: September 1 – December 31
     term = "First Term";
     termStart = `${utcYear}-09-01`;
     termEnd = `${utcYear}-12-31`;
-  } 
-  else if ((utcMonth === 0) || (utcMonth === 1) || (utcMonth === 2) || 
-           (utcMonth === 3 && utcDay <= 30)) {
-    // Second Term: January 1 – April 30
+  } else if ((utcMonth === 0) || (utcMonth === 1) || (utcMonth === 2) || (utcMonth === 3 && utcDay <= 30)) {
     term = "Second Term";
     termStart = `${utcYear}-01-01`;
     termEnd = `${utcYear}-04-30`;
-  }
-  else if ((utcMonth === 4 && utcDay >= 1) || (utcMonth === 5) || (utcMonth === 6) || 
-           (utcMonth === 7 && utcDay <= 30)) {
-    // Third Term: May 1 – August 30
+  } else if ((utcMonth === 4 && utcDay >= 1) || (utcMonth === 5) || (utcMonth === 6) || (utcMonth === 7 && utcDay <= 30)) {
     term = "Third Term";
     termStart = `${utcYear}-05-01`;
     termEnd = `${utcYear}-08-30`;
+  } else {
+    term = utcMonth === 11 && utcDay === 31 ? "First Term" : "Third Term";
+    termStart = term === "First Term" ? `${utcYear}-09-01` : `${utcYear}-05-01`;
+    termEnd = term === "First Term" ? `${utcYear}-12-31` : `${utcYear}-08-30`;
   }
-  else {
-    // Fallback for rare edge cases (e.g., December 31, April 31 doesn't exist)
-    if (utcMonth === 11 && utcDay === 31) {
-      term = "First Term";
-      termStart = `${utcYear}-09-01`;
-      termEnd = `${utcYear}-12-31`;
-    } else {
-      term = "Third Term";
-      termStart = `${utcYear}-05-01`;
-      termEnd = `${utcYear}-08-30`;
-    }
-  }
-
-  // ---- SESSION DETERMINATION ----
-  // Session changes only when First Term starts in September.
-  let session = null;
-  if (utcMonth >= 8) {                     // September or later
-    session = `${utcYear}/${utcYear + 1}`;
-  } else {                                 // January to August
-    session = `${utcYear - 1}/${utcYear}`;
-  }
-
+  let session = utcMonth >= 8 ? `${utcYear}/${utcYear + 1}` : `${utcYear - 1}/${utcYear}`;
   return { term, session, termStart, termEnd };
 }
 
-// ----------------------------------- Initialisation & Firestore Sync (via service) -----------------------------------
-/**
- * Initialise the academic calendar – sets up real‑time listener to Firestore
- * and creates the document if it does not exist.
- * @returns {Promise<Object>} current calendar state
- */
-export async function initAcademicCalendar() {
-  // Already initialised? Return current state.
-  if (calendarState.initialized) return calendarState;
-
-  // Use service's real-time subscription
-  unsubscribeFirestore = service.subscribeToAcademicCalendar(async (data) => {
-    if (data) {
-      // Document exists
-      calendarState.manualOverride = data.manualOverride || false;
-      calendarState.overrideSession = data.overrideSession || null;
-      calendarState.overrideTerm = data.overrideTerm || null;
-
-      if (calendarState.manualOverride && calendarState.overrideSession && calendarState.overrideTerm) {
-        // Use manually overridden values (admin override)
-        calendarState.currentSession = calendarState.overrideSession;
-        calendarState.currentTerm = calendarState.overrideTerm;
-        calendarState.termStart = data.termStart || null;
-        calendarState.termEnd = data.termEnd || null;
+// Core initialisation with retry
+async function fetchFromFirestoreWithRetry() {
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const docRef = doc(db, 'academicCalendar', 'current');
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        return { exists: true, data };
       } else {
-        // Auto‑calculate from current date (UTC)
-        const now = new Date();
-        const calculated = calculateTermAndSessionFromDate(now);
-        calendarState.currentSession = calculated.session;
-        calendarState.currentTerm = calculated.term;
-        calendarState.termStart = calculated.termStart;
-        calendarState.termEnd = calculated.termEnd;
+        return { exists: false };
       }
-
-      calendarState.lastUpdated = data.lastUpdated;
-      calendarState.initialized = true;
-
-      // Notify all subscribers
-      calendarState.listeners.forEach(callback => callback({ ...calendarState }));
-    } else {
-      // No document exists – create one with auto‑calculated values
-      const now = new Date();
-      const calculated = calculateTermAndSessionFromDate(now);
-      const initialData = {
-        currentSession: calculated.session,
-        currentTerm: calculated.term,
-        termStart: calculated.termStart,
-        termEnd: calculated.termEnd,
-        lastUpdated: new Date(),
-        autoManaged: true,
-        manualOverride: false,
-        overrideSession: null,
-        overrideTerm: null,
-        forceSyncVersion: 1
-      };
-      await service.setAcademicCalendarDoc(initialData);
-      calendarState.currentSession = calculated.session;
-      calendarState.currentTerm = calculated.term;
-      calendarState.termStart = calculated.termStart;
-      calendarState.termEnd = calculated.termEnd;
-      calendarState.initialized = true;
-      calendarState.listeners.forEach(callback => callback({ ...calendarState }));
+    } catch (err) {
+      lastError = err;
+      console.warn(`[AcademicCalendar] Firestore attempt ${attempt} failed:`, err.message);
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt));
+      }
     }
-  });
+  }
+  throw lastError;
+}
 
-  // Also fetch initial data to avoid waiting for first snapshot
-  const initialData = await service.getAcademicCalendarDoc();
-  if (initialData) {
-    // Manually trigger the same update logic as above (the listener will also fire)
-    // To avoid duplication, we can rely on the listener, but we need to ensure initialized.
-    // The listener will call its callback with the data, so we can just wait.
-    // However, if the document doesn't exist, the listener will create it.
-  } else {
-    // No document – create it (listener will handle after setDoc)
-    const now = new Date();
-    const calculated = calculateTermAndSessionFromDate(now);
-    const initialData = {
+// Write the calculated values back to Firestore (to heal the document)
+async function writeFallbackToFirestore(calculated) {
+  try {
+    const docRef = doc(db, 'academicCalendar', 'current');
+    await setDoc(docRef, {
       currentSession: calculated.session,
       currentTerm: calculated.term,
       termStart: calculated.termStart,
       termEnd: calculated.termEnd,
-      lastUpdated: new Date(),
+      lastUpdated: serverTimestamp(),
       autoManaged: true,
       manualOverride: false,
-      overrideSession: null,
-      overrideTerm: null,
       forceSyncVersion: 1
-    };
-    await service.setAcademicCalendarDoc(initialData);
+    }, { merge: true });
+    console.log('[AcademicCalendar] Successfully wrote fallback values to Firestore.');
+    return true;
+  } catch (err) {
+    console.error('[AcademicCalendar] Failed to write fallback to Firestore:', err);
+    return false;
   }
-
-  return calendarState;
 }
 
-// ----------------------------------- Public Getters -----------------------------------
-/**
- * @returns {string} current term (e.g., "First Term")
- */
-export function getCurrentTerm() {
-  if (!calendarState.initialized) {
-    throw new Error('Academic Calendar not initialized. Call initAcademicCalendar() first.');
+export async function initAcademicCalendar() {
+  if (calendarState.initialized) return calendarState;
+
+  try {
+    const result = await fetchFromFirestoreWithRetry();
+    let firestoreData = null;
+    if (result.exists) {
+      firestoreData = result.data;
+      console.log('[AcademicCalendar] Loaded from Firestore');
+    } else {
+      console.warn('[AcademicCalendar] Firestore document missing – will create one');
+    }
+
+    // Determine actual calendar values
+    let session, term, termStart, termEnd, manualOverride = false;
+    const now = new Date();
+    const calculated = calculateTermAndSessionFromDate(now);
+
+    if (firestoreData && firestoreData.manualOverride === true) {
+      manualOverride = true;
+      session = firestoreData.overrideSession || firestoreData.currentSession || calculated.session;
+      term = firestoreData.overrideTerm || firestoreData.currentTerm || calculated.term;
+      termStart = firestoreData.termStart || calculated.termStart;
+      termEnd = firestoreData.termEnd || calculated.termEnd;
+    } else if (firestoreData && !firestoreData.manualOverride) {
+      session = firestoreData.currentSession || calculated.session;
+      term = firestoreData.currentTerm || calculated.term;
+      termStart = firestoreData.termStart || calculated.termStart;
+      termEnd = firestoreData.termEnd || calculated.termEnd;
+    } else {
+      // No Firestore doc – use client-side and try to create one
+      session = calculated.session;
+      term = calculated.term;
+      termStart = calculated.termStart;
+      termEnd = calculated.termEnd;
+      await writeFallbackToFirestore(calculated);
+    }
+
+    calendarState.currentSession = session;
+    calendarState.currentTerm = term;
+    calendarState.termStart = termStart;
+    calendarState.termEnd = termEnd;
+    calendarState.manualOverride = manualOverride;
+    calendarState.lastUpdated = firestoreData?.lastUpdated || null;
+    calendarState.offlineMode = !firestoreData; // if no doc, we are in offline mode
+    calendarState.initialized = true;
+
+    // Notify subscribers
+    calendarState.listeners.forEach(cb => cb({ ...calendarState }));
+    return calendarState;
+  } catch (err) {
+    console.error('[AcademicCalendar] All Firestore attempts failed. Using client-side fallback only.', err);
+    const calculated = calculateTermAndSessionFromDate(new Date());
+    calendarState.currentSession = calculated.session;
+    calendarState.currentTerm = calculated.term;
+    calendarState.termStart = calculated.termStart;
+    calendarState.termEnd = calculated.termEnd;
+    calendarState.manualOverride = false;
+    calendarState.offlineMode = true;
+    calendarState.initialized = true;
+    calendarState.listeners.forEach(cb => cb({ ...calendarState }));
+    return calendarState;
   }
+}
+
+// Public getters (safe – will never throw)
+export function getCurrentTerm() {
+  if (!calendarState.initialized) throw new Error('Call initAcademicCalendar first');
   return calendarState.currentTerm;
 }
-
-/**
- * @returns {string} current academic session (e.g., "2025/2026")
- */
 export function getCurrentSession() {
-  if (!calendarState.initialized) {
-    throw new Error('Academic Calendar not initialized. Call initAcademicCalendar() first.');
-  }
+  if (!calendarState.initialized) throw new Error('Call initAcademicCalendar first');
   return calendarState.currentSession;
 }
-
-/**
- * @returns {Object} { start: string (YYYY-MM-DD), end: string (YYYY-MM-DD) }
- */
 export function getTermDates() {
-  if (!calendarState.initialized) {
-    throw new Error('Academic Calendar not initialized. Call initAcademicCalendar() first.');
-  }
+  if (!calendarState.initialized) throw new Error('Call initAcademicCalendar first');
   return { start: calendarState.termStart, end: calendarState.termEnd };
 }
-
-/**
- * @returns {Object} full calendar information
- */
 export function getAcademicCalendar() {
-  if (!calendarState.initialized) {
-    throw new Error('Academic Calendar not initialized. Call initAcademicCalendar() first.');
-  }
-  return {
-    currentTerm: calendarState.currentTerm,
-    currentSession: calendarState.currentSession,
-    termStart: calendarState.termStart,
-    termEnd: calendarState.termEnd,
-    manualOverride: calendarState.manualOverride,
-    lastUpdated: calendarState.lastUpdated
-  };
+  if (!calendarState.initialized) throw new Error('Call initAcademicCalendar first');
+  return { ...calendarState };
 }
 
-/**
- * Compare calculated data with stored Firestore data.
- * @param {Object} calculatedData - result of calculateTermAndSessionFromDate()
- * @param {Object} storedData - Firestore document data
- * @returns {boolean} true if an update is needed
- */
-export function shouldCalendarUpdate(calculatedData, storedData) {
-  return (calculatedData.session !== storedData.currentSession ||
-          calculatedData.term !== storedData.currentTerm);
-}
-
-/**
- * Subscribe to calendar changes (real‑time updates).
- * @param {Function} callback - receives the current calendar state
- * @returns {Function} unsubscribe function
- */
 export function subscribeToCalendar(callback) {
-  if (typeof callback !== 'function') {
-    return () => {};
-  }
   calendarState.listeners.push(callback);
-  if (calendarState.initialized) {
-    callback({ ...calendarState });
-  }
+  if (calendarState.initialized) callback({ ...calendarState });
   return () => {
     calendarState.listeners = calendarState.listeners.filter(cb => cb !== callback);
   };
 }
 
-// ----------------------------------- Admin Override Functions (via service) -----------------------------------
-/**
- * Manually override the current term/session (admin only).
- * @param {Object} overrideData - { term, session, expiryDate (optional) }
- * @returns {Promise<Object>} updated calendar
- */
+export function shouldCalendarUpdate(calculated, stored) {
+  return calculated.session !== stored.currentSession || calculated.term !== stored.currentTerm;
+}
+
 export async function adminOverrideCalendar(overrideData) {
   const { term, session, expiryDate } = overrideData;
-  const currentDoc = await service.getAcademicCalendarDoc() || {};
-  const updatePayload = {
-    ...currentDoc,
+  const docRef = doc(db, 'academicCalendar', 'current');
+  await setDoc(docRef, {
     manualOverride: true,
     overrideSession: session,
     overrideTerm: term,
     overrideExpiry: expiryDate || null,
-    lastUpdated: new Date(),
-    forceSyncVersion: (currentDoc.forceSyncVersion || 0) + 1
-  };
-  await service.setAcademicCalendarDoc(updatePayload);
+    lastUpdated: serverTimestamp(),
+    forceSyncVersion: (await getDoc(docRef)).data()?.forceSyncVersion + 1 || 1
+  }, { merge: true });
+  await initAcademicCalendar(); // reload
   return getAcademicCalendar();
 }
 
-/**
- * Reset calendar to automatic mode (remove admin override).
- * @returns {Promise<Object>} updated calendar
- */
 export async function adminResetToAuto() {
   const now = new Date();
-  const calculated = calculateTermAndSessionFromDate(now);
-  const currentDoc = await service.getAcademicCalendarDoc() || {};
-  const updatePayload = {
-    ...currentDoc,
+  const calc = calculateTermAndSessionFromDate(now);
+  const docRef = doc(db, 'academicCalendar', 'current');
+  await setDoc(docRef, {
     manualOverride: false,
     overrideSession: null,
     overrideTerm: null,
-    currentSession: calculated.session,
-    currentTerm: calculated.term,
-    termStart: calculated.termStart,
-    termEnd: calculated.termEnd,
-    lastUpdated: new Date(),
-    overrideExpiry: null,
-    forceSyncVersion: (currentDoc.forceSyncVersion || 0) + 1
-  };
-  await service.setAcademicCalendarDoc(updatePayload);
+    currentSession: calc.session,
+    currentTerm: calc.term,
+    termStart: calc.termStart,
+    termEnd: calc.termEnd,
+    lastUpdated: serverTimestamp()
+  }, { merge: true });
+  await initAcademicCalendar();
   return getAcademicCalendar();
 }
 
-// ----------------------------------- Utilities -----------------------------------
-/**
- * Get current UTC date as a Date object (timezone‑safe).
- * @returns {Date}
- */
 export function getCurrentUTCDate() {
-  return new Date(new Date().toISOString().slice(0, 19) + 'Z');
+  return new Date(new Date().toISOString().slice(0,19)+'Z');
 }
 
-/**
- * Clean up resources (unsubscribe from Firestore).
- */
 export function destroyAcademicCalendar() {
-  if (unsubscribeFirestore) {
-    unsubscribeFirestore();
-    unsubscribeFirestore = null;
-  }
-  calendarState = {
-    initialized: false,
-    currentSession: null,
-    currentTerm: null,
-    termStart: null,
-    termEnd: null,
-    manualOverride: false,
-    overrideSession: null,
-    overrideTerm: null,
-    lastUpdated: null,
-    listeners: []
-  };
+  // no-op
 }
