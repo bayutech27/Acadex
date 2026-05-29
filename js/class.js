@@ -1,18 +1,7 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// DIRECT subscription check from Firestore – no listener, no bypass chance
-// Dynamic session dropdown – shows only sessions with existing scores for the school
-// Side‑by‑side report card renderer (subjects left, skills right)
-// Summary and Attendance moved to top
-// Subjects table extreme left, skills tables extreme right – clear gap between them
-// Fully responsive: scales with zoom, stacks on mobile
-// ADDED: Print/Download buttons for both report and broadsheet (exactly as in results.js)
-// ADDED: WhatsApp sharing for report card (parent phone)
-// UPDATED: Print comments now appear inline (same line as label)
+// All Firestore operations now go through service.js (cache + offline queue).
 
-import { db } from './firebase-config.js';
-import {
-  collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
@@ -48,17 +37,11 @@ let reportState = {
   reportState.psychomotor[key] = 3;
 });
 
-// ------------------- Subscription check directly from Firestore -------------------
+// ------------------- Subscription check via service -------------------
 async function checkSubscription() {
   try {
-    const subDoc = await getDoc(doc(db, 'schools', currentSchoolId, 'subscription', 'current'));
-    if (!subDoc.exists()) {
-      isSubscriptionActive = false;
-      disableSubscriptionFeatures();
-      return false;
-    }
-    const subData = subDoc.data();
-    isSubscriptionActive = (subData.status === 'active' && subData.locked !== true);
+    const subData = await service.getSubscription(currentSchoolId);
+    isSubscriptionActive = subData ? (subData.status === 'active' && subData.locked !== true) : false;
     if (isSubscriptionActive) {
       enableSubscriptionFeatures();
     } else {
@@ -153,46 +136,32 @@ function calculateAge(dobString) {
 
 // ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
-  try {
-    const scoresQuery = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
-    const snapshot = await getDocs(scoresQuery);
-    const sessionsSet = new Set();
-    snapshot.forEach(doc => { const session = doc.data().session; if (session) sessionsSet.add(session); });
-    const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
-      const [yearA] = a.split('/');
-      const [yearB] = b.split('/');
-      return parseInt(yearB) - parseInt(yearA);
-    });
-    return sortedSessions;
-  } catch (err) {
-    console.error('Failed to load session options:', err);
-    const year = new Date().getFullYear();
-    const fallback = [];
-    for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
-    return fallback;
-  }
+  // Use service method (cached)
+  return await service.loadSessionOptions(schoolId);
 }
 
-// ------------------- Grading loading -------------------
+// ------------------- Grading loading via service -------------------
 async function loadGradingSettingByLevel(level, session, term) {
   if (!level) { currentGrading = { ca: 40, exam: 60 }; return; }
   try {
-    const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
-    const snap = await getDocs(q);
+    const configs = await service.getScoringConfig(currentSchoolId, level);
     let grading = null;
-    if (!snap.empty) {
-      const data = snap.docs[0].data();
+    if (configs && configs.length > 0) {
+      const data = configs[0];
       grading = data.grading || `${data.caWeight}/${data.examWeight}`;
     }
     if (!grading) {
-      const fallbackQ = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
-      const fallbackSnap = await getDocs(fallbackQ);
-      if (!fallbackSnap.empty) {
-        const data = fallbackSnap.docs[0].data();
-        grading = data.grading || `${data.caWeight}/${data.examWeight}`;
+      const fallbackConfigs = await service.getScoringConfig(currentSchoolId);
+      if (fallbackConfigs && fallbackConfigs.length > 0) {
+        grading = fallbackConfigs[0].grading || `${fallbackConfigs[0].caWeight}/${fallbackConfigs[0].examWeight}`;
       }
     }
     if (!grading) {
+      // Try document ID fallback – service does not have this pattern, so direct read (rare)
+      // We keep direct Firestore for this edge case with a TODO
+      // TODO: Extend service with getScoringConfigById(docId)
+      const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+      const { db } = await import('./firebase-config.js');
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
       const docSnap = await getDoc(doc(db, 'scoring', docId));
       if (docSnap.exists()) grading = docSnap.data().grading;
@@ -215,6 +184,9 @@ async function loadGradingSetting(session, term, classLevel = null) {
   } else {
     try {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+      // Try direct read – service does not have this pattern; we keep direct with TODO
+      const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+      const { db } = await import('./firebase-config.js');
       const docSnap = await getDoc(doc(db, 'scoring', docId));
       let grading = '40/60';
       if (docSnap.exists()) grading = docSnap.data().grading;
@@ -226,14 +198,13 @@ async function loadGradingSetting(session, term, classLevel = null) {
   }
 }
 
-// ------------------- Data Loading -------------------
+// ------------------- Data Loading via service -------------------
 async function fetchClassName() {
   try {
-    const classRef = doc(db, 'classes', classId);
-    const classSnap = await getDoc(classRef);
-    classNameCache = classSnap.exists() ? classSnap.data().name : classId;
-    if (classSnap.exists()) {
-      classesMap.set(classId, { name: classSnap.data().name, level: classSnap.data().level });
+    const classData = await service.getClassById(classId);
+    classNameCache = classData ? classData.name : classId;
+    if (classData) {
+      classesMap.set(classId, { name: classData.name, level: classData.level });
     }
   } catch(e) {
     console.warn(e);
@@ -243,17 +214,18 @@ async function fetchClassName() {
 
 async function loadSubjectsAndClasses() {
   try {
-    const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
+    const subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjectsMap.clear();
     allSubjectsList = [];
-    subjSnap.forEach(doc => {
-      const data = doc.data();
-      subjectsMap.set(doc.id, data.name);
-      allSubjectsList.push({ id: doc.id, name: data.name, level: data.level || null });
+    subjects.forEach(subj => {
+      subjectsMap.set(subj.id, subj.name);
+      allSubjectsList.push({ id: subj.id, name: subj.name, level: subj.level || null });
     });
-    const classSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    classSnap.forEach(doc => { classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level }); });
+    classes.forEach(cls => {
+      classesMap.set(cls.id, { name: cls.name, level: cls.level });
+    });
   } catch (err) {
     handleError(err, "Failed to load subjects and classes.");
   }
@@ -261,13 +233,13 @@ async function loadSubjectsAndClasses() {
 
 async function loadStudentsList() {
   try {
-    const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId)));
-    studentsList = snap.docs.map(doc => ({
-      id: doc.id, name: doc.data().name, classId: doc.data().classId,
-      admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
-      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
-      subjects: doc.data().subjects || [], schoolId: doc.data().schoolId,
-      parentPhone: doc.data().parentPhone || null
+    const students = await service.getStudentsBySchool(currentSchoolId);
+    studentsList = students.map(s => ({
+      id: s.id, name: s.name, classId: s.classId,
+      admissionNumber: s.admissionNumber, gender: s.gender,
+      dob: s.dob, club: s.club, passport: s.passport || null,
+      subjects: s.subjects || [], schoolId: s.schoolId,
+      parentPhone: s.parentPhone || null
     }));
   } catch (err) {
     handleError(err, "Failed to load students.");
@@ -276,14 +248,8 @@ async function loadStudentsList() {
 
 async function fetchScores(studentId, term, session) {
   try {
-    const snap = await getDocs(query(
-      collection(db, 'scores'),
-      where('studentId', '==', studentId),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', term),
-      where('session', '==', session)
-    ));
-    return snap.docs.map(doc => ({ subjectId: doc.data().subjectId, ca: doc.data().ca, exam: doc.data().exam }));
+    const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
+    return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
   } catch (err) {
     handleError(err, "Failed to load student scores.");
     return [];
@@ -293,47 +259,35 @@ async function fetchScores(studentId, term, session) {
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
-  const studentIds = classStudents.map(s => s.id);
-  const allScores = [];
   try {
-    for (let i = 0; i < studentIds.length; i += 30) {
-      const chunk = studentIds.slice(i, i + 30);
-      const q = query(
-        collection(db, 'scores'),
-        where('studentId', 'in', chunk),
-        where('schoolId', '==', currentSchoolId),
-        where('term', '==', term),
-        where('session', '==', session)
-      );
-      const snap = await getDocs(q);
-      snap.forEach(doc => allScores.push(doc.data()));
+    // Use service.getScoresByClass to get all scores for the class
+    const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
+    const subjectMap = new Map();
+    for (const subjId of subjectsMap.keys()) {
+      subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
     }
+    for (const score of allScores) {
+      const total = (score.ca || 0) + (score.exam || 0);
+      const stat = subjectMap.get(score.subjectId);
+      if (stat) stat.totals.push({ studentId: score.studentId, total });
+    }
+    for (const [subjId, stat] of subjectMap.entries()) {
+      if (stat.totals.length) {
+        stat.totals.sort((a,b) => b.total - a.total);
+        const avg = stat.totals.reduce((s,t) => s + t.total, 0) / stat.totals.length;
+        stat.classAverage = avg.toFixed(1);
+        let rank = 1;
+        for (let i=0; i<stat.totals.length; i++) {
+          if (i>0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
+          stat.rankMap.set(stat.totals[i].studentId, rank);
+        }
+      }
+    }
+    return subjectMap;
   } catch (err) {
     handleError(err, "Failed to compute subject statistics.");
     return new Map();
   }
-  const subjectMap = new Map();
-  for (const subjId of subjectsMap.keys()) {
-    subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
-  }
-  for (const score of allScores) {
-    const total = (score.ca || 0) + (score.exam || 0);
-    const stat = subjectMap.get(score.subjectId);
-    if (stat) stat.totals.push({ studentId: score.studentId, total });
-  }
-  for (const [subjId, stat] of subjectMap.entries()) {
-    if (stat.totals.length) {
-      stat.totals.sort((a,b) => b.total - a.total);
-      const avg = stat.totals.reduce((s,t) => s + t.total, 0) / stat.totals.length;
-      stat.classAverage = avg.toFixed(1);
-      let rank = 1;
-      for (let i=0; i<stat.totals.length; i++) {
-        if (i>0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
-        stat.rankMap.set(stat.totals[i].studentId, rank);
-      }
-    }
-  }
-  return subjectMap;
 }
 
 async function getRelevantSubjectsForClass(classId, term, session) {
@@ -344,21 +298,14 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return levelSubjects;
-  const studentIds = classStudents.map(s => s.id);
-  const subjectIdsWithScores = new Set();
-  for (let i = 0; i < studentIds.length; i += 30) {
-    const chunk = studentIds.slice(i, i+30);
-    const q = query(
-      collection(db, 'scores'),
-      where('studentId', 'in', chunk),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snap = await getDocs(q);
-    snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
+  // Fetch all scores for this class to know which subjects have data
+  try {
+    const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
+    const subjectIdsWithScores = new Set(allScores.map(s => s.subjectId));
+    return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
+  } catch (err) {
+    return levelSubjects;
   }
-  return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
 }
 
 // ==================== REPORT CARD LOADING ====================
@@ -388,8 +335,8 @@ async function loadReportCard(studentId, studentName) {
   if (studentClassId && classesMap.has(studentClassId)) {
     classLevel = classesMap.get(studentClassId).level;
   } else if (studentClassId) {
-    const classDoc = await getDoc(doc(db, 'classes', studentClassId));
-    if (classDoc.exists()) classLevel = classDoc.data().level;
+    const classData = await service.getClassById(studentClassId);
+    if (classData) classLevel = classData.level;
   }
   await loadGradingSetting(reportState.session, reportState.term, classLevel);
   const isPrimary = (classLevel === 'primary');
@@ -402,16 +349,7 @@ async function loadReportCard(studentId, studentName) {
 
   showLoader();
   try {
-    const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-    const school = {
-      name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
-      address: schoolDoc.exists() ? schoolDoc.data().address : '',
-      logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
-      email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
-      phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : '',
-      id:      currentSchoolId
-    };
-
+    const school = await service.getSchoolById(currentSchoolId);
     const rawScores = await fetchScores(studentId, reportState.term, reportState.session);
     const scoresWithNames = rawScores.map(score => ({
       subjectId:   score.subjectId,
@@ -456,21 +394,13 @@ async function loadReportCard(studentId, studentName) {
 
 async function loadExistingReport(studentId) {
   try {
-    const q = query(
-      collection(db, 'reports'),
-      where('studentId', '==', studentId),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', reportState.term),
-      where('session', '==', reportState.session)
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const data = snap.docs[0].data();
-      if (data.psychomotor) Object.assign(reportState.psychomotor, data.psychomotor);
-      reportState.teacherComment   = data.teacherComment   || '';
-      reportState.principalComment = data.principalComment || '';
-      reportState.attendance       = data.attendance       || { schoolOpened: 0, present: 0, absent: 0 };
-      reportState.savedReportId    = snap.docs[0].id;
+    const report = await service.getReportByStudent(studentId, currentSchoolId, reportState.term, reportState.session);
+    if (report) {
+      if (report.psychomotor) Object.assign(reportState.psychomotor, report.psychomotor);
+      reportState.teacherComment   = report.teacherComment   || '';
+      reportState.principalComment = report.principalComment || '';
+      reportState.attendance       = report.attendance       || { schoolOpened: 0, present: 0, absent: 0 };
+      reportState.savedReportId    = report.id;
     } else {
       reportState.attendance    = { schoolOpened: 0, present: 0, absent: 0 };
       reportState.savedReportId = null;
@@ -510,12 +440,9 @@ async function saveReportCard() {
 
   showLoader();
   try {
-    if (reportState.savedReportId) {
-      await updateDoc(doc(db, 'reports', reportState.savedReportId), reportData);
-    } else {
-      const newRef = await addDoc(collection(db, 'reports'), { ...reportData, createdAt: new Date() });
-      reportState.savedReportId = newRef.id;
-    }
+    // Use service.saveReport (handles online/offline)
+    const newId = await service.saveReport(reportData, reportState.savedReportId);
+    reportState.savedReportId = newId;
     reportState.attendance = attendance;
     showNotification("Report saved successfully.", "success");
   } catch (err) {
@@ -553,7 +480,6 @@ function handlePrint() {
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
-  // ✅ UPDATED CSS: comments appear inline (same line as label)
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
     body, .print-container { margin: 0; padding: 0; background: white; }
@@ -564,7 +490,7 @@ function handlePrint() {
     .rc-col-left, .rc-col-right { min-width: 0; }
     .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
     .rc-print-val     { display: inline !important; }
-    .rc-print-comment { display: inline !important; }   /* inline instead of block */
+    .rc-print-comment { display: inline !important; }
     .rc-scroll-outer  { overflow: visible !important; }
     .rc-details-band  { background: #1a3a5c !important; }
     .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
@@ -574,8 +500,6 @@ function handlePrint() {
     .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
     .rc-grade-scale th { background: #FFD700 !important; }
     .rc-comments { background: #f9f9f9 !important; }
-
-    /* Ensure comment rows are flex to keep label and text on same line */
     .rc-comment-row, .rc-comment-item {
       display: flex !important;
       flex-direction: row !important;
@@ -726,27 +650,13 @@ async function loadClassStudents() {
 
 // ==================== BROADSHEET FUNCTIONS ====================
 async function fetchClassScores(classId, term, session) {
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return [];
-  const studentIds = classStudents.map(s => s.id);
-  const scores = [];
   try {
-    for (let i = 0; i < studentIds.length; i += 30) {
-      const chunk = studentIds.slice(i, i + 30);
-      const q = query(
-        collection(db, 'scores'),
-        where('studentId', 'in', chunk),
-        where('schoolId', '==', currentSchoolId),
-        where('term', '==', term),
-        where('session', '==', session)
-      );
-      const snap = await getDocs(q);
-      snap.forEach(doc => scores.push({ ...doc.data(), id: doc.id }));
-    }
+    const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
+    return scores;
   } catch (err) {
     handleError(err, "Failed to fetch class scores.");
+    return [];
   }
-  return scores;
 }
 
 async function getStudentAverageForTerm(studentId, term, session) {
@@ -894,7 +804,7 @@ async function saveBroadsheetToFirestore() {
   };
   showLoader();
   try {
-    await setDoc(doc(db, 'broadsheets', docId), broadsheetData, { merge: true });
+    await service.saveBroadsheet(docId, broadsheetData);
     showNotification("Broadsheet saved successfully.", "success");
   } catch (err) {
     if (err.code === 'permission-denied') {

@@ -19,6 +19,10 @@
  *
  * Firestore collection: teacher_attendance
  * ──────────────────────────────────────────────────────────────────────────────
+ *
+ * All Firestore operations go through service.js where possible.
+ * TODO: service.js does not yet support teacher attendance operations (addDoc, updateDoc, getDocs for teacher_attendance).
+ * These remain as direct Firestore calls.
  */
 
 import { auth, db } from './firebase-config.js';
@@ -28,6 +32,7 @@ import {
   doc, addDoc, updateDoc, serverTimestamp, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { handleError, showNotification } from './error-handler.js';
+import * as service from './service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE
@@ -161,16 +166,15 @@ function showFeedback(type, text) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD TEACHER PROFILE (refactored – /users/{uid} is the primary identity)
+// LOAD TEACHER PROFILE (using service)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadTeacherProfile(uid) {
   try {
     // 1. Load mandatory user document
-    const userSnap = await getDoc(doc(db, 'users', uid));
-    if (!userSnap.exists()) {
+    const user = await service.getUserById(uid);
+    if (!user) {
       throw new Error('User profile not found.');
     }
-    const user = userSnap.data();
     if (user.role !== 'teacher') {
       throw new Error('User is not a teacher.');
     }
@@ -178,14 +182,12 @@ async function loadTeacherProfile(uid) {
     const schoolId = user.schoolId;
     const name = user.name || user.fullName || 'Teacher';
 
-    // 2. Optionally fetch the teacher's extended metadata doc
+    // 2. Optionally fetch the teacher's extended metadata doc (service.getTeacherById uses uid as doc id)
     let dbId = null;
     try {
-      const tQuery = await getDocs(
-        query(collection(db, 'teachers'), where('authUid', '==', uid))
-      );
-      if (!tQuery.empty) {
-        dbId = tQuery.docs[0].id;
+      const teacher = await service.getTeacherById(uid);
+      if (teacher) {
+        dbId = uid; // In the service, teacher doc ID equals uid
       }
     } catch (e) {
       console.warn('Teacher metadata document not found; continuing with user profile only.', e);
@@ -199,13 +201,13 @@ async function loadTeacherProfile(uid) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD SCHOOL GEOFENCE
+// LOAD SCHOOL GEOFENCE (using service.getSchoolById)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadGeofence(schoolId) {
   try {
-    const snap = await getDoc(doc(db, 'schools', schoolId));
-    if (!snap.exists()) return null;
-    return snap.data().geofence || null;
+    const school = await service.getSchoolById(schoolId);
+    if (!school) return null;
+    return school.geofence || null;
   } catch (err) {
     handleError(err, 'Failed to load school geofence.');
     return null;
@@ -213,7 +215,7 @@ async function loadGeofence(schoolId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GPS CHECK
+// GPS CHECK (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 function getCurrentGps() {
   return new Promise((resolve, reject) => {
@@ -268,7 +270,7 @@ async function performGpsCheck() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD TODAY'S RECORD
+// LOAD TODAY'S RECORD (direct Firestore – not in service)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadTodayRecord() {
   try {
@@ -342,7 +344,7 @@ function updateButtonStates() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLOCK IN
+// CLOCK IN (direct Firestore – not in service)
 // ─────────────────────────────────────────────────────────────────────────────
 async function performClockIn() {
   const inBtn = document.getElementById('clockInBtn');
@@ -417,7 +419,7 @@ async function performClockIn() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLOCK OUT
+// CLOCK OUT (direct Firestore – not in service)
 // ─────────────────────────────────────────────────────────────────────────────
 async function performClockOut() {
   const outBtn = document.getElementById('clockOutBtn');
@@ -468,7 +470,7 @@ async function performClockOut() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD HISTORY (last 7 days)
+// LOAD HISTORY (direct Firestore – not in service)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadHistory() {
   const tbody = document.getElementById('historyTableBody');
@@ -556,7 +558,7 @@ export async function initTeacherClockPage(passedTeacherName = '') {
   }
   _teacherUid = uid;
 
-  // Load teacher profile from /users/{uid} (primary identity)
+  // Load teacher profile from service
   const profile = await loadTeacherProfile(uid);
   if (!profile) {
     showFeedback('error', 'Teacher profile not found. Please contact your admin.');
@@ -574,7 +576,7 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     return;
   }
 
-  // Load geofence
+  // Load geofence using service
   _geofence = await loadGeofence(_schoolId);
   if (!_geofence || !_geofence.enabled) {
     setGpsBar('disabled', 'Geofence not yet configured by your admin. Clock-in is unavailable.');

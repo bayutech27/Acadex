@@ -1,9 +1,10 @@
 // reportCardRenderer.js - Shared report card rendering engine
 // Layout: subjects table extreme left, skills tables extreme right
 // Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
+// All Firestore operations now go through service.js (cache + offline queue).
+
 import { showNotification } from './error-handler.js';
-import { db } from './firebase-config.js';
-import { collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+import * as service from './service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIVATE HELPER — accurate single-student attendance calculation
@@ -34,37 +35,27 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
   const DAYS_LIST = ['mon', 'tue', 'wed', 'thu', 'fri'];
 
   // ── Normalise term ──────────────────────────────────────────────────────────
-  // The attendance collection stores term as "First Term" / "Second Term" /
-  // "Third Term" (set by academic-calendar.js / attendance.js).
-  // Report card callers often pass the numeric shorthand '1', '2', or '3'.
-  // Convert numeric → word form so the Firestore WHERE clause matches.
   const TERM_MAP = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
   const queryTerm = TERM_MAP[String(term).trim()] || term;
 
   try {
-    // ── Build Firestore query for the entire class ──────────────────────────
-    // Including classId makes the query cheaper and scoped correctly.
-    // If classId is unavailable we still get correct results via schoolId alone
-    // (slightly broader scan, but accurate).
-    const filters = [
-      where('schoolId',        '==', schoolId),
-      where('term',            '==', queryTerm),
-      where('academicSession', '==', session),
-    ];
-    if (classId) filters.push(where('classId', '==', classId));
+    // Use service.getAttendanceByClass to fetch all attendance records for the class
+    if (!classId) {
+      console.warn('[reportCardRenderer] Missing classId, cannot compute holidays.');
+      return fallback;
+    }
 
-    const classSnap = await getDocs(query(collection(db, 'attendance'), ...filters));
-    if (classSnap.empty) return fallback;
+    const attendanceRecords = await service.getAttendanceByClass(schoolId, classId, session, queryTerm);
+
+    if (!attendanceRecords || attendanceRecords.length === 0) return fallback;
 
     // openDayKeys  — Set<string>: "w{week}_{day}" confirmed as a school day
-    //   (at least one student has M=true or A=true on that slot)
-    const openDayKeys  = new Set();
-
+    const openDayKeys = new Set();
     // studentMarks — Map<string, {M:bool, A:bool}>: this student's marks only
     const studentMarks = new Map();
 
-    for (const docSnap of classSnap.docs) {
-      const { studentId: docStudentId, weekNumber, days } = docSnap.data();
+    for (const record of attendanceRecords) {
+      const { studentId: docStudentId, weekNumber, days } = record;
       if (!weekNumber || !days) continue;
 
       for (const day of DAYS_LIST) {
@@ -90,10 +81,10 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
 
     // ── Tally using only confirmed open-school days ─────────────────────────
     let schoolOpened = 0;
-    let present      = 0;
+    let present = 0;
 
     for (const key of openDayKeys) {
-      schoolOpened += 2;                         // morning + afternoon per open day
+      schoolOpened += 2; // morning + afternoon per open day
       const marks = studentMarks.get(key);
       if (marks) {
         if (marks.M) present++;
@@ -125,21 +116,6 @@ export async function renderReportCardUI({
   }
 
   // ── Resolve attendance from Firestore ────────────────────────────────────
-  //
-  // Firestore is ALWAYS queried first — it holds the authoritative attendance
-  // data saved by the teacher via the attendance engine.  The `attendance`
-  // prop is used only as a last-resort fallback when the query returns nothing
-  // (e.g. class has no saved attendance yet, or identifiers are unavailable).
-  //
-  // schoolId resolution order:
-  //   1. school.id        — present on fully-hydrated school objects
-  //   2. student.schoolId — always present on student documents
-  //   3. localStorage     — legacy fallback for older call-sites
-  //
-  // term is passed through _fetchStudentAttendanceData's normalisation map
-  // so numeric shorthand ('1','2','3') converts to the stored word form
-  // ('First Term','Second Term','Third Term') before the WHERE clause runs.
-  // ─────────────────────────────────────────────────────────────────────────
   let attendanceData = { schoolOpened: 0, present: 0, absent: 0 };
 
   try {
@@ -157,18 +133,15 @@ export async function renderReportCardUI({
       );
 
       if (fetched.schoolOpened > 0 || fetched.present > 0 || fetched.absent > 0) {
-        // Firestore returned real data — always use it
         attendanceData = fetched;
       } else if (
         attendance.schoolOpened > 0 ||
         attendance.present      > 0 ||
         attendance.absent       > 0
       ) {
-        // Firestore returned nothing — fall back to passed prop
         attendanceData = { ...attendance };
       }
     } else {
-      // Missing identifiers — use passed prop if available
       if (
         attendance.schoolOpened > 0 ||
         attendance.present      > 0 ||
@@ -256,7 +229,7 @@ export async function renderReportCardUI({
     const scale = isPrimary ? primaryScale : secondaryScale;
     return `<table class="rc-grade-scale">
       <thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead>
-      <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td>`).join('')}</tbody>
+      <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>
     </table>`;
   }
 
@@ -331,8 +304,6 @@ export async function renderReportCardUI({
     </table>`;
 
   // ── Attendance table ──────────────────────────────────────────────────────────
-  // Values are pre-calculated from Firestore (holiday-aware, class-wide query).
-  // All three inputs remain editable so the teacher can make manual corrections.
   const attendanceHtml = `
     <div class="rc-section-title">📅 Attendance Record</div>
     <table class="rc-attendance-table">
@@ -391,7 +362,7 @@ export async function renderReportCardUI({
     </table>
     <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
 
-  // ── Header — school name enlarged; email + phone (from Firestore school data) shown under address ──
+  // ── Header ─────────────────────────────────────────────────────────────────
   const headerHtml = `
     <div class="rc-header">
       <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="Logo">` : ''}</div>
@@ -460,15 +431,12 @@ export async function renderReportCardUI({
   // ── STYLES ───────────────────────────────────────────────────────────────────
   const styles = `
     <style>
-      /* Force colours for print engines */
       *, *::before, *::after {
         -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
         color-adjust: exact !important;
         color: #000 !important;
       }
-
-      /* ── Wrapper — warm cream paper background ── */
       .rc-wrapper {
         width: 100%;
         max-width: 210mm;
@@ -480,8 +448,6 @@ export async function renderReportCardUI({
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: clamp(9px, 1.2vw, 13px);
       }
-
-      /* ── Header ── */
       .rc-header {
         display: flex;
         align-items: center;
@@ -496,7 +462,6 @@ export async function renderReportCardUI({
         object-fit: contain;
         border-radius: 4px;
       }
-      /* ── Passport — slightly bigger + framed ── */
       .rc-header-passport img {
         width:  clamp(80px, 11vw, 125px);
         height: clamp(80px, 11vw, 125px);
@@ -508,7 +473,6 @@ export async function renderReportCardUI({
         flex: 1;
         text-align: center;
       }
-      /* ── School name — notably larger and bold ── */
       .rc-school-name {
         margin: 0 0 4px 0;
         font-size: clamp(22px, 4vw, 42px) !important;
@@ -519,8 +483,6 @@ export async function renderReportCardUI({
       }
       .rc-school-address { font-size: 0.88em; margin-top: 2px; }
       .rc-school-contact { font-size: 0.82em; color: #333; margin-top: 1px; }
-
-      /* ── Details band — deep navy, white text, clean cell dividers ── */
       .rc-details-band {
         background: #1a3a5c !important;
         padding: 0;
@@ -542,8 +504,6 @@ export async function renderReportCardUI({
       }
       .rc-details-cell strong { color: #a8d8f0 !important; margin-right: 3px; }
       .rc-student-name { font-size: 1.05em; font-weight: 700; color: #fff !important; }
-
-      /* ── Summary + Attendance row (top) ── */
       .rc-top-row {
         display: flex;
         flex-wrap: wrap;
@@ -553,11 +513,7 @@ export async function renderReportCardUI({
         align-items: flex-start;
       }
       .rc-top-row > div { flex: 1 1 clamp(160px, 38%, 300px); }
-
-      /* ── Section title ── */
       .rc-section-title { font-weight: bold; margin-bottom: 5px; font-size: 0.95em; }
-
-      /* ── Shared table base ── */
       .rc-subject-table,
       .rc-summary-table,
       .rc-attendance-table,
@@ -583,10 +539,8 @@ export async function renderReportCardUI({
       .rc-attendance-table th,
       .rc-skills-table th { background: #ADD8E6 !important; }
       .rc-grade-scale th { background: #FFD700 !important; }
-
       .rc-subj-name,
       .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
-
       .rc-skill-name {
         text-align: left !important;
         writing-mode: horizontal-tb !important;
@@ -594,8 +548,6 @@ export async function renderReportCardUI({
         white-space: normal !important;
         word-break: break-word;
       }
-
-      /* ── MAIN TWO-COLUMN GRID ── */
       .rc-main-row {
         display: grid;
         grid-template-columns: 62fr 35fr;
@@ -611,10 +563,7 @@ export async function renderReportCardUI({
         flex-direction: column;
         gap: clamp(6px, 1.5%, 14px);
       }
-
       .rc-rating-guide { font-size: 0.78em; color: #444; margin-top: 2px; }
-
-      /* ── Rating ticks ── */
       .rc-tick-row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
       .rc-tick {
         width: clamp(14px, 2vw, 20px);
@@ -629,11 +578,7 @@ export async function renderReportCardUI({
         user-select: none;
       }
       .rc-tick.selected { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6; }
-
-      /* ── Attendance input ── */
       .rc-att-input { width: 100%; max-width: 80px; padding: 2px 4px; box-sizing: border-box; font-size: inherit; }
-
-      /* ── Comments ── */
       .rc-comments {
         background: #f9f9f9 !important;
         border: 1px solid #ddd;
@@ -646,11 +591,8 @@ export async function renderReportCardUI({
       .rc-comment-controls { display: flex; flex-direction: column; gap: 2px; }
       .rc-comment-controls select,
       .rc-comment-controls textarea { width: 100%; box-sizing: border-box; font-size: inherit; background: #fff !important; }
-
       .rc-print-val,
       .rc-print-comment { display: none; }
-
-      /* ── Mobile ── */
       @media (max-width: 600px) {
         .rc-wrapper { padding: 8px; font-size: 11px; }
         .rc-school-name { font-size: clamp(18px, 6vw, 26px) !important; }
@@ -660,8 +602,6 @@ export async function renderReportCardUI({
         .rc-header-logo img { max-width: 55px; max-height: 55px; }
         .rc-header-passport img { width: 65px; height: 65px; }
       }
-
-      /* ── Print ── */
       @media print {
         .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
         .rc-school-name { font-size: 22pt !important; }

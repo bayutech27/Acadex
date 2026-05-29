@@ -1,10 +1,7 @@
 // app.js - Core application functions (schools, users, academic helpers)
-import { auth, db } from './firebase-config.js';
-import { 
-  doc, getDoc, collection, query, where, getDocs, 
-  addDoc, updateDoc, deleteDoc 
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { auth } from './firebase-config.js';
 import { showNotification, handleError } from './error-handler.js';
+import * as service from './service.js';
 
 // Get currently logged-in user (returns user object or null)
 export function getCurrentUser() {
@@ -23,12 +20,8 @@ export async function getUserData(userId = null) {
     const uid = userId || (user ? user.uid : null);
     if (!uid) return null;
 
-    const userDocRef = doc(db, 'users', uid);
-    const userDoc = await getDoc(userDocRef);
-    if (userDoc.exists()) {
-      return { id: userDoc.id, ...userDoc.data() };
-    }
-    return null;
+    const userData = await service.getUserById(uid);
+    return userData;
   } catch (err) {
     handleError(err, "Failed to load user data.");
     return null;
@@ -39,12 +32,7 @@ export async function getUserData(userId = null) {
 export async function getSchoolById(schoolId) {
   if (!schoolId) return null;
   try {
-    const schoolDocRef = doc(db, 'schools', schoolId);
-    const schoolDoc = await getDoc(schoolDocRef);
-    if (schoolDoc.exists()) {
-      return { id: schoolDoc.id, ...schoolDoc.data() };
-    }
-    return null;
+    return await service.getSchoolById(schoolId);
   } catch (err) {
     handleError(err, "Failed to load school data.");
     return null;
@@ -52,8 +40,15 @@ export async function getSchoolById(schoolId) {
 }
 
 // Get school document by slug
+// TODO: service.js does not yet provide a query-by-slug method.
+// This direct Firestore call remains because caching this specific read
+// is not critical for the current migration. Later, extend service.js
+// with getSchoolBySlug(slug) that uses cache.getFreshOrCached.
 export async function getSchoolBySlug(slug) {
   try {
+    // Direct Firestore query – keep original behaviour
+    const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    const { db } = await import('./firebase-config.js');
     const schoolsRef = collection(db, 'schools');
     const q = query(schoolsRef, where('slug', '==', slug));
     const querySnapshot = await getDocs(q);
@@ -110,13 +105,16 @@ export function getCurrentAcademicSessionAndTerm() {
 }
 
 // Archive students for a given class
+// TODO: service.js does not yet expose an archive method.
+// The write to 'archives' collection is kept as direct Firestore for now.
+// Later, add service.archiveClassStudents(schoolId, classId, className, session, term)
 export async function archiveClassStudents(schoolId, classId, className, session, term) {
   try {
-    const studentsRef = collection(db, 'students');
-    const q = query(studentsRef, where('schoolId', '==', schoolId), where('classId', '==', classId));
-    const snapshot = await getDocs(q);
-    const students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Use service to fetch students (cached)
+    const students = await service.getStudentsByClass(schoolId, classId);
     
+    const { addDoc, collection } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    const { db } = await import('./firebase-config.js');
     const archiveRef = collection(db, 'archives');
     await addDoc(archiveRef, {
       schoolId,
@@ -137,16 +135,17 @@ export async function archiveClassStudents(schoolId, classId, className, session
 export async function archiveCurrentTermIfNeeded(schoolId) {
   try {
     const { session, term } = getCurrentAcademicSessionAndTerm();
+    const { collection, query, where, getDocs } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    const { db } = await import('./firebase-config.js');
     const archivesRef = collection(db, 'archives');
     const q = query(archivesRef, where('schoolId', '==', schoolId), 
                     where('session', '==', session), where('term', '==', term));
     const snapshot = await getDocs(q);
     if (snapshot.empty) {
-      const classesRef = collection(db, 'classes');
-      const classesQuery = query(classesRef, where('schoolId', '==', schoolId));
-      const classesSnap = await getDocs(classesQuery);
-      for (const classDoc of classesSnap.docs) {
-        await archiveClassStudents(schoolId, classDoc.id, classDoc.data().name, session, term);
+      // Use service to get all classes
+      const classes = await service.getClassesBySchool(schoolId);
+      for (const classDoc of classes) {
+        await archiveClassStudents(schoolId, classDoc.id, classDoc.name, session, term);
       }
       showNotification("Current term archived successfully.", "success");
       return true;

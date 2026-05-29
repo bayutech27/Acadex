@@ -1,5 +1,10 @@
 // notification-service.js
-import { db } from './firebase-config.js';
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support notification creation, bulk creation,
+// real‑time listeners, or marking read/unread. These operations remain as direct Firestore
+// calls and should be added to the service layer in the future.
+
+import * as service from './service.js';
 import {
   collection,
   addDoc,
@@ -13,9 +18,11 @@ import {
   serverTimestamp,
   getDocs
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
 
 /**
  * Create a single notification document.
+ * TODO: Add service.createNotification() to the service layer.
  */
 export async function createNotification({
   studentId,
@@ -43,6 +50,7 @@ export async function createNotification({
 
 /**
  * Bulk create notifications (uses Promise.all for concurrency).
+ * TODO: Add service.createBulkNotifications() to the service layer.
  */
 export async function createBulkNotifications(notifications) {
   try {
@@ -58,6 +66,7 @@ export async function createBulkNotifications(notifications) {
  * Real‑time listener for a student's latest 10 notifications.
  * Calls callback with an array of notification objects ({ id, ...data }).
  * Returns the unsubscribe function.
+ * TODO: Replace with service.subscribeToStudentNotifications() when available.
  */
 export function onStudentNotifications(studentId, callback) {
   const q = query(
@@ -86,6 +95,7 @@ export function onStudentNotifications(studentId, callback) {
 /**
  * Real‑time listener for the student's unread notification count.
  * Calls callback with the count (number). Returns unsubscribe function.
+ * TODO: Replace with service.subscribeToUnreadCount() when available.
  */
 export function onUnreadCountChange(studentId, callback) {
   const q = query(
@@ -106,6 +116,7 @@ export function onUnreadCountChange(studentId, callback) {
 
 /**
  * Mark a single notification as read.
+ * TODO: Add service.markNotificationAsRead() to the service layer.
  */
 export async function markNotificationAsRead(notificationId) {
   try {
@@ -116,7 +127,8 @@ export async function markNotificationAsRead(notificationId) {
 }
 
 /**
- * Mark all notifications as read for a given student (optional).
+ * Mark all notifications as read for a given student.
+ * TODO: Add service.markAllNotificationsAsRead() to the service layer.
  */
 export async function markAllAsRead(studentId) {
   try {

@@ -2,6 +2,11 @@
 // Preserves all existing practice test functionality.
 // Adds real‑time assigned tests table with status from Firestore.
 // In recent tests, shows actual subject name plus "(Assigned Test)" for CBT tests.
+//
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support real-time listeners for test_results,
+// real-time listeners for assigned CBT tests (array-contains-any), or getCbtById
+// for starting a test – those remain as direct Firestore calls.
 
 import { auth, db } from '../../js/firebase-config.js';
 import { 
@@ -24,6 +29,8 @@ import {
     signOut,
     onAuthStateChanged 
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
+import * as service from '../../js/service.js';
 
 // ========== CONSTANTS (all existing) ==========
 const WAEC_NECO_QUESTIONS = 50;
@@ -91,7 +98,6 @@ function convertTimestamp(value) {
         const d = new Date(value);
         if (!isNaN(d.getTime())) return d;
     }
-    if (typeof value === 'number') return new Date(value);
     if (value instanceof Date && !isNaN(value.getTime())) return value;
     return null;
 }
@@ -126,12 +132,12 @@ function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// ========== STUDENT DATA (existing) ==========
+// ========== STUDENT DATA (using service) ==========
 async function loadStudentProfile(userId) {
     try {
-        const studentDoc = await getDoc(doc(db, 'students', userId));
-        if (!studentDoc.exists()) throw new Error('Student profile not found');
-        currentStudentData = studentDoc.data();
+        const student = await service.getStudentById(userId);
+        if (!student) throw new Error('Student profile not found');
+        currentStudentData = student;
         currentStudentId = userId;
         currentSchoolId = currentStudentData.schoolId || localStorage.getItem('userSchoolId');
         if (!currentSchoolId) throw new Error('School ID missing');
@@ -140,8 +146,8 @@ async function loadStudentProfile(userId) {
         let className = classId || 'Not assigned';
         if (classId) {
             try {
-                const classDoc = await getDoc(doc(db, 'classes', classId));
-                if (classDoc.exists()) className = classDoc.data().name || classId;
+                const classData = await service.getClassById(classId);
+                if (classData) className = classData.name || classId;
             } catch (e) { console.warn(e); }
         }
         const classElem = document.getElementById('studentClassDisplay');
@@ -177,7 +183,7 @@ function populateWaecNecoSubjects() {
     });
 }
 
-// ========== RECENT TESTS (modified: show subject + " (Assigned Test)" for CBT mode) ==========
+// ========== RECENT TESTS (real-time listener – kept direct Firestore) ==========
 function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
@@ -332,7 +338,6 @@ function renderJambDrillTest(test) {
 }
 
 function renderCbtTest(test) {
-    // For recent tests, display the actual subject name (prioritize 'subject' field) followed by " (Assigned Test)"
     const subject = test.subject || test.subjectName || 'Unknown';
     const rawScore = test.rawScore !== undefined ? test.rawScore : 0;
     const total = test.totalQuestions || 0;
@@ -348,32 +353,34 @@ function renderUnknownTest(test) {
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
 }
 
-// ========== STATISTICS (existing) ==========
+// ========== STATISTICS (using service.getTestResultsByUser) ==========
 async function updateBasicStats(userId) {
-    const q = query(collection(db, "test_results"), where("userId", "==", userId));
-    const snapshot = await getDocs(q);
-    let totalTests = 0, totalScore = 0;
-    snapshot.forEach(doc => {
-        const data = doc.data();
-        let score = data.score;
-        if (data.mode === 'jamb_drill' && data.totalQuestions) score = (data.rawScore / data.totalQuestions) * 100;
-        if (score !== undefined && score !== null) {
-            totalTests++;
-            totalScore += score;
-        }
-    });
-    if (completedTests) completedTests.textContent = totalTests;
-    const avg = totalTests > 0 ? Math.round(totalScore / totalTests) : 0;
-    if (averageScore) averageScore.textContent = avg;
-    let msg = "Start practicing!";
-    if (avg >= 90) msg = "Excellent!";
-    else if (avg >= 80) msg = "Great job!";
-    else if (avg >= 70) msg = "Good work!";
-    else if (avg >= 60) msg = "Keep improving!";
-    if (performanceMessage) performanceMessage.textContent = msg;
+    try {
+        const results = await service.getTestResultsByUser(userId);
+        let totalTests = 0, totalScore = 0;
+        results.forEach(data => {
+            let score = data.score;
+            if (data.mode === 'jamb_drill' && data.totalQuestions) score = (data.rawScore / data.totalQuestions) * 100;
+            if (score !== undefined && score !== null) {
+                totalTests++;
+                totalScore += score;
+            }
+        });
+        if (completedTests) completedTests.textContent = totalTests;
+        const avg = totalTests > 0 ? Math.round(totalScore / totalTests) : 0;
+        if (averageScore) averageScore.textContent = avg;
+        let msg = "Start practicing!";
+        if (avg >= 90) msg = "Excellent!";
+        else if (avg >= 80) msg = "Great job!";
+        else if (avg >= 70) msg = "Good work!";
+        else if (avg >= 60) msg = "Keep improving!";
+        if (performanceMessage) performanceMessage.textContent = msg;
+    } catch (err) {
+        console.error('Error updating stats:', err);
+    }
 }
 
-// ========== ASSIGNED TESTS TABLE (real-time, uses Firestore status) ==========
+// ========== ASSIGNED TESTS TABLE (real-time listener – kept direct Firestore) ==========
 function subscribeToAssignedTests() {
     if (!currentSchoolId || !currentStudentId || !currentStudentData) return;
     if (unsubscribeAssignedTests) unsubscribeAssignedTests();
@@ -453,6 +460,7 @@ function renderAssignedTestsTable(tests) {
 
 async function startAssignedTest(cbtId) {
     try {
+        // TODO: service.getCbtById does not exist – direct Firestore call
         const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
         if (!cbtDoc.exists()) throw new Error('Test not found');
         const cbtData = cbtDoc.data();
@@ -461,7 +469,6 @@ async function startAssignedTest(cbtId) {
             return;
         }
 
-        // Compute remaining time based on startedAt + duration
         let remainingSeconds = cbtData.durationMinutes * 60;
         if (cbtData.startedAt) {
             const startTime = convertTimestamp(cbtData.startedAt);
@@ -506,7 +513,7 @@ async function startAssignedTest(cbtId) {
     }
 }
 
-// ========== EXISTING TEST LAUNCHERS (unchanged) ==========
+// ========== EXISTING TEST LAUNCHERS (using service.getQuestions) ==========
 async function startQuickTest() {
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
@@ -639,31 +646,20 @@ async function startWaecNecoDrill() {
 
 async function fetchQuestions(examType, subject) {
     try {
-        const q = query(
-            collection(db, "questions"),
-            where("examType", "==", examType),
-            where("subject", "==", subject)
-        );
-        const querySnapshot = await getDocs(q);
-        const questions = [];
-        querySnapshot.forEach((doc) => {
-            const questionData = doc.data();
-            const hasContent = (questionData.questionText && questionData.questionText.trim() !== '') || questionData.questionImage;
-            const hasCorrectAnswer = questionData.correctAnswer && ['A', 'B', 'C', 'D'].includes(questionData.correctAnswer);
-            if (hasContent && hasCorrectAnswer) {
-                questions.push({
-                    id: doc.id,
-                    ...questionData,
-                    options: questionData.options || {
-                        A: questionData.optionA || "",
-                        B: questionData.optionB || "",
-                        C: questionData.optionC || "",
-                        D: questionData.optionD || ""
-                    }
-                });
+        // Use service.getQuestions (cached)
+        const questions = await service.getQuestions(examType, subject);
+        // Ensure each question has an options object (service might return raw data)
+        const processed = questions.map(q => ({
+            id: q.id,
+            ...q,
+            options: q.options || {
+                A: q.optionA || "",
+                B: q.optionB || "",
+                C: q.optionC || "",
+                D: q.optionD || ""
             }
-        });
-        return questions;
+        }));
+        return processed;
     } catch (error) {
         console.error('Error in fetchQuestions:', error);
         throw error;

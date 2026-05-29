@@ -1,4 +1,7 @@
 // teachers.js - Manage teachers (primary exemption + Auth deletion via Cloud Function)
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support teacher deletion (cloud function) or conflict checks – those remain direct.
+
 import { db, auth, functions } from './firebase-config.js';
 import {
   collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
@@ -9,6 +12,7 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/12.11.0/fireba
 import { getCurrentSchoolId } from './admin.js';
 import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import * as service from './service.js';
 
 let currentSchoolId = null;
 let subjectsMap = new Map();
@@ -82,11 +86,10 @@ export async function initTeachersPage() {
 
 async function loadAllSubjects() {
   try {
-    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
+    const subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjectsMap.clear();
-    snapshot.forEach(doc => {
-      subjectsMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    subjects.forEach(sub => {
+      subjectsMap.set(sub.id, { name: sub.name, level: sub.level });
     });
   } catch (err) {
     handleError(err, "Failed to load subjects.");
@@ -95,11 +98,10 @@ async function loadAllSubjects() {
 
 async function loadAllClasses() {
   try {
-    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    snapshot.forEach(doc => {
-      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    classes.forEach(cls => {
+      classesMap.set(cls.id, { name: cls.name, level: cls.level });
     });
   } catch (err) {
     handleError(err, "Failed to load classes.");
@@ -115,10 +117,8 @@ async function loadSubjectsByLevel(level) {
   
   showLoader();
   try {
-    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
-    const snapshot = await getDocs(q);
-    let subjects = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-    // ✅ Sort subjects by name
+    const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
+    // Sort subjects by name
     subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     subjectsSelect.innerHTML = '';
@@ -155,10 +155,8 @@ async function loadClassesByLevel(level) {
   
   showLoader();
   try {
-    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
-    const snapshot = await getDocs(q);
-    let classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-    // ✅ Sort classes by name
+    const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
+    // Sort classes by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classesSelect.innerHTML = '';
@@ -194,10 +192,8 @@ async function loadClassTeacherOptions(level) {
   }
   
   try {
-    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level));
-    const snapshot = await getDocs(q);
-    let classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-    // ✅ Sort classes by name
+    const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
+    // Sort classes by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classTeacherSelect.innerHTML = '<option value="">None</option>';
@@ -217,11 +213,9 @@ async function loadClassTeacherOptions(level) {
 
 async function loadTeachers() {
   try {
-    const teachersRef = collection(db, 'teachers');
-    const q = query(teachersRef, where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    let teachers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // ✅ Sort teachers alphabetically by name
+    // Use service.getTeachersBySchool
+    let teachers = await service.getTeachersBySchool(currentSchoolId);
+    // Sort teachers alphabetically by name
     teachers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     const container = document.getElementById('teachersList');
@@ -292,6 +286,7 @@ async function loadTeachers() {
       if (confirm('Delete this teacher? This action cannot be undone.')) {
         showLoader();
         try {
+          // TODO: service does not support cloud function call; keep direct Firestore for deletion
           await deleteDoc(doc(db, 'teachers', id));
           try {
             await deleteDoc(doc(db, 'users', id));
@@ -343,13 +338,12 @@ function openModal(teacherId = null) {
 
 async function loadTeacherData(teacherId) {
   try {
-    const teacherDoc = await getDoc(doc(db, 'teachers', teacherId));
-    if (teacherDoc.exists()) {
-      const data = teacherDoc.data();
-      if (nameInput) nameInput.value = data.name;
-      if (emailInput) emailInput.value = data.email;
+    const teacher = await service.getTeacherById(teacherId);
+    if (teacher) {
+      if (nameInput) nameInput.value = teacher.name;
+      if (emailInput) emailInput.value = teacher.email;
       
-      const teacherLevel = data.level || (data.isClassTeacher ? (classesMap.get(data.hostClassId)?.level || 'secondary') : 'secondary');
+      const teacherLevel = teacher.level || (teacher.isClassTeacher ? (classesMap.get(teacher.hostClassId)?.level || 'secondary') : 'secondary');
       if (levelSelect) levelSelect.value = teacherLevel;
       currentTeacherLevel = teacherLevel;
       
@@ -357,20 +351,20 @@ async function loadTeacherData(teacherId) {
       await loadClassesByLevel(teacherLevel);
       await loadClassTeacherOptions(teacherLevel);
       
-      const subjectIds = data.subjectIds || [];
+      const subjectIds = teacher.subjectIds || [];
       if (subjectsSelect) {
         Array.from(subjectsSelect.options).forEach(opt => {
           opt.selected = subjectIds.includes(opt.value);
         });
       }
-      const classIds = data.classIds || [];
+      const classIds = teacher.classIds || [];
       if (classesSelect) {
         Array.from(classesSelect.options).forEach(opt => {
           opt.selected = classIds.includes(opt.value);
         });
       }
-      if (data.isClassTeacher && data.hostClassId && classTeacherSelect) {
-        classTeacherSelect.value = data.hostClassId;
+      if (teacher.isClassTeacher && teacher.hostClassId && classTeacherSelect) {
+        classTeacherSelect.value = teacher.hostClassId;
       } else if (classTeacherSelect) {
         classTeacherSelect.value = '';
       }
@@ -392,15 +386,14 @@ async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null)
   if (!subjectIds.length) return null;
   
   try {
-    const teachersRef = collection(db, 'teachers');
-    const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('level', '==', level));
-    const snapshot = await getDocs(q);
+    // Use service.getTeachersBySchool and filter client-side
+    const teachers = await service.getTeachersBySchool(currentSchoolId);
+    const levelTeachers = teachers.filter(t => t.level === level);
     const conflictingSubjects = [];
 
     for (const subjectId of subjectIds) {
-      for (const docSnap of snapshot.docs) {
-        const teacher = docSnap.data();
-        if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
+      for (const teacher of levelTeachers) {
+        if (excludeTeacherId && teacher.id === excludeTeacherId) continue;
         if (teacher.subjectIds && teacher.subjectIds.includes(subjectId)) {
           const subjectName = subjectsMap.get(subjectId)?.name || subjectId;
           conflictingSubjects.push(subjectName);
@@ -423,12 +416,15 @@ async function checkClassTeacherConflict(classId, level, excludeTeacherId = null
   if (!classId) return null;
   
   try {
-    const teachersRef = collection(db, 'teachers');
-    const q = query(teachersRef, where('schoolId', '==', currentSchoolId), where('level', '==', level), where('isClassTeacher', '==', true), where('hostClassId', '==', classId));
-    const snapshot = await getDocs(q);
-    
-    for (const docSnap of snapshot.docs) {
-      if (excludeTeacherId && docSnap.id === excludeTeacherId) continue;
+    // Use service.getTeachersBySchool and filter
+    const teachers = await service.getTeachersBySchool(currentSchoolId);
+    const conflicting = teachers.find(t =>
+      t.level === level &&
+      t.isClassTeacher === true &&
+      t.hostClassId === classId &&
+      (!excludeTeacherId || t.id !== excludeTeacherId)
+    );
+    if (conflicting) {
       const className = classesMap.get(classId)?.name || classId;
       return `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
     }
@@ -485,7 +481,7 @@ async function handleTeacherSubmit(e) {
   showLoader();
   try {
     if (editingTeacherId) {
-      await updateDoc(doc(db, 'teachers', editingTeacherId), teacherDataObj);
+      await service.updateTeacher(editingTeacherId, teacherDataObj);
       showNotification("Teacher updated successfully.", "success");
       closeModal();
       await loadTeachers();
@@ -527,7 +523,8 @@ async function handleTeacherSubmit(e) {
       };
       
       await setDoc(doc(db, 'users', uid), userDocData);
-      await setDoc(doc(db, 'teachers', uid), teacherDocData);
+      // Use service.createTeacher
+      await service.createTeacher(uid, teacherDocData);
       
       showNotification(`Teacher created successfully!\n\nEmail: ${email}\nPassword: ${defaultPassword}`, "success");
       
@@ -610,18 +607,16 @@ async function setupSubscriptionUI() {
 async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();
-  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-  unsubscribeSub = onSnapshot(subRef, (snap) => {
-    if (!snap.exists()) {
+  unsubscribeSub = service.subscribeToSubscription(currentSchoolId, (subData) => {
+    if (!subData) {
       showPaymentBanner();
       return;
     }
-    const sub = snap.data();
-    const isActive = sub.status === 'active' && sub.locked === false;
+    const isActive = subData.status === 'active' && subData.locked === false;
     if (isActive) {
       hidePaymentBanner();
     } else {
       showPaymentBanner();
     }
-  }, (err) => handleError(err, "Subscription listener error."));
+  });
 }

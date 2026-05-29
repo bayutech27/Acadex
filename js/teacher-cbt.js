@@ -1,11 +1,16 @@
 // teacher-cbt.js — Acadex Teacher CBT Manager (session/term filter for scores)
-import { db } from './firebase-config.js';
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support teacher class list retrieval, test_results queries,
+// manual start/end test status updates, notification creation – those remain as direct Firestore calls.
+
+import * as service from './service.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc,
   getDoc, orderBy, serverTimestamp, onSnapshot, setDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
-import { getSchoolById } from './app.js';
+import { db } from './firebase-config.js';
+import { getSchoolById } from './app.js';  // keep for backward compatibility, but we can use service.getSchoolById
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { createBulkNotifications } from './notification-service.js';
@@ -139,20 +144,19 @@ async function compressImage(file, maxSizeKB = 800, targetQuality = 0.85) {
 }
 
 // ==============================
-// LOAD TEACHER CLASSES & SUBJECTS (unchanged)
+// LOAD TEACHER CLASSES & SUBJECTS (using service)
 // ==============================
 async function loadTeacherClasses() {
   if (!currentTeacherId || !currentSchoolId) return [];
   try {
-    const teacherDoc = await getDoc(doc(db, 'teachers', currentTeacherId));
-    const teacherDataLocal = teacherDoc.data();
-    if (!teacherDataLocal) return [];
-    const classIds = teacherDataLocal.classIds || (teacherDataLocal.hostClassId ? [teacherDataLocal.hostClassId] : []);
+    const teacher = await service.getTeacherById(currentTeacherId);
+    if (!teacher) return [];
+    const classIds = teacher.classIds || (teacher.hostClassId ? [teacher.hostClassId] : []);
     const classes = [];
     for (const id of classIds) {
       try {
-        const snap = await getDoc(doc(db, 'classes', id));
-        if (snap.exists()) classes.push({ id, name: snap.data().name || id });
+        const classData = await service.getClassById(id);
+        if (classData) classes.push({ id, name: classData.name || id });
       } catch (e) { console.warn('Class load error:', e); }
     }
     return classes;
@@ -165,14 +169,12 @@ async function loadTeacherClasses() {
 async function loadSubjects() {
   if (!currentSchoolId) return [];
   try {
-    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, name: d.data().name || d.id }));
+    return await service.getSubjectsBySchool(currentSchoolId);
   } catch (e) { console.warn('Subjects load error:', e); return []; }
 }
 
 // ==============================
-// REAL-TIME TEST LISTENER (unchanged)
+// REAL-TIME TEST LISTENER (using service.subscribeToTeacherCbt)
 // ==============================
 function subscribeToTests() {
   if (!currentTeacherId || !currentSchoolId) {
@@ -182,20 +184,11 @@ function subscribeToTests() {
   }
   if (unsubscribeTests) unsubscribeTests();
 
-  const q = query(
-    collection(db, 'cbt'),
-    where('teacherId', '==', currentTeacherId),
-    where('schoolId',  '==', currentSchoolId),
-    orderBy('createdAt', 'desc')
-  );
-
-  unsubscribeTests = onSnapshot(q, snapshot => {
-    tests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Use service.subscribeToTeacherCbt (real-time listener)
+  unsubscribeTests = service.subscribeToTeacherCbt(currentTeacherId, currentSchoolId, (testsList) => {
+    tests = testsList;
     checkAndExpireTests(tests);
     renderTestsTable(tests);
-  }, err => {
-    console.error('Tests listener error:', err);
-    if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">Error loading tests. Please refresh.</p>';
   });
 }
 
@@ -225,8 +218,8 @@ function renderTestsTable(testList) {
           ? `<button class="tbl-btn btn-start"  data-id="${t.id}" title="Start Test">▶️ Start</button>`
           : `<button class="tbl-btn btn-expire" data-id="${t.id}" title="End Test">⏹ End</button>`}
         <button class="tbl-btn btn-delete" data-id="${t.id}" title="Delete">🗑️ Delete</button>
-       </td>
-     </tr>
+        </td>
+      </tr>
   `).join('');
 
   testsTableWrapper.innerHTML = `
@@ -236,7 +229,7 @@ function renderTestsTable(testList) {
           <tr><th>Type</th><th>Subject</th><th>Class</th><th>Questions</th>
             <th>Duration</th><th>Scheduled Date</th><th>Term / Session</th>
             <th>Status</th><th>Actions</th>
-           </tr>
+          </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -253,7 +246,7 @@ function renderTestsTable(testList) {
 }
 
 // ==============================
-// EXPIRATION & ACTIONS (unchanged)
+// EXPIRATION & ACTIONS (unchanged – direct Firestore for status updates)
 // ==============================
 function checkAndExpireTests(testList) {
   testList.forEach(t => {
@@ -280,6 +273,7 @@ function scheduleExpiration(testId, msUntilExpiry) {
 
 async function expireTest(testId) {
   try {
+    // Direct Firestore – service does not have expireTest
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
   } catch (e) { console.warn('Expire error:', e); }
 }
@@ -306,7 +300,8 @@ async function confirmDeleteTest(testId) {
   if (!confirm('Permanently delete this test? This cannot be undone.')) return;
   try {
     showLoader();
-    await deleteDoc(doc(db, 'cbt', testId));
+    // Use service.deleteCbt
+    await service.deleteCbt(testId);
     if (expirationTimers[testId]) { clearTimeout(expirationTimers[testId]); delete expirationTimers[testId]; }
     showNotification('Test deleted.', 'success');
   } catch (e) { handleError(e, 'Failed to delete test'); }
@@ -314,7 +309,7 @@ async function confirmDeleteTest(testId) {
 }
 
 // ==============================
-// MODAL: CREATE / EDIT (unchanged)
+// MODAL: CREATE / EDIT (using service for create/update)
 // ==============================
 async function openCreateModal() {
   if (!currentTeacherId || !currentSchoolId) {
@@ -625,7 +620,7 @@ function setCsvStatus(msg, type = 'success') {
 }
 
 // ==============================
-// SAVE TEST TO FIRESTORE (unchanged)
+// SAVE TEST TO FIRESTORE (using service.createCbt / service.updateCbt)
 // ==============================
 async function saveTestToFirestore() {
   const type        = testType.value;
@@ -665,49 +660,49 @@ async function saveTestToFirestore() {
     assignedTo: [classId],
     term,
     session,
-    updatedAt: serverTimestamp(),
+    updatedAt: new Date(),
   };
 
   if (!editingTestId) {
     testData.status = 'pending';
-    testData.createdAt = serverTimestamp();
+    testData.createdAt = new Date();
   }
 
   showLoader();
   try {
+    let newTestId = editingTestId;
     if (editingTestId) {
-      await updateDoc(doc(db, 'cbt', editingTestId), testData);
+      await service.updateCbt(editingTestId, testData);
       showNotification('Test updated successfully.', 'success');
     } else {
-      await addDoc(collection(db, 'cbt'), testData);
+      newTestId = await service.createCbt(testData);
       showNotification('Test created successfully.', 'success');
     }
 
-// --- AFTER THE TEST HAS BEEN SAVED (both create and update) ---
-// Trigger notifications to all students in the assigned class
-try {
-  const studentsQuery = query(
-    collection(db, 'students'),
-    where('schoolId', '==', currentSchoolId),
-    where('classId', '==', testData.classId)
-  );
-  const studentsSnap = await getDocs(studentsQuery);
-  if (!studentsSnap.empty) {
-    const studentIds = studentsSnap.docs.map(d => d.id);
-    const notifications = studentIds.map(sid => ({
-      studentId: sid,
-      schoolId: currentSchoolId,
-      title: 'New CBT Assigned',
-      message: `${testData.subjectName} ${testData.type} has been assigned to your class.`,
-      type: 'cbt',
-      relatedId: editingTestId || null   // will be updated after creation if new
-    }));
-    await createBulkNotifications(notifications);
-  }
-} catch (notifErr) {
-  console.error('Failed to create notifications:', notifErr);
-  // Non‑critical – do not throw
-}
+    // --- Trigger notifications to all students in the assigned class ---
+    try {
+      const studentsQuery = query(
+        collection(db, 'students'),
+        where('schoolId', '==', currentSchoolId),
+        where('classId', '==', testData.classId)
+      );
+      const studentsSnap = await getDocs(studentsQuery);
+      if (!studentsSnap.empty) {
+        const studentIds = studentsSnap.docs.map(d => d.id);
+        const notifications = studentIds.map(sid => ({
+          studentId: sid,
+          schoolId: currentSchoolId,
+          title: 'New CBT Assigned',
+          message: `${testData.subjectName} ${testData.type} has been assigned to your class.`,
+          type: 'cbt',
+          relatedId: editingTestId || newTestId
+        }));
+        await createBulkNotifications(notifications);
+      }
+    } catch (notifErr) {
+      console.error('Failed to create notifications:', notifErr);
+      // Non‑critical – do not throw
+    }
 
     closeModal();
   } catch (err) {
@@ -791,12 +786,12 @@ function attachEventListeners() {
 }
 
 // ==============================
-// HEADER & ACADEMIC INFO
+// HEADER & ACADEMIC INFO (using service.getSchoolById)
 // ==============================
 async function loadSchoolInfo() {
   if (!currentSchoolId) return;
   try {
-    const school = await getSchoolById(currentSchoolId);
+    const school = await service.getSchoolById(currentSchoolId);
     const schoolNameEl    = document.getElementById('schoolName');
     const schoolAddressEl = document.getElementById('schoolAddress');
     if (schoolNameEl)    schoolNameEl.textContent    = school ? school.name : 'Unknown School';
@@ -821,7 +816,7 @@ async function loadSchoolInfo() {
 }
 
 // ============================================================
-// CBT SCORES MODULE — MODIFIED: session/term filter, session/term columns
+// CBT SCORES MODULE — using service.getTestResultsByUser? Not suitable; keep direct queries.
 // ============================================================
 const cbtScoresModule = (() => {
   const classFilterEl   = () => document.getElementById('scoresClassSelect');
@@ -853,30 +848,26 @@ const cbtScoresModule = (() => {
   async function _fetchAssignedClasses() {
     if (!currentTeacherId || !currentSchoolId) return [];
     try {
-      const teacherSnap = await getDoc(doc(db, 'teachers', currentTeacherId));
-      if (!teacherSnap.exists()) return [];
-      const data = teacherSnap.data();
-      const classIds = [...(Array.isArray(data.classIds) ? data.classIds : []), ...(data.hostClassId && !data.classIds?.includes(data.hostClassId) ? [data.hostClassId] : [])].filter(Boolean);
+      const teacher = await service.getTeacherById(currentTeacherId);
+      if (!teacher) return [];
+      const classIds = [...(Array.isArray(teacher.classIds) ? teacher.classIds : []), ...(teacher.hostClassId && !teacher.classIds?.includes(teacher.hostClassId) ? [teacher.hostClassId] : [])].filter(Boolean);
       if (classIds.length === 0) return [];
-      const results = await Promise.allSettled(classIds.map(id => getDoc(doc(db, 'classes', id))));
-      return results.filter(r => r.status === 'fulfilled' && r.value.exists()).map(r => ({ id: r.value.id, name: r.value.data().name || r.value.id }));
+      const results = await Promise.allSettled(classIds.map(id => service.getClassById(id)));
+      return results.filter(r => r.status === 'fulfilled' && r.value !== null).map(r => ({ id: r.value.id, name: r.value.name || r.value.id }));
     } catch (err) { console.warn(err); return []; }
   }
 
   async function _fetchAssignedSubjects() {
     if (!currentTeacherId || !currentSchoolId) return [];
     try {
-      const teacherSnap = await getDoc(doc(db, 'teachers', currentTeacherId));
-      const teacherSubjectIds = teacherSnap.exists() ? (teacherSnap.data().subjectIds || []) : [];
-      const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-      const snap = await getDocs(q);
-      const allSubjects = snap.docs.map(d => ({ id: d.id, name: d.data().name || d.id }));
+      const teacher = await service.getTeacherById(currentTeacherId);
+      const teacherSubjectIds = teacher ? (teacher.subjectIds || []) : [];
+      const allSubjects = await service.getSubjectsBySchool(currentSchoolId);
       if (teacherSubjectIds.length > 0) return allSubjects.filter(s => teacherSubjectIds.includes(s.id));
       return allSubjects;
     } catch (err) { console.warn(err); return []; }
   }
 
-  // Fetch distinct session/term values from test_results (CBT, mode=cbt) for this school
   async function _fetchDistinctSessionsAndTerms() {
     if (!currentSchoolId) return { sessions: [], terms: [] };
     try {
@@ -1091,26 +1082,20 @@ async function initializeTeacherContext() {
       return;
     }
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-      if (!userDocSnap.exists()) throw new Error("User document missing.");
-      const userData = userDocSnap.data();
-      if (userData.role !== 'teacher') throw new Error("Not a teacher.");
+      const userData = await service.getUserById(user.uid);
+      if (!userData || userData.role !== 'teacher') throw new Error("Not a teacher.");
       currentSchoolId = userData.schoolId;
       if (!currentSchoolId) throw new Error("School ID missing.");
       await initAcademicCalendar();
-      const teacherDocRef = doc(db, 'teachers', user.uid);
-      const teacherDocSnap = await getDoc(teacherDocRef);
-      if (!teacherDocSnap.exists()) {
+      let teacher = await service.getTeacherById(user.uid);
+      if (!teacher) {
         console.warn("Teacher document missing – creating minimal record.");
         const minimalTeacher = { userId: user.uid, schoolId: currentSchoolId, email: userData.email, subjectIds: userData.subjects || [], classIds: [], hostClassId: null, isClassTeacher: false };
-        await setDoc(teacherDocRef, minimalTeacher);
-        teacherData = minimalTeacher;
-        currentTeacherId = user.uid;
-      } else {
-        teacherData = teacherDocSnap.data();
-        currentTeacherId = user.uid;
+        await setDoc(doc(db, 'teachers', user.uid), minimalTeacher);
+        teacher = minimalTeacher;
       }
+      currentTeacherId = user.uid;
+      teacherData = teacher;
       teacherClasses = await loadTeacherClasses();
       subjectsList = await loadSubjects();
       await loadSchoolInfo();

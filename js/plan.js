@@ -1,17 +1,21 @@
 // plan.js – Subscription management
 // FIXED: Subscriptions only expire when real endDate passes — never due to term/session mismatch.
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support lockSchool/unlockSchool, handleNewStudentAddition,
+// approveExtraStudents, autoLockExpiredSubscriptions, renewSubscriptionForCurrentTerm.
+// These remain as direct Firestore calls and should be moved to the service layer in the future.
 
-import { db } from './firebase-config.js';
+import * as service from './service.js';
 import {
-  doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs,
+  doc, updateDoc, setDoc, collection, query, where, getDocs,
   writeBatch, orderBy, limit, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
 import { handleError } from './error-handler.js';
 
 const SUBSCRIPTION_DOC_ID = 'current';
 
 // ------------------- FIX 4: Rolling 3-month end date (replaces hardcoded term dates) -------------------
-// No longer uses term-based hardcoded dates that could immediately expire new activations.
 function getRollingEndDate(monthsAhead = 3) {
   const end = new Date();
   end.setMonth(end.getMonth() + monthsAhead);
@@ -33,13 +37,10 @@ function getTermEndDateFromSessionAndTerm(session, term) {
   return new Date(Date.UTC(startYear, monthEnd, dayEnd, 23, 59, 59));
 }
 
-// ------------------- Core subscription helpers -------------------
+// ------------------- Core subscription helpers (via service) -------------------
 export async function getSubscriptionStatus(schoolId) {
   try {
-    const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
-    const snap = await getDoc(subRef);
-    if (!snap.exists()) return null;
-    return snap.data();
+    return await service.getSubscription(schoolId);
   } catch (err) {
     handleError(err, "Failed to get subscription status.");
     return null;
@@ -64,7 +65,6 @@ export async function getSubscriptionDisplayStatus(schoolId) {
  *   3. endDate has NOT passed
  *
  * Term/session mismatch is NO LONGER a reason to return false.
- * This keeps manually activated schools active until their real endDate passes.
  */
 export async function isSubscriptionActive(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -72,7 +72,6 @@ export async function isSubscriptionActive(schoolId) {
   if (sub.status !== 'active') return false;
   if (sub.locked === true) return false;
 
-  // FIX 2: Only real date expiry matters
   if (sub.endDate) {
     const endDate = sub.endDate.toDate ? sub.endDate.toDate() : new Date(sub.endDate);
     if (endDate < new Date()) return false;
@@ -87,8 +86,6 @@ export async function canEnterScores(schoolId) {
 
 /**
  * FIX 1: enforceAccessGuard no longer uses term/session validation.
- * Access is denied only if the subscription is genuinely inactive
- * (status !== active, locked, or past endDate).
  */
 export async function enforceAccessGuard(user, schoolId) {
   if (user.role === 'super-admin') return { allowed: true };
@@ -99,7 +96,7 @@ export async function enforceAccessGuard(user, schoolId) {
   return { allowed: true };
 }
 
-// ------------------- Lock / Unlock school -------------------
+// ------------------- Lock / Unlock school (direct Firestore – TODO) -------------------
 export async function lockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
@@ -118,7 +115,7 @@ export async function unlockSchool(schoolId) {
   }
 }
 
-// ------------------- Payment & student coverage -------------------
+// ------------------- Payment & student coverage (direct Firestore – TODO) -------------------
 export function calculateSubscriptionCost(coveredStudents, costPerStudent = 1000) {
   return coveredStudents * costPerStudent;
 }
@@ -217,10 +214,7 @@ async function markStudentsAsCovered(schoolId, count) {
   }
 }
 
-// ------------------- FIX 8: Safe autoLockExpiredSubscriptions -------------------
-// ONLY expires schools whose endDate has genuinely passed.
-// NEVER creates new expired records.
-// NEVER overwrites active subscriptions due to term/session mismatch.
+// ------------------- FIX 8: Safe autoLockExpiredSubscriptions (direct Firestore – TODO) -------------------
 export async function autoLockExpiredSubscriptions() {
   const now = new Date();
   try {
@@ -233,12 +227,10 @@ export async function autoLockExpiredSubscriptions() {
       const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
       const subSnap = await getDoc(subRef);
 
-      // FIX 8: Skip schools with no subscription doc — do NOT create expired records
       if (!subSnap.exists()) continue;
 
       const data = subSnap.data();
 
-      // FIX 2: Only expire when real endDate has passed and subscription is currently active
       if (
         data.status === 'active' &&
         data.locked !== true &&
@@ -255,7 +247,6 @@ export async function autoLockExpiredSubscriptions() {
           updateCount++;
         }
       }
-      // All other cases: do nothing. Term/session mismatch is NOT a reason to expire.
     }
 
     if (updateCount > 0) {
@@ -267,7 +258,7 @@ export async function autoLockExpiredSubscriptions() {
   }
 }
 
-// ------------------- FIX 4: renewSubscriptionForCurrentTerm uses rolling end date -------------------
+// ------------------- FIX 4: renewSubscriptionForCurrentTerm (direct Firestore – TODO) -------------------
 export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents, costPerStudent = 1000) {
   try {
     const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
@@ -288,7 +279,6 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     const subSnap = await getDoc(subRef);
     const now = new Date();
 
-    // FIX 4: Use rolling 3-month end date so activation is always future-dated
     const endDate = getRollingEndDate(3);
 
     const data = {
@@ -322,13 +312,10 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
   }
 }
 
-// ------------------- Raw subscription helpers for teacher/realtime pages -------------------
+// ------------------- Raw subscription helpers (via service) -------------------
 export async function getRawSubscription(schoolId) {
   try {
-    const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
-    const snap = await getDoc(subRef);
-    if (!snap.exists()) return null;
-    return snap.data();
+    return await service.getRawSubscription(schoolId);
   } catch (err) {
     handleError(err, "Failed to fetch raw subscription.");
     return null;
@@ -336,21 +323,15 @@ export async function getRawSubscription(schoolId) {
 }
 
 /**
- * FIX 6: Real-time subscription listener — unchanged API, behaviour preserved.
- * isActive = status === 'active' && locked !== true (no term/session check here).
+ * FIX 6: Real-time subscription listener — now using service.subscribeToSubscription.
  */
 export function onSubscriptionChange(schoolId, callback) {
-  const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-  const unsubscribe = onSnapshot(subRef, (snap) => {
-    let data = null;
+  const unsubscribe = service.subscribeToSubscription(schoolId, (subData) => {
     let isActive = false;
-    if (snap.exists()) {
-      data = snap.data();
-      isActive = (data.status === 'active' && data.locked !== true);
+    if (subData) {
+      isActive = (subData.status === 'active' && subData.locked !== true);
     }
-    callback({ isActive, data });
-  }, (err) => {
-    handleError(err, "Subscription listener error.");
+    callback({ isActive, data: subData });
   });
   return unsubscribe;
 }

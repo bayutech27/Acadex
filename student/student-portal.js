@@ -11,6 +11,10 @@
 //
 // MODIFIED: Results tab now shows assigned CBT scores from test_results collection.
 //   Columns: Subject, Score, Term/Session, Date.
+//
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support test_results queries, real-time scores/cbt listeners,
+// attachment of custom listeners for notifications – those remain as direct Firestore calls.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -32,6 +36,7 @@ import {
 
 import { subscribeToCalendar } from '../js/academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from '../js/calendar-sync.js';
+import * as service from '../js/service.js';
 
 // ─────────────────────────────────── Global state ────────────────────────────
 let currentStudentData = null;
@@ -128,42 +133,37 @@ function initInternalTabs() {
   });
 }
 
-// ─────────────────────────────────── School header ───────────────────────────
+// ─────────────────────────────────── School header (using service) ───────────
 async function loadSchoolHeader(schoolId) {
   if (!schoolId) return;
   try {
-    const snap = await getDoc(doc(db, 'schools', schoolId));
-    if (!snap.exists()) return;
-    const data = snap.data();
+    const school = await service.getSchoolById(schoolId);
+    if (!school) return;
     const nameEl = document.getElementById('schoolName');
-    if (nameEl) nameEl.innerText = safeVal(data.name) || 'School Name';
+    if (nameEl) nameEl.innerText = safeVal(school.name) || 'School Name';
     const addrEl = document.getElementById('schoolAddress');
-    if (addrEl) addrEl.innerText = safeVal(data.address);
+    if (addrEl) addrEl.innerText = safeVal(school.address);
     const logoEl = document.getElementById('schoolLogoImg');
-    if (logoEl && hasValue(data.logo)) {
-      logoEl.src = data.logo;
-      logoEl.onerror = () => { logoEl.src = `https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=${encodeURIComponent(safeVal(data.name)||'S')}&size=80`; };
+    if (logoEl && hasValue(school.logo)) {
+      logoEl.src = school.logo;
+      logoEl.onerror = () => { logoEl.src = `https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=${encodeURIComponent(safeVal(school.name)||'S')}&size=80`; };
     }
   } catch (err) {
     console.warn('[StudentPortal] School header failed:', err);
   }
 }
 
-// ─────────────────────────────────── Class name resolver ─────────────────────
+// ─────────────────────────────────── Class name resolver (using service) ─────
 async function resolveClassName(schoolId, classId) {
   if (!classId) return '';
   try {
-    if (schoolId) {
-      const snap = await getDoc(doc(db, 'schools', schoolId, 'classes', classId));
-      if (snap.exists()) return safeVal(snap.data().name || snap.data().className);
-    }
-    const snap2 = await getDoc(doc(db, 'classes', classId));
-    if (snap2.exists()) return safeVal(snap2.data().name || snap2.data().className);
+    const classData = await service.getClassById(classId);
+    if (classData) return safeVal(classData.name || classData.className);
   } catch (err) { console.warn('[StudentPortal] Class name fail:', err); }
   return '';
 }
 
-// ───────────────────────────── Passport photo edit ───────────────────────────
+// ───────────────────────────── Passport photo edit (using service.updateStudent) ──
 function injectPassportStyles() {
   if (document.getElementById('passport-edit-styles')) return;
   const style = document.createElement('style');
@@ -213,7 +213,7 @@ async function handlePassportFile(file) {
     let processed = file;
     if (file.size > 950 * 1024) processed = await compressImage(file, 900, 950);
     const base64 = await fileToBase64(processed);
-    await updateDoc(doc(db, 'students', currentStudentId), { passport: base64 });
+    await service.updateStudent(currentStudentId, { passport: base64 });
     currentStudentData.passport = base64;
     renderHero(currentStudentData);
   } catch (err) {
@@ -325,7 +325,7 @@ function renderProfile(student) {
     </div>`;
 }
 
-// ─────────────────────────────────── Attendance tab ──────────────────────────
+// ─────────────────────────────────── Attendance tab (using service) ──────────
 function renderAttendance(records) {
   const container = document.getElementById('attendanceTab');
   if (!container) return;
@@ -366,7 +366,7 @@ function renderAttendance(records) {
     </div>`;
 }
 
-// ─────────────────────────────────── Subjects tab ────────────────────────────
+// ─────────────────────────────────── Subjects tab (using service) ────────────
 function renderSubjects(subjects) {
   const container = document.getElementById('subjectsTab');
   if (!container) return;
@@ -375,7 +375,7 @@ function renderSubjects(subjects) {
   container.innerHTML = `<div class="card" style="padding:1.2rem"><h3>📚 Subjects</h3><ul style="margin-top:0.75rem; list-style-type: disc; padding-left: 1.5rem;">${names.map(n => `<li>${n}</li>`).join('')}</ul></div>`;
 }
 
-// ─────────────────────────────────── Assignments tab ─────────────────────────
+// ─────────────────────────────────── Assignments tab (using service) ─────────
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
   if (!container) return;
@@ -390,12 +390,7 @@ function renderAssignments(assignments) {
   container.innerHTML = `<div>${cards}</div>`;
 }
 
-// ======================= NEW: CBT SCORES FOR RESULTS TAB =======================
-
-/**
- * Fetch all CBT scores for the current student from test_results collection.
- * Returns array of objects: { subject, rawScore, term, session, completedAt }
- */
+// ======================= CBT SCORES FOR RESULTS TAB (direct Firestore) =======================
 async function fetchCbtScores() {
   if (!currentStudentId || !currentSchoolId) return [];
   try {
@@ -425,19 +420,12 @@ async function fetchCbtScores() {
   }
 }
 
-/**
- * Render the Results tab with CBT scores table.
- * No summary cards – only the table with columns: Subject, Score, Term/Session, Date.
- */
 async function renderResultsSection() {
   const summaryEl = document.getElementById('resultsSummaryContainer');
   const tableEl   = document.getElementById('resultsTableContainer');
   if (!summaryEl || !tableEl) return;
 
-  // Clear summary container (remove old cards)
   summaryEl.innerHTML = '';
-
-  // Show loading state
   tableEl.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading CBT results...</div>';
 
   try {
@@ -453,7 +441,6 @@ async function renderResultsSection() {
       return;
     }
 
-    // Build table
     let html = `
       <div class="table-responsive-wrapper">
         <table class="data-table">
@@ -486,7 +473,6 @@ async function renderResultsSection() {
         </table>
       </div>
     `;
-
     tableEl.innerHTML = html;
   } catch (err) {
     console.error('[StudentPortal] Error rendering CBT results:', err);
@@ -494,37 +480,26 @@ async function renderResultsSection() {
   }
 }
 
-// Helper escape (reuse existing)
+// Helper escape (reused)
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 }
 
-// ─────────────────────────── NOTIFICATIONS (CBT + SCORES) ──────────────────
-
-/**
- * Fetch teacher name (with caching)
- */
+// ─────────────────────────── NOTIFICATIONS (direct Firestore) ──────────────────
 async function fetchTeacherName(teacherId) {
   if (!teacherId) return 'Teacher';
   if (teacherNameCache.has(teacherId)) return teacherNameCache.get(teacherId);
   const promise = (async () => {
     try {
-      const snap = await getDoc(doc(db, 'teachers', teacherId));
-      if (snap.exists()) {
-        const name = safeVal(snap.data().name || snap.data().fullName) || 'Teacher';
-        return name;
-      }
-    } catch (err) { console.warn('Teacher fetch error:', err); }
-    return 'Teacher';
+      const teacher = await service.getTeacherById(teacherId);
+      return teacher?.name || teacher?.fullName || 'Teacher';
+    } catch (err) { console.warn('Teacher fetch error:', err); return 'Teacher'; }
   })();
   teacherNameCache.set(teacherId, promise);
   return promise;
 }
 
-/**
- * Format score notification message
- */
 function formatScoreMessage(data) {
   const sub = safeVal(data.subjectName) || 'Unknown Subject';
   const parts = [];
@@ -534,9 +509,6 @@ function formatScoreMessage(data) {
   return `📊 ${sub}: ${scoreText}`.substring(0, 120);
 }
 
-/**
- * Format CBT notification message (includes teacher name placeholder)
- */
 function formatCBTMessage(data) {
   const sub = safeVal(data.subjectName) || 'Unknown Subject';
   const type = safeVal(data.type) || 'Test';
@@ -551,9 +523,6 @@ function formatCBTMessage(data) {
   return { message: `📝 New ${sub} ${type} assigned by ${teacherPlaceholder} — ${date}`, teacherId: data.teacherId, placeholder: teacherPlaceholder };
 }
 
-/**
- * Render notification items in dropdown
- */
 function renderNotifications(notifs) {
   const container = document.getElementById('notificationList');
   if (!container) return;
@@ -575,9 +544,6 @@ function renderNotifications(notifs) {
   }).join('');
 }
 
-/**
- * Update badge count
- */
 function updateBadgeFromMerged() {
   const badge = document.getElementById('notificationBadge');
   if (!badge) return;
@@ -592,9 +558,6 @@ function updateBadgeFromMerged() {
   }
 }
 
-/**
- * Process score documents into notification items
- */
 function processScoreDocs(scoreDocs) {
   return scoreDocs.map(docSnap => {
     const data = docSnap.data();
@@ -612,9 +575,6 @@ function processScoreDocs(scoreDocs) {
   });
 }
 
-/**
- * Process CBT documents into notification items (async teacher names)
- */
 function processCBTDocs(cbtDocs) {
   const items = [];
   const fetchPromises = [];
@@ -637,7 +597,6 @@ function processCBTDocs(cbtDocs) {
     };
     items.push(item);
 
-    // Fetch teacher name if needed
     if (teacherId && formatted.message.includes(formatted.placeholder)) {
       if (!teacherNameCache.has(teacherId)) {
         teacherNameCache.set(teacherId, fetchTeacherName(teacherId));
@@ -653,14 +612,10 @@ function processCBTDocs(cbtDocs) {
   return { items, fetchPromises };
 }
 
-/**
- * Merge, sort (desc by timestampMillis) and take latest 10, then render
- */
 function mergeAndRender(cbtDocs, scoreDocs) {
   const scoreItems = processScoreDocs(scoreDocs);
   const { items: cbtItems, fetchPromises } = processCBTDocs(cbtDocs);
 
-  // Wait for all teacher name fetches then re-render
   Promise.all(fetchPromises).then(() => {
     const all = [...scoreItems, ...cbtItems];
     all.sort((a, b) => b.timestampMillis - a.timestampMillis);
@@ -669,7 +624,6 @@ function mergeAndRender(cbtDocs, scoreDocs) {
     updateBadgeFromMerged();
   }).catch(err => {
     console.warn('Teacher name fetch error:', err);
-    // still render without resolved names
     const all = [...scoreItems, ...cbtItems];
     all.sort((a, b) => b.timestampMillis - a.timestampMillis);
     mergedNotifications = all.slice(0, 10);
@@ -678,15 +632,11 @@ function mergeAndRender(cbtDocs, scoreDocs) {
   });
 }
 
-/**
- * Set up real-time listeners on scores and CBT collections
- */
 function setupNotificationListeners(classId, studentId) {
   if (!studentId) return;
   if (unsubscribeCBT) { unsubscribeCBT(); unsubscribeCBT = null; }
   if (unsubscribeScores) { unsubscribeScores(); unsubscribeScores = null; }
 
-  // Scores: where studentId = current student, order by updatedAt desc, limit 10
   const scoresQuery = query(
     collection(db, 'scores'),
     where('studentId', '==', studentId),
@@ -694,7 +644,6 @@ function setupNotificationListeners(classId, studentId) {
     limit(10)
   );
 
-  // CBT: where assignedTo array contains studentId, order by updatedAt desc, limit 10
   const cbtQuery = query(
     collection(db, 'cbt'),
     where('assignedTo', 'array-contains', studentId),
@@ -727,7 +676,6 @@ function initNotificationBell() {
     const wasOpen = dropdown.classList.contains('show');
     dropdown.classList.toggle('show');
     if (!wasOpen) {
-      // mark all as seen => badge disappears
       localStorage.setItem('notificationLastSeen', Date.now().toString());
       updateBadgeFromMerged();
     }
@@ -739,8 +687,7 @@ function initNotificationBell() {
   });
 }
 
-// ─────────────────────────────────── Subject resolver (with scores for Results) ───────
-// Note: This function is kept for subjects tab, not used for results anymore.
+// ─────────────────────────────────── Subject resolver ────────────────────────
 async function resolveSubjects(rawSubjects) {
   if (!Array.isArray(rawSubjects) || rawSubjects.length === 0) return [];
   let resolved = [];
@@ -787,19 +734,17 @@ async function resolveSubjects(rawSubjects) {
   return resolved;
 }
 
-// ─────────────────────────────────── Subscription listener ──────────────────
+// ─────────────────────────────────── Subscription listener (using service) ───
 function initSubscriptionListener(schoolId) {
   if (!schoolId) return;
   if (unsubscribeSubscription) unsubscribeSubscription();
-  const subDocRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-  unsubscribeSubscription = onSnapshot(subDocRef, docSnap => {
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      isSchoolSubscriptionActive = !(data.locked === true || data.locked === 'true' || data.status === 'inactive' || data.status === 'expired');
-    } else {
+  unsubscribeSubscription = service.subscribeToSubscription(schoolId, (subData) => {
+    if (!subData) {
       isSchoolSubscriptionActive = false;
+    } else {
+      isSchoolSubscriptionActive = !(subData.locked === true || subData.locked === 'true' || subData.status === 'inactive' || subData.status === 'expired');
     }
-  }, err => { console.error('Subscription listener error:', err); isSchoolSubscriptionActive = false; });
+  });
 }
 
 // ─────────────────────────────────── CBT navigation with sub check ───────────
@@ -825,16 +770,15 @@ function attachCbtClickHandlers() {
   });
 }
 
-// ─────────────────────────────────── Master data loader ──────────────────────
+// ─────────────────────────────────── Master data loader (using service) ──────
 async function loadStudentDashboard() {
   const user = auth.currentUser;
   if (!user) return;
   currentStudentId = user.uid;
 
   try {
-    const userSnap = await getDoc(doc(db, 'users', user.uid));
-    if (!userSnap.exists()) throw new Error('User document not found');
-    const userData = userSnap.data();
+    const userData = await service.getUserById(user.uid);
+    if (!userData) throw new Error('User document not found');
     if (userData.role !== 'student') throw new Error('Not a student account');
     currentSchoolId = userData.schoolId;
     if (!currentSchoolId) throw new Error('No schoolId linked');
@@ -847,9 +791,9 @@ async function loadStudentDashboard() {
   }
 
   try {
-    const snap = await getDoc(doc(db, 'students', currentStudentId));
-    if (!snap.exists()) throw new Error('Student profile not found');
-    currentStudentData = snap.data();
+    const student = await service.getStudentById(currentStudentId);
+    if (!student) throw new Error('Student profile not found');
+    currentStudentData = student;
   } catch (err) {
     console.warn('[StudentPortal] Student profile:', err);
     currentStudentData = null;
@@ -863,18 +807,15 @@ async function loadStudentDashboard() {
 
   loadSchoolHeader(currentSchoolId).catch(err => console.warn('School header failed:', err));
 
-  // Attendance
+  // Attendance using service.getAttendanceByStudent
   attendanceRecords = [];
   try {
     const classId = safeVal(currentStudentData?.classId);
-    let snap = null;
-    if (currentSchoolId && classId) {
-      snap = await getDocs(query(collection(db, 'attendance'), where('schoolId','==',currentSchoolId), where('studentId','==',currentStudentId), where('classId','==',classId)));
-    }
-    if (!snap || snap.empty) snap = await getDocs(collection(db, 'students', currentStudentId, 'attendance'));
-    for (const docSnap of (snap?.docs || [])) {
-      const data = docSnap.data();
-      if (data.academicSession === globalCurrentSession && data.term === globalCurrentTerm) {
+    const term = globalCurrentTerm;
+    const session = globalCurrentSession;
+    if (currentSchoolId && classId && term && session) {
+      const records = await service.getAttendanceByStudent(currentSchoolId, currentStudentId, classId, session, term);
+      records.forEach(data => {
         const days = data.days || {};
         const week = data.weekNumber;
         for (const [day, sessions] of Object.entries(days)) {
@@ -883,7 +824,7 @@ async function loadStudentDashboard() {
             if (typeof sessions.A === 'boolean') attendanceRecords.push({ status: sessions.A ? 'present' : 'absent', weekNumber: week, day, session: 'A' });
           }
         }
-      }
+      });
     }
   } catch (err) { console.warn('Attendance load fail:', err); attendanceRecords = []; }
 
@@ -895,27 +836,17 @@ async function loadStudentDashboard() {
   try {
     const classId = safeVal(currentStudentData?.classId);
     if (currentSchoolId && classId) {
-      let snap = await getDocs(query(collection(db, 'assignments'), where('schoolId','==',currentSchoolId), where('classId','==',classId)));
-      if (snap.empty) snap = await getDocs(query(collection(db, 'schools', currentSchoolId, 'assignments'), where('class','==',classId)));
-      assignmentsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      assignmentsList = await service.getAssignmentsByClass(currentSchoolId, classId);
     } else assignmentsList = [];
   } catch (err) { console.warn('Assignments fail:', err); assignmentsList = []; }
 
-  // Setup live notification listeners
-  setupNotificationListeners(
-    safeVal(currentStudentData?.classId),
-    currentStudentId
-  );
-
-  // OLD RESULTS FETCHING REMOVED – replaced by CBT scores
-  // No need to fetch from students/{id}/results anymore.
+  setupNotificationListeners(safeVal(currentStudentData?.classId), currentStudentId);
 
   renderHero(currentStudentData);
   renderProfile(currentStudentData);
   renderAttendance(attendanceRecords);
   renderSubjects(subjectsList);
   renderAssignments(assignmentsList);
-  // NEW: Render Results tab with CBT scores
   await renderResultsSection();
 }
 
@@ -927,7 +858,6 @@ function initDesktopNav() {
       const section = link.getAttribute('data-section');
       if (section === 'cbt') return;
       showSection(section === 'results' ? 'results' : 'dashboard');
-      // When results section is shown, refresh CBT results
       if (section === 'results') renderResultsSection();
     });
   });
@@ -974,13 +904,13 @@ function initDownload() {
 onAuthStateChanged(auth, async user => {
   if (!user) { window.location.href = '/'; return; }
   try {
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (!userDoc.exists() || userDoc.data().role !== 'student') {
+    const userData = await service.getUserById(user.uid);
+    if (!userData || userData.role !== 'student') {
       await signOut(auth);
       window.location.href = '/';
       return;
     }
-    const schoolId = userDoc.data().schoolId || '';
+    const schoolId = userData.schoolId || '';
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', 'student');
     localStorage.setItem('studentId', user.uid);

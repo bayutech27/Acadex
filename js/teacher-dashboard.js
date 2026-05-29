@@ -4,14 +4,19 @@
 // EXTENDED: Added getCurrentTeacherId(), getCurrentSchoolId(), getHostClassId() exports
 //           for attendance.js consumption. All existing functions are UNTOUCHED.
 // MODIFIED: displayTeacherName now shows dynamic time‑based greeting (Good morning/afternoon/evening).
+//
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support teacher doc creation (setDoc) for minimal teacher record,
+// logo upload (updateSchool), some scoring config queries, and direct score addDoc/updateDoc.
+// These remain as direct Firestore calls.
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getSchoolById } from './app.js';
 import { logoutUser } from './auth.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
+import * as service from './service.js';
 
 let currentTeacherId = null;
 let currentSchoolId = null;
@@ -27,7 +32,7 @@ function getTimeBasedGreeting() {
   return 'Good evening';
 }
 
-// ------------------- Auth Protection (NO REDIRECT on missing teacher doc) -------------------
+// ------------------- Auth Protection (using service.getUserById) -------------------
 export async function protectTeacherPage() {
   return new Promise((resolve, reject) => {
     onAuthStateChanged(auth, async (user) => {
@@ -39,40 +44,41 @@ export async function protectTeacherPage() {
       }
 
       try {
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        
-        if (!userDocSnap.exists()) {
+        const userData = await service.getUserById(user.uid);
+        if (!userData) {
           console.error("User document missing. Redirecting.");
           window.location.href = '/';
           return;
         }
-        
-        userRoleData = userDocSnap.data();
-        
+        userRoleData = userData;
+
         if (userRoleData.role !== 'teacher') {
           console.error("Access denied – not a teacher.");
           window.location.href = '/';
           return;
         }
-        
+
         currentSchoolId = userRoleData.schoolId;
         if (!currentSchoolId) {
           console.error("School ID missing. Redirecting.");
           window.location.href = '/';
           return;
         }
-        
+
         // Initialise Central Academic Calendar for teacher pages
         await initAcademicCalendar();
-        
+
         // Try to fetch teacher document, but do NOT redirect if missing
-        const teacherDocRef = doc(db, 'teachers', user.uid);
-        const teacherDocSnap = await getDoc(teacherDocRef);
-        
-        if (teacherDocSnap.exists()) {
-          teacherData = teacherDocSnap.data();
-          teacherName = teacherData.name || teacherData.email?.split('@')[0] || 'Teacher';
+        let teacher = null;
+        try {
+          teacher = await service.getTeacherById(user.uid);
+        } catch (e) {
+          console.warn('Teacher document fetch error', e);
+        }
+
+        if (teacher) {
+          teacherData = teacher;
+          teacherName = teacher.name || teacher.email?.split('@')[0] || 'Teacher';
         } else {
           // No teacher document? Create a default one on the fly (no redirect)
           console.warn("Teacher document missing – creating minimal record to avoid redirect.");
@@ -86,15 +92,16 @@ export async function protectTeacherPage() {
           };
           teacherName = userRoleData.email?.split('@')[0] || 'Teacher';
           try {
-            await setDoc(teacherDocRef, teacherData);
+            // TODO: service.createTeacher does not exist – use direct setDoc
+            await setDoc(doc(db, 'teachers', user.uid), teacherData);
           } catch (e) {
             console.warn("Could not create teacher document automatically:", e.message);
           }
         }
-        
+
         currentTeacherId = user.uid;
         resolve({ user, userData: userRoleData, teacherData, teacherName });
-        
+
       } catch (error) {
         console.error("Authorization error, but page will try to load:", error);
         if (userRoleData && currentSchoolId) {
@@ -131,11 +138,11 @@ export function displayTeacherName(name) {
   }
 }
 
-// ------------------- School Info with Address -------------------
+// ------------------- School Info with Address (using service.getSchoolById) -------------------
 export async function loadSchoolInfo() {
   if (!currentSchoolId) return;
   try {
-    const school = await getSchoolById(currentSchoolId);
+    const school = await service.getSchoolById(currentSchoolId);
     const schoolNameEl    = document.getElementById('schoolName');
     const schoolAddressEl = document.getElementById('schoolAddress');
     if (schoolNameEl)    schoolNameEl.textContent    = school ? school.name : 'Unknown School';
@@ -161,7 +168,7 @@ async function loadAcademicInfo() {
   if (academicDiv) academicDiv.textContent = `${session} • ${term}`;
 }
 
-// ------------------- Logo Upload -------------------
+// ------------------- Logo Upload (direct Firestore – service.updateSchool exists) -------------------
 export function setupLogoUpload() {
   const cameraIcon = document.getElementById('cameraIcon');
   const fileInput  = document.getElementById('logoUploadInput');
@@ -174,7 +181,8 @@ export function setupLogoUpload() {
         try {
           const compressed = await compressImage(file);
           if (compressed) {
-            await updateDoc(doc(db, 'schools', currentSchoolId), { logo: compressed });
+            // Use service.updateSchool
+            await service.updateSchool(currentSchoolId, { logo: compressed });
             const logoImg = document.getElementById('schoolLogoImg');
             if (logoImg) logoImg.src = compressed;
             showNotification("Logo updated successfully.", "success");
@@ -217,7 +225,7 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   });
 }
 
-// ------------------- UI Helpers -------------------
+// ------------------- UI Helpers (unchanged) -------------------
 export function setupSidebar() {
   const currentPage = window.location.pathname.split('/').pop();
   document.querySelectorAll('.sidebar-nav a').forEach(link => {
@@ -243,7 +251,7 @@ export async function checkClassTeacherStatus() {
 export function getTeacherData()     { return teacherData; }
 export function getTeacherSubjects() { return teacherData?.subjectIds || userRoleData?.subjects || []; }
 
-// ------------------- Scores Page Functions -------------------
+// ------------------- Scores Page Functions (refactored where possible) -------------------
 let scoresState = {
   students: [],
   scoringConfig: null,
@@ -284,9 +292,7 @@ async function loadClassesForTeacher() {
   const classSelect = document.getElementById('classSelect');
   if (!classSelect) return;
   try {
-    const q = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    const classes = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classSelect.innerHTML = '<option value="">-- Select Class --</option>' +
       classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   } catch (err) { handleError(err, "Failed to load classes."); }
@@ -301,12 +307,11 @@ async function loadSubjectsForTeacher() {
     return;
   }
   try {
-    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    const allSubjects = {};
-    snapshot.docs.forEach(d => { allSubjects[d.id] = d.data().name; });
+    const allSubjects = await service.getSubjectsBySchool(currentSchoolId);
+    const allSubjectsMap = {};
+    allSubjects.forEach(s => { allSubjectsMap[s.id] = s.name; });
     const options = teacherSubjects.map(id =>
-      `<option value="${id}">${escapeHtml(allSubjects[id] || id)}</option>`
+      `<option value="${id}">${escapeHtml(allSubjectsMap[id] || id)}</option>`
     ).join('');
     subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' + options;
   } catch (err) { handleError(err, "Failed to load subjects."); }
@@ -314,11 +319,10 @@ async function loadSubjectsForTeacher() {
 
 async function loadScoringConfig() {
   try {
-    const q = query(collection(db, 'scoring'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
+    const configs = await service.getScoringConfig(currentSchoolId);
     let caWeight = 30, examWeight = 70;
-    if (!snapshot.empty) {
-      const data = snapshot.docs[0].data();
+    if (configs && configs.length > 0) {
+      const data = configs[0];
       if (data.grading && typeof data.grading === 'string') {
         const parts = data.grading.split('/');
         if (parts.length === 2) { caWeight = parseInt(parts[0], 10) || 30; examWeight = parseInt(parts[1], 10) || 70; }
@@ -355,10 +359,8 @@ async function loadStudents() {
   scoresState.currentSession   = session;
   showLoader();
   try {
-    const q = query(collection(db, 'students'),
-      where('schoolId', '==', currentSchoolId), where('classId', '==', classId));
-    const snapshot = await getDocs(q);
-    const allStudents = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Use service.getStudentsByClass then filter by subject list
+    const allStudents = await service.getStudentsByClass(currentSchoolId, classId);
     const filteredStudents = allStudents.filter(s =>
       s.subjects && Array.isArray(s.subjects) && s.subjects.includes(subjectId)
     );
@@ -382,18 +384,12 @@ async function loadStudents() {
 
 async function loadExistingScores() {
   try {
-    const q = query(collection(db, 'scores'),
-      where('schoolId', '==', currentSchoolId),
-      where('subjectId', '==', scoresState.currentSubjectId),
-      where('classId', '==', scoresState.currentClassId),
-      where('term', '==', scoresState.currentTerm),
-      where('session', '==', scoresState.currentSession)
-    );
-    const snapshot = await getDocs(q);
+    // Use service.getScoresByClass? But we need subjectId filter. Use getScoresByClass and filter client-side.
+    const allScores = await service.getScoresByClass(scoresState.currentClassId, currentSchoolId, scoresState.currentTerm, scoresState.currentSession);
+    const filtered = allScores.filter(s => s.subjectId === scoresState.currentSubjectId);
     scoresState.scoresData = {};
-    snapshot.docs.forEach(d => {
-      const data = d.data();
-      scoresState.scoresData[data.studentId] = { ca: data.ca || 0, exam: data.exam || 0, total: data.total || 0, scoreId: d.id };
+    filtered.forEach(score => {
+      scoresState.scoresData[score.studentId] = { ca: score.ca || 0, exam: score.exam || 0, total: (score.ca || 0) + (score.exam || 0), scoreId: score.id };
     });
   } catch (err) { handleError(err, "Failed to load existing scores."); }
 }
@@ -459,20 +455,14 @@ async function saveAllScores() {
       if (ca   > caWeight)   ca   = caWeight;
       if (exam > examWeight) exam = examWeight;
       const total = ca + exam;
-      const scoreData = {
+      const existing = scoresState.scoresData[studentId];
+      // Use service.saveScore
+      await service.saveScore({
         studentId, subjectId: scoresState.currentSubjectId,
         classId: scoresState.currentClassId, schoolId: currentSchoolId,
         term: scoresState.currentTerm, session: scoresState.currentSession,
-        ca, exam, total, teacherId: currentTeacherId, updatedAt: new Date()
-      };
-      const existing = scoresState.scoresData[studentId];
-      if (existing?.scoreId) {
-        await updateDoc(doc(db, 'scores', existing.scoreId), { ...scoreData, updatedAt: new Date() });
-      } else {
-        const newRef = await addDoc(collection(db, 'scores'), { ...scoreData, createdAt: new Date() });
-        if (!scoresState.scoresData[studentId]) scoresState.scoresData[studentId] = {};
-        scoresState.scoresData[studentId].scoreId = newRef.id;
-      }
+        ca, exam, teacherId: currentTeacherId
+      }, existing?.scoreId);
     }
     showNotification("All scores saved successfully!", "success");
   } catch (err) { handleError(err, "Failed to save scores."); }
@@ -486,8 +476,6 @@ function escapeHtml(str) {
 
 // =============================================================================
 // NEW EXPORTS — added for attendance.js. Do NOT remove or rename these.
-// They expose the module-scoped variables that attendance.js needs without
-// coupling it to the auth flow of teacher-dashboard.js.
 // =============================================================================
 
 /** Returns the currently authenticated teacher's Firebase UID. */

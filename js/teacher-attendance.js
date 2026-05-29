@@ -11,10 +11,16 @@
  *
  * Firestore collection: teacher_attendance
  * School geofence stored in: schools/{schoolId}  →  geofence: { ... }
+ *
+ * All Firestore operations go through service.js where possible.
+ * TODO: service.js does not yet support teacher attendance queries, teacher list retrieval
+ * (getTeachersBySchool exists? Yes, service.getTeachersBySchool), and admin override updates.
+ * Those remain as direct Firestore calls.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
-import { auth, db } from './firebase-config.js';
+import * as service from './service.js';
+import { db } from './firebase-config.js';
 import {
   collection, query, where, getDocs, getDoc,
   doc, updateDoc, addDoc, serverTimestamp, orderBy
@@ -23,7 +29,7 @@ import { getCurrentUser, getCurrentUserData, getCurrentSchoolId } from './admin.
 import { handleError, showNotification } from './error-handler.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HAVERSINE – distance between two GPS points in metres
+// HAVERSINE – distance between two GPS points in metres (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 function haversineMetres(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -40,22 +46,13 @@ function haversineMetres(lat1, lon1, lat2, lon2) {
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Compute teacher status from server timestamp + school settings
 // ─────────────────────────────────────────────────────────────────────────────
-/**
- * @param {Timestamp|null} clockIn - Firestore Timestamp or null
- * @param {string} officialResumeTime - "HH:mm" e.g. "08:00"
- * @param {number} lateAfterMinutes - grace minutes after official time
- * @returns {string} 'present', 'late', or 'absent'
- */
 function computeTeacherStatus(clockIn, officialResumeTime, lateAfterMinutes) {
   if (!clockIn) return 'absent';
-  // Parse official time
   const [h, m] = officialResumeTime.split(':').map(Number);
-  // Create a Date object for the same day as the clockIn, but set hours/minutes to official time + grace
-  const clockInDate = clockIn.toDate(); // Firestore Timestamp → JS Date
+  const clockInDate = clockIn.toDate();
   const cutoff = new Date(clockInDate);
-  cutoff.setHours(h, m, 0, 0);                         // set to official time
-  cutoff.setMinutes(cutoff.getMinutes() + lateAfterMinutes); // add grace period
-
+  cutoff.setHours(h, m, 0, 0);
+  cutoff.setMinutes(cutoff.getMinutes() + lateAfterMinutes);
   return clockInDate <= cutoff ? 'present' : 'late';
 }
 
@@ -63,7 +60,7 @@ function computeTeacherStatus(clockIn, officialResumeTime, lateAfterMinutes) {
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 function todayStr() {
-  return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  return new Date().toISOString().split('T')[0];
 }
 
 function formatTime(ts) {
@@ -97,38 +94,29 @@ function statusPill(status) {
 
 function showMsg(el, text, type = 'success') {
   if (!el) return;
-  const colors = {
-    success: '#065f46',
-    error:   '#991b1b',
-    info:    '#0369a1',
-  };
-  el.style.display     = 'block';
-  el.style.color       = colors[type] || colors.success;
-  el.innerHTML         = text;
+  const colors = { success: '#065f46', error: '#991b1b', info: '#0369a1' };
+  el.style.display = 'block';
+  el.style.color = colors[type] || colors.success;
+  el.innerHTML = text;
   setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GEOFENCE & ATTENDANCE SETTINGS
+// GEOFENCE & ATTENDANCE SETTINGS (using service.getSchoolById + service.updateGeofence)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Load the school's full geofence + attendance settings.
- * Returns an object with the new fields or sensible defaults.
- */
 async function loadAttendanceSettings(schoolId) {
   try {
-    const snap = await getDoc(doc(db, 'schools', schoolId));
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    const gf = data.geofence || {};
+    const school = await service.getSchoolById(schoolId);
+    if (!school) return null;
+    const gf = school.geofence || {};
     return {
       lat: gf.lat || null,
       lng: gf.lng || null,
       radiusMetres: gf.radiusMetres || 150,
       enabled: gf.enabled || false,
-      officialResumeTime: gf.officialResumeTime || '08:00',   // ★ NEW
-      lateAfterMinutes: gf.lateAfterMinutes ?? 30,            // ★ NEW
+      officialResumeTime: gf.officialResumeTime || '08:00',
+      lateAfterMinutes: gf.lateAfterMinutes ?? 30,
       updatedAt: gf.updatedAt || null,
     };
   } catch (err) {
@@ -159,7 +147,6 @@ function populateSettingsForm(settings) {
   document.getElementById('geofenceLat').value            = settings.lat  || '';
   document.getElementById('geofenceLng').value            = settings.lng  || '';
   document.getElementById('geofenceRadius').value         = settings.radiusMetres || 150;
-  // ★ NEW: official time and late minutes
   const officialEl = document.getElementById('officialResumeTime');
   if (officialEl) officialEl.value = settings.officialResumeTime || '08:00';
   const lateEl = document.getElementById('geofenceLateThreshold');
@@ -167,7 +154,6 @@ function populateSettingsForm(settings) {
 }
 
 function setupSettingsUI(schoolId) {
-  // ── Use my current location button ──────────────────────
   document.getElementById('useMyLocationBtn')?.addEventListener('click', () => {
     const status = document.getElementById('geofenceStatus');
     if (status) {
@@ -203,12 +189,11 @@ function setupSettingsUI(schoolId) {
     );
   });
 
-  // ── Save button ─────────────────────────────────────────
   document.getElementById('saveGeofenceBtn')?.addEventListener('click', async () => {
     const lat     = parseFloat(document.getElementById('geofenceLat')?.value);
     const lng     = parseFloat(document.getElementById('geofenceLng')?.value);
     const radius  = parseInt(document.getElementById('geofenceRadius')?.value, 10);
-    const officialTime = document.getElementById('officialResumeTime')?.value || '08:00'; // ★ NEW
+    const officialTime = document.getElementById('officialResumeTime')?.value || '08:00';
     const lateMin = parseInt(document.getElementById('geofenceLateThreshold')?.value, 10);
 
     if (isNaN(lat) || isNaN(lng)) {
@@ -224,16 +209,15 @@ function setupSettingsUI(schoolId) {
     if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…'; }
 
     try {
-      await updateDoc(doc(db, 'schools', schoolId), {
-        geofence: {
-          lat,
-          lng,
-          radiusMetres: radius || 150,
-          enabled: true,
-          officialResumeTime: officialTime,   // ★ NEW
-          lateAfterMinutes: isNaN(lateMin) ? 30 : lateMin,  // ★ UPDATED
-          updatedAt: serverTimestamp(),
-        }
+      // Use service.updateGeofence (exists in service.js)
+      await service.updateGeofence(schoolId, {
+        lat,
+        lng,
+        radiusMetres: radius || 150,
+        enabled: true,
+        officialResumeTime: officialTime,
+        lateAfterMinutes: isNaN(lateMin) ? 30 : lateMin,
+        updatedAt: new Date()
       });
       const newSettings = { lat, lng, radiusMetres: radius, officialResumeTime: officialTime, lateAfterMinutes: isNaN(lateMin) ? 30 : lateMin };
       renderGeofenceStatus(newSettings);
@@ -249,7 +233,7 @@ function setupSettingsUI(schoolId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ATTENDANCE TABLE
+// ATTENDANCE TABLE (uses service.getTeachersBySchool, direct Firestore for attendance)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadAttendanceForDate(schoolId, dateStr) {
   const tbody = document.getElementById('attendanceTableBody');
@@ -257,22 +241,19 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:1.5rem;">
     <i class="fa-solid fa-spinner fa-spin"></i> Loading…</td></tr>`;
 
-  // ★ Load school settings for official time
   const settings = await loadAttendanceSettings(schoolId);
   const officialResumeTime = settings?.officialResumeTime || '08:00';
   const lateAfterMinutes   = settings?.lateAfterMinutes ?? 30;
 
   try {
-    // 1 – Get all teachers in this school
-    const teachersSnap = await getDocs(
-      query(collection(db, 'teachers'), where('schoolId', '==', schoolId))
-    );
+    // Use service.getTeachersBySchool (cached)
+    const teachers = await service.getTeachersBySchool(schoolId);
     const allTeachers = {};
-    teachersSnap.forEach(d => { allTeachers[d.id] = d.data(); });
-    const totalCount = Object.keys(allTeachers).length;
+    teachers.forEach(t => { allTeachers[t.uid || t.id] = t; });
+    const totalCount = teachers.length;
     document.getElementById('countTotal').textContent = totalCount;
 
-    // 2 – Get attendance records for this date
+    // Direct Firestore query for teacher_attendance (service does not support)
     const attSnap = await getDocs(
       query(
         collection(db, 'teacher_attendance'),
@@ -286,12 +267,11 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       records[data.uid] = { id: d.id, ...data };
     });
 
-    // 3 – Build full list (present + absent) with dynamic status
     let countPresent = 0, countLate = 0, countAbsent = 0;
     const rows = [];
 
-    Object.entries(allTeachers).forEach(([tid, teacher]) => {
-      const uid = teacher.uid || teacher.authUid || tid;
+    for (const teacher of teachers) {
+      const uid = teacher.uid || teacher.id;
       const rec = records[uid] || null;
       let status = 'absent';
 
@@ -299,23 +279,19 @@ async function loadAttendanceForDate(schoolId, dateStr) {
         if (rec.adminOverride) {
           status = 'override';
         } else {
-          // ★ Compute real status from server timestamp + school settings
           status = computeTeacherStatus(rec.clockIn, officialResumeTime, lateAfterMinutes);
-          // If clocked in but not out yet, mark as 'clockedin' (still at school)
           if (status === 'present' && rec.clockIn && !rec.clockOut) {
             status = 'clockedin';
           }
         }
       }
 
-      // Count for summary
       if (status === 'present' || status === 'override') countPresent++;
       else if (status === 'late') countLate++;
-      else if (status === 'clockedin') { /* counted separately if desired, here as present */ }
       else countAbsent++;
 
-      rows.push({ tid, teacher, rec, status });
-    });
+      rows.push({ teacher, rec, status });
+    }
 
     document.getElementById('countPresent').textContent = countPresent;
     document.getElementById('countLate').textContent    = countLate;
@@ -327,7 +303,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       return;
     }
 
-    // Sort: present/override first, then late, then clockedin, then absent
     const order = { present:0, override:0, clockedin:1, late:2, absent:3 };
     rows.sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3));
 
@@ -353,14 +328,13 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${statusPill(r.status)}</td>
           <td>
             <button class="btn-secondary" style="padding:.3rem .7rem;font-size:.73rem;"
-              onclick="window.__openOverride('${r.teacher.uid || r.tid}','${name}')">
+              onclick="window.__openOverride('${uid}','${name}')">
               <i class="fa-solid fa-pen"></i> Override
             </button>
           </td>
         </tr>`;
     }).join('');
 
-    // Expose quick override trigger on window
     window.__openOverride = (uid, name) => {
       const sel = document.getElementById('overrideTeacherSelect');
       if (sel) {
@@ -372,7 +346,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     };
 
-    // Export data stored globally for CSV
     window.__attendanceExportData = rows.map(r => ({
       Name:       r.teacher.name || r.teacher.fullName || 'Unknown',
       Date:       dateStr,
@@ -391,19 +364,119 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPORT CSV (unchanged)
+// EXPORT CSV (unchanged, uses window.__attendanceExportData)
 // ─────────────────────────────────────────────────────────────────────────────
-function exportToCSV(data, filename) { /* … same as before … */ }
+function exportToCSV(data, filename) {
+  if (!data || !data.length) {
+    showNotification('No data to export.', 'error');
+    return;
+  }
+  const headers = Object.keys(data[0]);
+  const csvRows = [];
+  csvRows.push(headers.join(','));
+  for (const row of data) {
+    const values = headers.map(header => {
+      const val = row[header] ?? '';
+      return `"${String(val).replace(/"/g, '""')}"`;
+    });
+    csvRows.push(values.join(','));
+  }
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showNotification('CSV exported.', 'success');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POPULATE OVERRIDE SELECT (unchanged)
+// POPULATE OVERRIDE SELECT (uses service.getTeachersBySchool)
 // ─────────────────────────────────────────────────────────────────────────────
-async function populateTeacherSelect(schoolId) { /* … same as before … */ }
+async function populateTeacherSelect(schoolId) {
+  const select = document.getElementById('overrideTeacherSelect');
+  if (!select) return;
+  try {
+    const teachers = await service.getTeachersBySchool(schoolId);
+    select.innerHTML = '<option value="">-- Select Teacher --</option>';
+    teachers.forEach(t => {
+      const name = t.name || t.fullName || t.displayName || 'Unknown';
+      const uid = t.uid || t.id;
+      const option = document.createElement('option');
+      option.value = uid;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+  } catch (err) {
+    handleError(err, 'Failed to load teacher list for override.');
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN OVERRIDE (updated to not touch status computation)
+// ADMIN OVERRIDE (direct Firestore – service does not support)
 // ─────────────────────────────────────────────────────────────────────────────
-async function setupOverrideUI(schoolId) { /* … same as before … */ }
+async function setupOverrideUI(schoolId) {
+  const overrideBtn = document.getElementById('applyOverrideBtn');
+  if (!overrideBtn) return;
+
+  overrideBtn.addEventListener('click', async () => {
+    const teacherUid = document.getElementById('overrideTeacherSelect')?.value;
+    const status = document.getElementById('overrideStatus')?.value;
+    const note = document.getElementById('overrideNote')?.value.trim() || 'Admin override';
+    if (!teacherUid || !status) {
+      showNotification('Please select a teacher and choose a status.', 'error');
+      return;
+    }
+
+    const date = document.getElementById('attendanceDateFilter')?.value || todayStr();
+
+    showLoader();
+    try {
+      // Check if a record already exists for this teacher + date
+      const q = query(
+        collection(db, 'teacher_attendance'),
+        where('schoolId', '==', schoolId),
+        where('uid', '==', teacherUid),
+        where('date', '==', date)
+      );
+      const snap = await getDocs(q);
+      let ref;
+      if (!snap.empty) {
+        ref = doc(db, 'teacher_attendance', snap.docs[0].id);
+        await updateDoc(ref, {
+          adminOverride: true,
+          overrideStatus: status,
+          overrideNote: note,
+          overrideBy: auth.currentUser?.uid || 'admin',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // Create a new record for this date
+        ref = doc(collection(db, 'teacher_attendance'));
+        await addDoc(collection(db, 'teacher_attendance'), {
+          uid: teacherUid,
+          schoolId,
+          date,
+          adminOverride: true,
+          overrideStatus: status,
+          overrideNote: note,
+          overrideBy: auth.currentUser?.uid || 'admin',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      }
+      showNotification(`Override applied for teacher.`, 'success');
+      await loadAttendanceForDate(schoolId, date);
+    } catch (err) {
+      handleError(err, 'Failed to apply override.');
+    } finally {
+      hideLoader();
+    }
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN INIT
@@ -415,28 +488,23 @@ export async function initTeacherAttendancePage() {
     return;
   }
 
-  // Load and display existing settings (geofence + new fields)
   const settings = await loadAttendanceSettings(schoolId);
   renderGeofenceStatus(settings);
   populateSettingsForm(settings);
   setupSettingsUI(schoolId);
 
-  // Populate teacher select for override
   await populateTeacherSelect(schoolId);
   await setupOverrideUI(schoolId);
 
-  // Load today's attendance by default
   const today = todayStr();
   document.getElementById('attendanceDateFilter').value = today;
   await loadAttendanceForDate(schoolId, today);
 
-  // Load button
   document.getElementById('loadAttendanceBtn')?.addEventListener('click', async () => {
     const date = document.getElementById('attendanceDateFilter')?.value || todayStr();
     await loadAttendanceForDate(schoolId, date);
   });
 
-  // Export button (unchanged)
   document.getElementById('exportCsvBtn')?.addEventListener('click', () => {
     const date = document.getElementById('attendanceDateFilter')?.value || todayStr();
     exportToCSV(

@@ -1,8 +1,9 @@
 // classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
-import { db } from './firebase-config.js';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet provide createClass/deleteClass – direct Firestore writes kept temporarily.
+
+import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
-import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
@@ -47,11 +48,9 @@ async function loadClasses() {
   const container = document.getElementById('classesList');
   if (!container) return;
   try {
-    const classesRef = collection(db, 'classes');
-    const q = query(classesRef, where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    let classes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // ✅ Sort classes alphabetically by name
+    // Use service.getClassesBySchool (cached)
+    let classes = await service.getClassesBySchool(currentSchoolId);
+    // Sort alphabetically by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
 
     if (classes.length === 0) {
@@ -80,6 +79,9 @@ async function loadClasses() {
       if (confirm('Delete this class?')) {
         showLoader();
         try {
+          // TODO: service.deleteClass does not exist yet – use direct Firestore
+          const { deleteDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+          const { db } = await import('./firebase-config.js');
           await deleteDoc(doc(db, 'classes', id));
           showNotification("Class deleted successfully.", "success");
           await loadClasses();
@@ -174,37 +176,31 @@ function setupClassForm() {
 
     showLoader();
     try {
-      // Check for duplicate class name under the same school
-      const q = query(
-        collection(db, 'classes'),
-        where('schoolId', '==', currentSchoolId),
-        where('name', '==', className)
-      );
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
+      // Check for duplicate class name under the same school using service
+      const existingClasses = await service.getClassesBySchool(currentSchoolId);
+      if (existingClasses.some(c => c.name === className)) {
         showNotification(`Class "${className}" already exists. Duplicate classes are not allowed.`, "error");
         return;
       }
 
-      await addClass(className, classLevel);
+      // TODO: service.createClass does not exist – use direct Firestore addDoc
+      const { addDoc, collection } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+      const { db } = await import('./firebase-config.js');
+      await addDoc(collection(db, 'classes'), {
+        name: className,
+        level: classLevel,
+        schoolId: currentSchoolId,
+        createdAt: new Date()
+      });
       classForm.reset();
       showNotification("Class added successfully.", "success");
+      await loadClasses();
     } catch (error) {
       handleError(error, "Failed to add class.");
     } finally {
       hideLoader();
     }
   });
-}
-
-async function addClass(name, level) {
-  await addDoc(collection(db, 'classes'), {
-    name,
-    level,
-    schoolId: currentSchoolId,
-    createdAt: new Date()
-  });
-  await loadClasses();
 }
 
 function escapeHtml(str) {
@@ -276,18 +272,13 @@ async function setupSubscriptionUI() {
 async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();
-  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-  unsubscribeSub = onSnapshot(subRef, (snap) => {
-    if (!snap.exists()) {
-      showPaymentBanner();
-      return;
-    }
-    const sub = snap.data();
-    const isActive = sub.status === 'active' && sub.locked === false;
+  // Use service.subscribeToSubscription for real-time updates
+  unsubscribeSub = service.subscribeToSubscription(currentSchoolId, (subData) => {
+    const isActive = subData ? (subData.status === 'active' && subData.locked === false) : false;
     if (isActive) {
       hidePaymentBanner();
     } else {
       showPaymentBanner();
     }
-  }, (err) => handleError(err, "Subscription listener error."));
+  });
 }

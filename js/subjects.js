@@ -1,7 +1,11 @@
 // subjects.js - Manage subjects with Primary/Secondary levels, manual entry, and formatting
 // MODIFIED: Subjects table now wrapped in .table-responsive-wrapper for horizontal scrolling on mobile
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support deleteSubject or addSubject – those remain as direct Firestore calls.
+
+import * as service from './service.js';
 import { db } from './firebase-config.js';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
@@ -33,10 +37,9 @@ async function loadSubjects() {
   if (!container) return;
   
   try {
-    const q = query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(q);
-    let subjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // ✅ Sort subjects alphabetically by name
+    // Use service.getSubjectsBySchool (cached)
+    let subjects = await service.getSubjectsBySchool(currentSchoolId);
+    // Sort alphabetically by name
     subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     if (subjects.length === 0) {
@@ -66,6 +69,7 @@ async function loadSubjects() {
       if (confirm('Delete this subject?')) {
         showLoader();
         try {
+          // TODO: service.deleteSubject does not exist – use direct Firestore
           await deleteDoc(doc(db, 'subjects', id));
           showNotification("Subject deleted.", "success");
           await loadSubjects();
@@ -89,14 +93,9 @@ function formatSubjectName(rawName) {
 
 async function isDuplicateSubject(name, level) {
   const normalizedName = formatSubjectName(name);
-  const q = query(
-    collection(db, 'subjects'),
-    where('schoolId', '==', currentSchoolId),
-    where('name', '==', normalizedName),
-    where('level', '==', level)
-  );
-  const snapshot = await getDocs(q);
-  return !snapshot.empty;
+  // Use service.getSubjectsByLevel to check duplicates
+  const existing = await service.getSubjectsByLevel(currentSchoolId, level);
+  return existing.some(sub => sub.name === normalizedName);
 }
 
 async function addSubjectToFirestore(name, code, level) {
@@ -105,6 +104,7 @@ async function addSubjectToFirestore(name, code, level) {
   if (duplicate) {
     throw new Error(`Subject "${formattedName}" already exists for ${level} level.`);
   }
+  // TODO: service.createSubject does not exist – use direct Firestore addDoc
   await addDoc(collection(db, 'subjects'), {
     name: formattedName,
     code: code || '',

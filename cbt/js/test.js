@@ -2,14 +2,19 @@
 // ADDED: Tab‑switching detector – first violation warns, second auto‑submits.
 // ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
 // FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
+//
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support cumulative topic stats with increment (updateCumulativeTopicStats)
+// – those remain as direct Firestore calls.
+
 import { auth, db } from '../../js/firebase-config.js';
 import {
-    collection, addDoc, getDoc, getDocs, doc, updateDoc,
-    increment, serverTimestamp, setDoc
+    collection, addDoc, getDocs, doc, updateDoc,
+    increment, serverTimestamp, setDoc, getDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
-// Academic calendar integration – session & term
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from '../../js/academic-calendar.js';
+import * as service from '../../js/service.js';
 
 // =============================================
 // WEAKNESS DETECTION & RECOMMENDATION ENGINE
@@ -63,19 +68,18 @@ function generateWeaknessReport(userAnswers, questions) {
 async function saveTopicStats(userId, topicStats) {
   if (!userId || !topicStats || topicStats.length === 0) return;
   try {
+    // Use service.saveTopicStats
     for (const subjectData of topicStats) {
       for (const topic of subjectData.topics) {
-        const statData = {
-          userId,
+        await service.saveTopicStats(userId, {
           subject: subjectData.subject,
           topic: topic.topic,
           total: topic.total,
           correct: topic.correct,
           accuracy: topic.accuracy,
           level: topic.level,
-          timestamp: serverTimestamp(),
-        };
-        await addDoc(collection(db, "users", userId, "topicStats"), statData);
+          timestamp: new Date()
+        });
       }
     }
     console.log("✅ Topic stats saved successfully");
@@ -86,6 +90,7 @@ async function saveTopicStats(userId, topicStats) {
 
 async function updateCumulativeTopicStats(userId, topicStats) {
     if (!userId || !topicStats || topicStats.length === 0) return;
+    // TODO: service.upsertTopicCumulative does not support increment – keep direct Firestore for now
     try {
         for (const subjectData of topicStats) {
             for (const topic of subjectData.topics) {
@@ -124,21 +129,8 @@ async function updateCumulativeTopicStats(userId, topicStats) {
 async function fetchCumulativeTopicStats(userId) {
     if (!userId) return [];
     try {
-        const colRef = collection(db, "users", userId, "topicCumulative");
-        const snapshot = await getDocs(colRef);
-        const stats = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            stats.push({
-                subject: data.subject || 'General',
-                topic: data.topic || 'Unknown',
-                totalAnswered: data.totalAnswered || 0,
-                totalCorrect: data.totalCorrect || 0,
-                lastUpdated: data.lastUpdated,
-                lastAccuracy: data.lastAccuracy,
-                lastPracticed: data.lastPracticed
-            });
-        });
+        // Use service.getTopicCumulative
+        const stats = await service.getTopicCumulative(userId);
         return stats;
     } catch (error) {
         console.error("❌ Error fetching cumulative topic stats:", error);
@@ -712,7 +704,7 @@ function hideSubmitModal() { submitModal.style.display = 'none'; }
 function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(false), 1000); }
 
 // =============================================
-// SAVE TEST RESULT TO FIRESTORE (with session & term)
+// SAVE TEST RESULT TO FIRESTORE (with session & term) — using service.js
 // =============================================
 async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores = null) {
     try {
@@ -724,19 +716,18 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) throw new Error("School ID missing");
 
+        // Use service.getStudentById instead of direct getDoc
         let classId = null;
         let className = null;
         try {
-            const studentDocRef = doc(db, 'students', currentUser.uid);
-            const studentSnap = await getDoc(studentDocRef);
-            if (studentSnap.exists()) {
-                const studentData = studentSnap.data();
+            const studentData = await service.getStudentById(currentUser.uid);
+            if (studentData) {
                 classId = studentData.classId || null;
                 className = studentData.className || null;
                 if (classId && !className) {
-                    const classDoc = await getDoc(doc(db, 'classes', classId));
-                    if (classDoc.exists()) {
-                        className = classDoc.data().name || null;
+                    const classData = await service.getClassById(classId);
+                    if (classData) {
+                        className = classData.name || null;
                     }
                 }
             } else {
@@ -773,7 +764,7 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         }
 
         const resultData = {
-            completedAt: serverTimestamp(),
+            completedAt: new Date(),
             correctAnswers: correctAnswers,
             rawScore: rawScore,
             examType: testData.examType || "Practice",
@@ -808,11 +799,12 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             resultData.totalPossible = testData.totalQuestions;
         }
 
-        console.log("Saving test result to Firestore:", resultData);
-        const docRef = await addDoc(collection(db, "test_results"), resultData);
-        console.log('✅ Test result saved to Firestore with ID:', docRef.id);
+        console.log("Saving test result to Firestore via service:", resultData);
+        // Use service.saveTestResult
+        const docRef = await service.saveTestResult(resultData);
+        console.log('✅ Test result saved to Firestore with ID:', docRef);
         showToast('✅ Test result saved successfully!', 'success');
-        return docRef.id;
+        return docRef;
     } catch (error) {
         console.error('❌ ERROR SAVING TO FIRESTORE:', error);
         showToast(`❌ Failed to save test result: ${error.message}`, 'error');

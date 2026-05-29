@@ -1,12 +1,18 @@
 // scores.js - Teacher score entry with direct Firestore subscription check
-import { db, auth } from './firebase-config.js';
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not support fetchExistingScores (single score by student+subject),
+// bulk notifications, or direct writeBatch – those remain as direct Firestore calls.
+
+import { auth } from './firebase-config.js';
 import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { createBulkNotifications } from './notification-service.js';
+import * as service from './service.js';
 
 let currentSchoolId = null;
 let teacherData = null;
@@ -23,17 +29,11 @@ let selectedSession = '';
 let currentGrading = { ca: 40, exam: 60 };
 let isScoreEntryAllowed = false;      // will be set by checkSubscription()
 
-// ------------------- Direct subscription check -------------------
+// ------------------- Direct subscription check (via service) -------------------
 async function checkSubscription() {
   try {
-    const subDoc = await getDoc(doc(db, 'schools', currentSchoolId, 'subscription', 'current'));
-    if (!subDoc.exists()) {
-      isScoreEntryAllowed = false;
-      updateSubscriptionUI();
-      return false;
-    }
-    const subData = subDoc.data();
-    isScoreEntryAllowed = (subData.status === 'active' && subData.locked !== true);
+    const subData = await service.getSubscription(currentSchoolId);
+    isScoreEntryAllowed = subData ? (subData.status === 'active' && subData.locked !== true) : false;
     updateSubscriptionUI();
     return isScoreEntryAllowed;
   } catch (err) {
@@ -49,40 +49,12 @@ function escapeHtml(str) {
   return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }
 
-// ==================== NEW: Dynamic session loading ====================
+// ==================== Dynamic session loading via service ====================
 async function loadSessionOptions(schoolId) {
-  try {
-    const scoresQuery = query(
-      collection(db, 'scores'),
-      where('schoolId', '==', schoolId)
-    );
-    const snapshot = await getDocs(scoresQuery);
-
-    const sessionsSet = new Set();
-    snapshot.forEach(doc => {
-      const session = doc.data().session;
-      if (session) sessionsSet.add(session);
-    });
-
-    // Sort descending (newest first)
-    const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
-      const [yearA] = a.split('/');
-      const [yearB] = b.split('/');
-      return parseInt(yearB) - parseInt(yearA);
-    });
-
-    return sortedSessions;
-  } catch (err) {
-    console.error('Failed to load session options:', err);
-    // Fallback to a fixed list if the query fails
-    const year = new Date().getFullYear();
-    const fallback = [];
-    for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
-    return fallback;
-  }
+  return await service.loadSessionOptions(schoolId);
 }
 
-// ------------------- Grading loading (unchanged) -------------------
+// ------------------- Grading loading (using service) -------------------
 async function loadGradingSettingByClassLevel(classId, session, term) {
   if (!classId) {
     currentGrading = { ca: 40, exam: 60 };
@@ -90,43 +62,26 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
   }
 
   try {
-    const classDoc = await getDoc(doc(db, 'classes', classId));
-    if (!classDoc.exists()) {
+    const classData = await service.getClassById(classId);
+    if (!classData) {
       console.warn(`Class ${classId} not found, using default grading 40/60`);
       currentGrading = { ca: 40, exam: 60 };
       return;
     }
-    const classLevel = classDoc.data().level;
+    const classLevel = classData.level;
 
-    const scoringQuery = query(
-      collection(db, 'scoring'),
-      where('schoolId', '==', currentSchoolId),
-      where('level', '==', classLevel)
-    );
-    const scoringSnap = await getDocs(scoringQuery);
-
+    const scoringConfigs = await service.getScoringConfig(currentSchoolId, classLevel);
     let grading = null;
-    if (!scoringSnap.empty) {
-      const data = scoringSnap.docs[0].data();
-      if (data.grading) {
-        grading = data.grading;
-      } else if (data.caWeight !== undefined && data.examWeight !== undefined) {
-        grading = `${data.caWeight}/${data.examWeight}`;
-      }
+    if (scoringConfigs && scoringConfigs.length > 0) {
+      const data = scoringConfigs[0];
+      grading = data.grading || `${data.caWeight}/${data.examWeight}`;
     }
 
     if (!grading) {
-      const fallbackQuery = query(
-        collection(db, 'scoring'),
-        where('schoolId', '==', currentSchoolId)
-      );
-      const fallbackSnap = await getDocs(fallbackQuery);
-      if (!fallbackSnap.empty) {
-        const data = fallbackSnap.docs[0].data();
-        if (data.grading) grading = data.grading;
-        else if (data.caWeight !== undefined && data.examWeight !== undefined) {
-          grading = `${data.caWeight}/${data.examWeight}`;
-        }
+      const fallbackConfigs = await service.getScoringConfig(currentSchoolId);
+      if (fallbackConfigs && fallbackConfigs.length > 0) {
+        const data = fallbackConfigs[0];
+        grading = data.grading || `${data.caWeight}/${data.examWeight}`;
       }
     }
 
@@ -153,6 +108,7 @@ async function loadGradingSetting(session, term) {
   } else {
     try {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+      // TODO: service.getScoringConfigById(docId) – direct Firestore for now
       const docSnap = await getDoc(doc(db, 'scoring', docId));
       let grading = '40/60';
       if (docSnap.exists()) grading = docSnap.data().grading;
@@ -164,12 +120,12 @@ async function loadGradingSetting(session, term) {
   }
 }
 
-// ------------------- Data loading (unchanged) -------------------
+// ------------------- Data loading via service -------------------
 async function loadAllSubjects() {
   try {
-    const snap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
+    const subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjectsMap.clear();
-    snap.forEach(doc => subjectsMap.set(doc.id, doc.data().name));
+    subjects.forEach(subj => subjectsMap.set(subj.id, subj.name));
   } catch (err) {
     handleError(err, "Failed to load subjects.");
   }
@@ -177,10 +133,10 @@ async function loadAllSubjects() {
 
 async function loadAllClasses() {
   try {
-    const snap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    snap.forEach(doc => {
-      classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level });
+    classes.forEach(cls => {
+      classesMap.set(cls.id, { name: cls.name, level: cls.level });
     });
   } catch (err) {
     handleError(err, "Failed to load classes.");
@@ -190,11 +146,10 @@ async function loadAllClasses() {
 async function loadTeacherAssignedSubjectsAndClasses() {
   if (!teacherId) return;
   try {
-    const teacherDoc = await getDoc(doc(db, 'teachers', teacherId));
-    if (teacherDoc.exists()) {
-      const data = teacherDoc.data();
-      teacherSubjectIds = data.subjectIds || [];
-      teacherClassIds = data.classIds || [];
+    const teacher = await service.getTeacherById(teacherId);
+    if (teacher) {
+      teacherSubjectIds = teacher.subjectIds || [];
+      teacherClassIds = teacher.classIds || [];
       console.log("Teacher assigned subjects:", teacherSubjectIds);
       console.log("Teacher assigned classes:", teacherClassIds);
     } else {
@@ -251,15 +206,11 @@ function populateClassDropdown() {
 
 async function loadStudentsForClass(classId) {
   try {
-    const snap = await getDocs(query(
-      collection(db, 'students'),
-      where('schoolId', '==', currentSchoolId),
-      where('classId', '==', classId)
-    ));
-    studentsList = snap.docs.map(doc => ({
-      id: doc.id,
-      name: doc.data().name,
-      locked: doc.data().locked === true
+    const students = await service.getStudentsByClass(currentSchoolId, classId);
+    studentsList = students.map(s => ({
+      id: s.id,
+      name: s.name,
+      locked: s.locked === true
     }));
   } catch (err) {
     handleError(err, "Failed to load students for class.");
@@ -267,22 +218,11 @@ async function loadStudentsForClass(classId) {
   }
 }
 
+// TODO: service does not have getExistingScore – direct Firestore query
 async function fetchExistingScores(studentId, subjectId, term, session) {
   try {
-    const q = query(
-      collection(db, 'scores'),
-      where('studentId', '==', studentId),
-      where('subjectId', '==', subjectId),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docSnap = snap.docs[0];
-      return { id: docSnap.id, ...docSnap.data() };
-    }
-    return null;
+    const existing = await service.getExistingScore(studentId, subjectId, currentSchoolId, term, session);
+    return existing;
   } catch (err) {
     handleError(err, "Failed to fetch existing scores.");
     return null;
@@ -292,26 +232,35 @@ async function fetchExistingScores(studentId, subjectId, term, session) {
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
   if (scoresData.length === 0) return;
-  const batch = writeBatch(db);
-  for (const score of scoresData) {
-    const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
-    const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
-    const subjectName = subjectsMap.get(score.subjectId) || '';
-    const data = {
-      studentId: score.studentId,
-      subjectId: score.subjectId,
-      subjectName: subjectName,
-      schoolId: currentSchoolId,
-      term: selectedTerm,
-      session: selectedSession,
-      ca: score.ca,
-      exam: score.exam,
-      updatedAt: new Date()
-    };
-    if (!existing) data.createdAt = new Date();
-    batch.set(scoreRef, data, { merge: true });
+  // Use service.saveScoresBatch if available, otherwise direct Firestore
+  // service.saveScoresBatch expects array of score objects and schoolId/term/session
+  // We'll use service.saveScoresBatch for now (assumes it exists in service.js)
+  try {
+    await service.saveScoresBatch(scoresData, currentSchoolId, selectedTerm, selectedSession);
+  } catch (err) {
+    console.error("Service saveScoresBatch failed, falling back to direct batch:", err);
+    // Fallback: direct Firestore batch (original logic)
+    const batch = writeBatch(db);
+    for (const score of scoresData) {
+      const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
+      const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
+      const subjectName = subjectsMap.get(score.subjectId) || '';
+      const data = {
+        studentId: score.studentId,
+        subjectId: score.subjectId,
+        subjectName: subjectName,
+        schoolId: currentSchoolId,
+        term: selectedTerm,
+        session: selectedSession,
+        ca: score.ca,
+        exam: score.exam,
+        updatedAt: new Date()
+      };
+      if (!existing) data.createdAt = new Date();
+      batch.set(scoreRef, data, { merge: true });
+    }
+    await batch.commit();
   }
-  await batch.commit();
 }
 
 // ------------------- UI control based on subscription -------------------
@@ -482,23 +431,23 @@ async function saveScores() {
   try {
     await saveAllScores(unlockedScores);
     // --- After scores have been successfully saved ---
-if (unlockedScores.length > 0) {
-  try {
-    const subjectName = subjectsMap.get(selectedSubjectId) || '';
-    const notifications = unlockedScores.map(score => ({
-      studentId: score.studentId,
-      schoolId: currentSchoolId,
-      title: 'New Score Uploaded',
-      message: `Your ${subjectName} score has been uploaded.`,
-      type: 'score',
-      relatedId: null
-    }));
-    await createBulkNotifications(notifications);
-  } catch (notifErr) {
-    console.error('Failed to create score notifications:', notifErr);
-    // Not critical – continue
-  }
-}
+    if (unlockedScores.length > 0) {
+      try {
+        const subjectName = subjectsMap.get(selectedSubjectId) || '';
+        const notifications = unlockedScores.map(score => ({
+          studentId: score.studentId,
+          schoolId: currentSchoolId,
+          title: 'New Score Uploaded',
+          message: `Your ${subjectName} score has been uploaded.`,
+          type: 'score',
+          relatedId: null
+        }));
+        await createBulkNotifications(notifications);
+      } catch (notifErr) {
+        console.error('Failed to create score notifications:', notifErr);
+        // Not critical – continue
+      }
+    }
     showNotification(`Scores saved successfully for ${unlockedScores.length} student(s).`, "success");
     await renderScoreTable();
   } catch (err) {

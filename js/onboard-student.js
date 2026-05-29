@@ -1,15 +1,27 @@
 // onboard-student.js - Teacher onboards students only for his/her assigned class
 // STRICT: Only teachers with a host classId can use this page.
 // Duplicate name prevention, Firestore students collection, subscription lock.
+// All Firestore reads/writes go through service.js where possible.
+// TODO: service.js does not yet support student status updates, bulk deletion of scores/reports,
+// or auth account creation – these remain as direct Firestore/auth calls.
 
-import { db, auth } from './firebase-config.js';
+import { auth } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import { firebaseConfig } from './firebase-config.js';
 import {
-  collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp
+  collection,
+  deleteDoc,
+  doc,
+  updateDoc,
+  query,
+  where,
+  getDocs,
+  serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getRawSubscription } from './plan.js';
+import { db } from './firebase-config.js';
+import * as service from './service.js';
+import { getRawSubscription } from './plan.js';  // plan.js is separate – keep as is
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 // Global state
@@ -104,51 +116,47 @@ function calculateAndDisplayAge() {
 }
 
 /**
- * Verify teacher is a class teacher.
+ * Verify teacher is a class teacher using service.
  * Looks for classId OR hostClassId field on teacher doc.
- * Also fetches class details.
  */
 async function verifyAndGetClassTeacherData() {
   const user = auth.currentUser;
   if (!user) throw new Error('Not authenticated');
 
-  const teacherDoc = await getDoc(doc(db, 'teachers', user.uid));
-  if (!teacherDoc.exists()) throw new Error('Teacher record not found');
+  const teacherData = await service.getTeacherById(user.uid);
+  if (!teacherData) throw new Error('Teacher record not found');
 
-  const data = teacherDoc.data();
-  currentSchoolId = data.schoolId;
+  currentSchoolId = teacherData.schoolId;
 
-  // Try both possible field names used in the system
-  teacherClassId = data.classId || data.hostClassId || null;
+  // Try both possible field names
+  teacherClassId = teacherData.classId || teacherData.hostClassId || null;
 
   if (!teacherClassId) {
     throw new Error('You are not assigned as a class teacher. Access to onboard students is restricted.');
   }
 
-  // Fetch class details
-  const classDoc = await getDoc(doc(db, 'classes', teacherClassId));
-  if (!classDoc.exists()) throw new Error('Assigned class not found.');
-  className = classDoc.data().name;
-  classLevel = classDoc.data().level;
+  // Fetch class details via service
+  const classData = await service.getClassById(teacherClassId);
+  if (!classData) throw new Error('Assigned class not found.');
+  className = classData.name;
+  classLevel = classData.level;
 
   // Get school name for admission number
-  const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-  if (schoolDoc.exists()) schoolName = schoolDoc.data().name || '';
+  const schoolData = await service.getSchoolById(currentSchoolId);
+  if (schoolData) schoolName = schoolData.name || '';
 
   isClassTeacher = true;
   return { classId: teacherClassId, className, classLevel, schoolId: currentSchoolId };
 }
 
-// Load subjects for the class level
+// Load subjects for the class level via service
 async function loadSubjectsByLevel(level) {
   if (!level) return;
   try {
-    const snapshot = await getDocs(
-      query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level))
-    );
+    const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
     subjectsMap.clear();
-    snapshot.forEach(docSnap => {
-      subjectsMap.set(docSnap.id, { name: docSnap.data().name });
+    subjects.forEach(sub => {
+      subjectsMap.set(sub.id, { name: sub.name });
     });
     if (subjectsSelect) {
       subjectsSelect.innerHTML = '';
@@ -173,22 +181,20 @@ async function loadSubjectsByLevel(level) {
   }
 }
 
-// Admission number helpers
+// Admission number helpers (use service to get all students for the school)
 function getSchoolCode() {
   if (!schoolName) return 'XX';
   return schoolName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2);
 }
 async function getNextSequenceNumber() {
   try {
-    const snapshot = await getDocs(
-      query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
-    );
+    const allStudents = await service.getStudentsBySchool(currentSchoolId);
     const schoolCode = getSchoolCode();
     const currentYear = new Date().getFullYear();
     const pattern = new RegExp(`^${schoolCode}/${currentYear}/0*(\\d+)$`);
     let maxSeq = 0;
-    snapshot.docs.forEach(d => {
-      const no = d.data().admissionNumber;
+    allStudents.forEach(student => {
+      const no = student.admissionNumber;
       const match = no?.match(pattern);
       if (match) {
         const seq = parseInt(match[1], 10);
@@ -207,27 +213,19 @@ async function generateAdmissionNumber() {
   return `${schoolCode}/${currentYear}/${String(nextSeq).padStart(3, '0')}`;
 }
 async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
-  const q = query(collection(db, 'students'), where('schoolId', '==', currentSchoolId), where('admissionNumber', '==', admissionNo));
-  const snap = await getDocs(q);
-  if (snap.empty) return true;
-  if (excludeStudentId && snap.docs.length === 1 && snap.docs[0].id === excludeStudentId) return true;
-  return false;
+  const allStudents = await service.getStudentsBySchool(currentSchoolId);
+  const duplicate = allStudents.find(s => s.admissionNumber === admissionNo && s.id !== excludeStudentId);
+  return !duplicate;
 }
 
-// Duplicate name check within the same class
+// Duplicate name check within the same class using service
 async function isDuplicateStudentName(fullName, classId, excludeStudentId = null) {
   const normalizedName = fullName.trim().toLowerCase();
-  const q = query(collection(db, 'students'), where('schoolId', '==', currentSchoolId), where('classId', '==', classId));
-  const snap = await getDocs(q);
-  for (const docSnap of snap.docs) {
-    if (excludeStudentId && docSnap.id === excludeStudentId) continue;
-    const existingName = (docSnap.data().name || '').toLowerCase();
-    if (existingName === normalizedName) return true;
-  }
-  return false;
+  const classStudents = await service.getStudentsByClass(currentSchoolId, classId);
+  return classStudents.some(s => s.id !== excludeStudentId && (s.name || '').toLowerCase() === normalizedName);
 }
 
-// Image compression
+// Image compression (unchanged, not Firestore related)
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -296,20 +294,19 @@ async function handlePassportUpload(e) {
   }
 }
 
-// Load and display students for the teacher's class only
+// Load and display students for the teacher's class only (using service)
 async function loadAndDisplayStudents() {
   if (!teacherClassId || !isClassTeacher) return;
-  const studentsRef = collection(db, 'students');
-  const q = query(studentsRef, where('schoolId', '==', currentSchoolId), where('classId', '==', teacherClassId), where('status', '==', 'active'));
-  let snapshot;
+  let students;
   try {
-    snapshot = await getDocs(q);
+    // Get all students for the school, then filter by class and active status
+    const allStudents = await service.getStudentsBySchool(currentSchoolId);
+    students = allStudents.filter(s => s.classId === teacherClassId && s.status === 'active');
+    students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     handleError(err, 'Failed to load students');
     return;
   }
-  let students = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (!studentsContainer) return;
   if (students.length === 0) {
     studentsContainer.innerHTML = '<p>No active students found in your class.</p>';
@@ -352,13 +349,14 @@ async function loadAndDisplayStudents() {
       </table>
     </div>
   `;
-  // Status change listeners
+  // Status change listeners (direct Firestore update – TODO: add to service)
   document.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', async () => {
       const studentId = select.getAttribute('data-id');
       const newStatus = select.value;
       showLoader();
       try {
+        // TODO: Add service.updateStudentStatus(studentId, newStatus) to service layer
         await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
@@ -375,7 +373,10 @@ async function loadAndDisplayStudents() {
     if (!confirm('Delete this student permanently? All scores and reports will be removed.')) return;
     showLoader();
     try {
-      await deleteDoc(doc(db, 'students', id));
+      // Use service.deleteStudent (deletes the student doc and invalidates cache)
+      await service.deleteStudent(id);
+      // TODO: service.deleteStudent should also delete scores/reports, but currently doesn't.
+      // Manually delete scores and reports – direct Firestore calls
       const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
       for (const d of scoresSnap.docs) await deleteDoc(d.ref);
       const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
@@ -390,7 +391,7 @@ async function loadAndDisplayStudents() {
   };
 }
 
-// Modal logic
+// Modal logic (unchanged, uses service for loading student data)
 function openModal(studentId = null) {
   if (!isClassTeacher) {
     showNotification('Access denied: You are not a class teacher.', 'error');
@@ -427,36 +428,35 @@ function openModal(studentId = null) {
 }
 async function loadStudentData(studentId) {
   try {
-    const studentDoc = await getDoc(doc(db, 'students', studentId));
-    if (!studentDoc.exists()) return;
-    const data = studentDoc.data();
-    if (admissionNoInput) admissionNoInput.value = data.admissionNumber || '';
-    const nameParts = (data.name || '').split(' ');
+    const studentData = await service.getStudentById(studentId);
+    if (!studentData) return;
+    if (admissionNoInput) admissionNoInput.value = studentData.admissionNumber || '';
+    const nameParts = (studentData.name || '').split(' ');
     if (surnameInput) surnameInput.value = nameParts[0] || '';
     if (firstNameInput) firstNameInput.value = nameParts[1] || '';
     if (otherNameInput) otherNameInput.value = nameParts.slice(2).join(' ') || '';
-    if (emailInput) emailInput.value = data.email || '';
-    if (statusSelect) statusSelect.value = data.status || 'active';
-    if (genderSelect) genderSelect.value = data.gender || '';
-    if (dobInput) dobInput.value = data.dob || '';
-    if (clubInput) clubInput.value = data.club || '';
-    if (data.dob) calculateAndDisplayAge();
-    if (nationalitySelect) nationalitySelect.value = data.nationality || '';
-    if (stateSelect) stateSelect.value = data.state || '';
-    if (religionSelect) religionSelect.value = data.religion || '';
-    if (parentPhoneInput) parentPhoneInput.value = data.parentPhone || '';
-    const subjectIds = data.subjects || [];
+    if (emailInput) emailInput.value = studentData.email || '';
+    if (statusSelect) statusSelect.value = studentData.status || 'active';
+    if (genderSelect) genderSelect.value = studentData.gender || '';
+    if (dobInput) dobInput.value = studentData.dob || '';
+    if (clubInput) clubInput.value = studentData.club || '';
+    if (studentData.dob) calculateAndDisplayAge();
+    if (nationalitySelect) nationalitySelect.value = studentData.nationality || '';
+    if (stateSelect) stateSelect.value = studentData.state || '';
+    if (religionSelect) religionSelect.value = studentData.religion || '';
+    if (parentPhoneInput) parentPhoneInput.value = studentData.parentPhone || '';
+    const subjectIds = studentData.subjects || [];
     if (subjectsSelect) {
       Array.from(subjectsSelect.options).forEach(opt => {
         opt.selected = subjectIds.includes(opt.value);
       });
     }
-    if (data.passport && passportPreviewContainer) {
+    if (studentData.passport && passportPreviewContainer) {
       const imgEl = document.createElement('img');
-      imgEl.src = data.passport;
+      imgEl.src = studentData.passport;
       imgEl.className = 'passport-preview';
       passportPreviewContainer.appendChild(imgEl);
-      if (passportInput) passportInput.dataset.base64 = data.passport;
+      if (passportInput) passportInput.dataset.base64 = studentData.passport;
     }
   } catch (err) {
     handleError(err, 'Failed to load student data');
@@ -470,7 +470,7 @@ function closeModal() {
   if (passportInput) passportInput.dataset.base64 = '';
 }
 
-// Save / Update student (with duplicate prevention)
+// Save / Update student (with duplicate prevention) – uses service.createStudent/updateStudent
 async function handleStudentSubmit(e) {
   e.preventDefault();
   if (!isClassTeacher) {
@@ -557,13 +557,13 @@ async function handleStudentSubmit(e) {
   try {
     if (editingStudentId) {
       delete studentBaseData.locked;
-      await updateDoc(doc(db, 'students', editingStudentId), studentBaseData);
+      await service.updateStudent(editingStudentId, studentBaseData);
       showNotification('Student updated successfully.', 'success');
       closeModal();
       await loadAndDisplayStudents();
       return;
     }
-    // Create auth account for new student
+    // Create auth account for new student (direct Firebase Auth – not in service)
     const secondaryAuthInstance = getSecondaryAuth();
     const defaultPassword = '$Acadex123';
     let userCredential;
@@ -579,7 +579,10 @@ async function handleStudentSubmit(e) {
     }
     const uid = userCredential.user.uid;
     const studentDocData = { ...studentBaseData, uid: uid };
-    await setDoc(doc(db, 'students', uid), studentDocData);
+    // TODO: service.createStudent does not accept uid override – use direct setDoc for now
+    const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    await setDoc(fDoc(db, 'students', uid), studentDocData);
+    // Also create user doc (not in service)
     const userDocData = {
       uid: uid,
       email: email,
@@ -591,7 +594,7 @@ async function handleStudentSubmit(e) {
       level: level,
       createdAt: serverTimestamp(),
     };
-    await setDoc(doc(db, 'users', uid), userDocData);
+    await setDoc(fDoc(db, 'users', uid), userDocData);
     showCredentialsModal(fullName, email, defaultPassword);
     closeModal();
     await loadAndDisplayStudents();
@@ -656,7 +659,6 @@ export async function initOnboardStudentPage() {
     if (!teacherClassId) {
       throw new Error('No class assigned to this teacher.');
     }
-    // If we reach here, teacher is a valid class teacher
 
     // Setup DOM references
     studentForm = document.getElementById('studentForm');
@@ -714,7 +716,6 @@ export async function initOnboardStudentPage() {
     if (passportInput) passportInput.addEventListener('change', handlePassportUpload);
   } catch (err) {
     console.error('Onboard init error:', err);
-    // Block the page completely
     showAccessDenied(err.message || 'You must be a class teacher to onboard students.');
   }
 }

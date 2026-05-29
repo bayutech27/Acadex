@@ -1,14 +1,7 @@
 // Calendar Sync Engine – Automatic Rollover Management
-// Import your initialised Firestore db from your project's config
-import { db } from './firebase-config.js';
-// Import Firestore helper functions from the SDK
-import { 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  serverTimestamp, 
-  FieldValue 
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+// All Firestore operations go through service.js (cache + offline queue).
+
+import * as service from './service.js';
 import { 
   initAcademicCalendar, 
   getAcademicCalendar, 
@@ -32,15 +25,13 @@ export async function syncAcademicCalendar() {
 
     await initAcademicCalendar();
 
-    const calendarDocRef = doc(db, 'academicCalendar', 'current');
-    const firestoreSnapshot = await getDoc(calendarDocRef);
+    // Use service to read the document
+    const storedData = await service.getAcademicCalendarDoc();
 
-    if (!firestoreSnapshot.exists()) {
+    if (!storedData) {
       console.error('[CalendarSync] Firestore document missing');
       return false;
     }
-
-    const storedData = firestoreSnapshot.data();
 
     if (storedData.manualOverride === true) {
       console.log('[CalendarSync] Manual override active, skipping auto-sync');
@@ -57,15 +48,18 @@ export async function syncAcademicCalendar() {
         to: `${calculated.term} ${calculated.session}`
       });
 
-      await updateDoc(calendarDocRef, {
+      // Prepare updated data (merge with existing)
+      const updatedData = {
+        ...storedData,
         currentSession: calculated.session,
         currentTerm: calculated.term,
         termStart: calculated.termStart,
         termEnd: calculated.termEnd,
-        lastUpdated: serverTimestamp(),
+        lastUpdated: new Date(),
         autoManaged: true,
-        forceSyncVersion: FieldValue.increment(1)
-      });
+        forceSyncVersion: (storedData.forceSyncVersion || 0) + 1
+      };
+      await service.setAcademicCalendarDoc(updatedData);
 
       lastSyncTimestamp = now;
       console.log('[CalendarSync] Firestore updated successfully');
@@ -93,14 +87,11 @@ export async function forceCalendarSync(testDate = null) {
     syncInProgress = true;
     await initAcademicCalendar();
 
-    const calendarDocRef = doc(db, 'academicCalendar', 'current');
-    const firestoreSnapshot = await getDoc(calendarDocRef);
+    const storedData = await service.getAcademicCalendarDoc();
 
-    if (!firestoreSnapshot.exists()) {
+    if (!storedData) {
       throw new Error('Firestore document missing');
     }
-
-    const storedData = firestoreSnapshot.data();
 
     if (storedData.manualOverride === true) {
       throw new Error('Cannot force sync while manual override is active');
@@ -109,15 +100,17 @@ export async function forceCalendarSync(testDate = null) {
     const referenceDate = testDate || getCurrentUTCDate();
     const calculated = calculateTermAndSessionFromDate(referenceDate);
 
-    await updateDoc(calendarDocRef, {
+    const updatedData = {
+      ...storedData,
       currentSession: calculated.session,
       currentTerm: calculated.term,
       termStart: calculated.termStart,
       termEnd: calculated.termEnd,
-      lastUpdated: serverTimestamp(),
+      lastUpdated: new Date(),
       autoManaged: true,
-      forceSyncVersion: FieldValue.increment(1)
-    });
+      forceSyncVersion: (storedData.forceSyncVersion || 0) + 1
+    };
+    await service.setAcademicCalendarDoc(updatedData);
 
     lastSyncTimestamp = referenceDate;
     return calculated;
@@ -145,7 +138,6 @@ export function getSyncStatus() {
 }
 
 async function checkManualOverrideStatus() {
-  const calendarDocRef = doc(db, 'academicCalendar', 'current');
-  const snapshot = await getDoc(calendarDocRef);
-  return snapshot.exists() ? snapshot.data().manualOverride || false : false;
+  const doc = await service.getAcademicCalendarDoc();
+  return doc ? (doc.manualOverride || false) : false;
 }

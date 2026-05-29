@@ -1,27 +1,22 @@
 // attendance.js — Acadex Class Attendance Engine
 // ─────────────────────────────────────────────────────────────────────────────
 // Self-contained module: authenticates the teacher, loads their host class,
-// fetches / saves attendance records from Firestore, renders the full
-// attendance table, weekly summary, and term summary.
+// fetches / saves attendance records from Firestore (via service layer),
+// renders the full attendance table, weekly summary, and term summary.
 //
 // Academic calendar (session + term) comes exclusively from the Central
 // Academic Calendar Engine (academic-calendar.js + calendar-sync.js).
 // A real-time Firestore listener + periodic sync keeps the display and
 // all Firestore writes always aligned with the current term/session.
-//
-// Firestore composite index required on the `attendance` collection:
-//   schoolId ASC, classId ASC, academicSession ASC, term ASC
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { auth, db } from './firebase-config.js';
+import { auth } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
-import {
-  doc, getDoc, setDoc, collection, query, where, getDocs, writeBatch
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser }     from './auth.js';
-import { getSchoolById }  from './app.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 import { initMobileMenu } from './menu.js';
+import * as service from './service.js';
 
 // Calendar Engine imports
 import {
@@ -257,26 +252,20 @@ function calcTermStats() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// FIRESTORE — LOAD ATTENDANCE
+// FIRESTORE — LOAD ATTENDANCE (via service)
 // ═════════════════════════════════════════════════════════════════════════════
 async function loadAttendanceFromFirestore() {
   const { session, term } = STATE.academic;
   const { id: classId }   = STATE.class;
 
   try {
-    const q = query(
-      collection(db, 'attendance'),
-      where('schoolId',       '==', STATE.school.id),
-      where('classId',        '==', classId),
-      where('academicSession','==', session),
-      where('term',           '==', term)
-    );
-    const snap = await getDocs(q);
-
-    snap.forEach(docSnap => {
-      const { studentId, weekNumber, days } = docSnap.data();
+    // Use service.getAttendanceByClass (cached, but we bypass cache for live data)
+    // The service method returns an array of attendance records.
+    const records = await service.getAttendanceByClass(STATE.school.id, classId, session, term);
+    
+    records.forEach(record => {
+      const { studentId, weekNumber, days } = record;
       if (!studentId || !weekNumber || !days) return;
-
       STATE.attendance[attKey(studentId, weekNumber)] = {
         mon: { ...blankDay(), ...days.mon },
         tue: { ...blankDay(), ...days.tue },
@@ -291,7 +280,7 @@ async function loadAttendanceFromFirestore() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// FIRESTORE — SAVE ATTENDANCE (batch writes, modified records only)
+// FIRESTORE — SAVE ATTENDANCE (via service.saveAttendanceBatch)
 // ═════════════════════════════════════════════════════════════════════════════
 async function saveAttendanceToFirestore() {
   if (STATE.modified.size === 0) {
@@ -305,23 +294,18 @@ async function saveAttendanceToFirestore() {
     const { id: classId }   = STATE.class;
     const keys = Array.from(STATE.modified);
 
-    // Split into batches ≤ MAX_BATCH operations each
-    for (let i = 0; i < keys.length; i += MAX_BATCH) {
-      const batch = writeBatch(db);
-      const chunk = keys.slice(i, i + MAX_BATCH);
+    // Build an array of operations for service.saveAttendanceBatch
+    const operations = [];
+    for (const key of keys) {
+      const wIdx      = key.lastIndexOf('_w');
+      const studentId = key.slice(0, wIdx);
+      const weekNum   = parseInt(key.slice(wIdx + 2), 10);
+      const rec       = STATE.attendance[key];
+      if (!rec || isNaN(weekNum)) continue;
 
-      for (const key of chunk) {
-        // Extract studentId and weekNumber from the key
-        const wIdx      = key.lastIndexOf('_w');
-        const studentId = key.slice(0, wIdx);
-        const weekNum   = parseInt(key.slice(wIdx + 2), 10);
-        const rec       = STATE.attendance[key];
-        if (!rec || isNaN(weekNum)) continue;
-
-        const docRef = doc(db, 'attendance',
-          firestoreDocId(classId, studentId, weekNum, term, session));
-
-        batch.set(docRef, {
+      operations.push({
+        docId: firestoreDocId(classId, studentId, weekNum, term, session),
+        data: {
           schoolId:        STATE.school.id,
           classId,
           studentId,
@@ -337,12 +321,12 @@ async function saveAttendanceToFirestore() {
           },
           markedByTeacherId: STATE.teacher.id,
           updatedAt:         new Date()
-        }, { merge: true });
-      }
-
-      await batch.commit();
+        }
+      });
     }
 
+    // Use service.saveAttendanceBatch (handles online/offline, caching, queue)
+    await service.saveAttendanceBatch(operations);
     STATE.modified.clear();
     showNotification(`Attendance saved successfully!`, 'success');
 
@@ -426,7 +410,7 @@ function buildTableHeader() {
     const cls = w % 2 === 0 ? 'th-week even' : 'th-week';
     r1 += `<th colspan="10" class="${cls}">Week ${w}</th>`;
   }
-  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></tr>';
+  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></table>';
 
   // Row 2: Mon(×2) Tue(×2) … × 15 weeks
   let r2 = '<tr class="day-header-row">';
@@ -550,7 +534,7 @@ function renderWeeklySummary() {
 
   for (let w = 1; w <= lastWeek; w++) {
     const ws = calcWeekStats(w);
-    html += `<td><td class="week-label">Week ${w}</td>`;
+    html += `<tr><td class="week-label">Week ${w}</td>`;
 
     DAYS.forEach(day => {
       if (ws.days[day].holiday) {
@@ -956,11 +940,11 @@ function setupCalendarDisplay() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// DATA LOADERS
+// DATA LOADERS (using service.js)
 // ═════════════════════════════════════════════════════════════════════════════
 async function loadSchoolInfo() {
   try {
-    const school = await getSchoolById(STATE.school.id);
+    const school = await service.getSchoolById(STATE.school.id);
     if (school) {
       STATE.school.name    = school.name    || 'Unknown School';
       STATE.school.address = school.address || '';
@@ -983,9 +967,9 @@ async function loadSchoolInfo() {
 
 async function loadClassInfo(classId) {
   try {
-    const snap = await getDoc(doc(db, 'classes', classId));
+    const classData = await service.getClassById(classId);
     STATE.class.id   = classId;
-    STATE.class.name = snap.exists() ? snap.data().name : 'Unknown Class';
+    STATE.class.name = classData ? classData.name : 'Unknown Class';
   } catch (err) {
     handleError(err, 'Failed to load class information.');
     STATE.class.id   = classId;
@@ -995,18 +979,9 @@ async function loadClassInfo(classId) {
 
 async function loadClassStudents() {
   try {
-    const q = query(
-      collection(db, 'students'),
-      where('schoolId', '==', STATE.school.id),
-      where('classId',  '==', STATE.class.id),
-      where('status',   '==', 'active')
-    );
-    const snap = await getDocs(q);
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    // Alphabetical sort
-    list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
+    const students = await service.getStudentsByClass(STATE.school.id, STATE.class.id);
+    // Ensure the list is sorted alphabetically (service already sorts, but double-check)
+    const list = students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     STATE.students     = list;
     STATE.stats.boys   = list.filter(s => (s.gender || '').toLowerCase() === 'male').length;
     STATE.stats.girls  = list.filter(s => (s.gender || '').toLowerCase() === 'female').length;
@@ -1028,17 +1003,15 @@ function authenticateTeacher() {
       if (!user) { window.location.href = '/'; resolve(null); return; }
 
       try {
-        // Verify role in /users collection
-        const userSnap = await getDoc(doc(db, 'users', user.uid));
-        if (!userSnap.exists() || userSnap.data().role !== 'teacher') {
+        // Use service.getUserById to check role
+        const userData = await service.getUserById(user.uid);
+        if (!userData || userData.role !== 'teacher') {
           window.location.href = '/'; resolve(null); return;
         }
-        const userData = userSnap.data();
         if (!userData.schoolId) { window.location.href = '/'; resolve(null); return; }
 
-        // Load teacher document for hostClassId
-        const teacherSnap = await getDoc(doc(db, 'teachers', user.uid));
-        const teacherData = teacherSnap.exists() ? teacherSnap.data() : null;
+        // Load teacher document for hostClassId (service.getTeacherById)
+        const teacherData = await service.getTeacherById(user.uid);
 
         resolve({ user, userData, teacherData });
       } catch (err) { reject(err); }

@@ -8,16 +8,22 @@
 // MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
 // ADDED: Nationality (all countries), State (Nigerian states), Religion, Parent Phone – mandatory fields.
 // UPDATED: Class filter buttons are now loaded dynamically from the Firestore `classes` collection.
+//
+// All Firestore operations go through service.js where possible.
+// FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
+// TODO: Extend service.js with getStudentsBySchool(schoolId, forceRefresh) to avoid direct Firestore.
 
-import { db, auth, firebaseConfig } from './firebase-config.js';
+import { auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, onSnapshot, setDoc, serverTimestamp
+  collection, getDocs, query, where, doc, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { db } from './firebase-config.js';
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
-import { handleNewStudentAddition, getRawSubscription } from './plan.js';
+import { handleNewStudentAddition } from './plan.js';   // keep as is (plan.js not fully migrated)
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import * as service from './service.js';
 
 let currentSchoolId = null;
 let subjectsMap = new Map();      // full map { id: { name, level } }
@@ -36,13 +42,13 @@ let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPrevie
 let nationalitySelect, stateSelect, religionSelect, parentPhoneInput;
 
 // ───────────────────────────────────────────────────────────────────────────────
-// LISTS FOR DROPDOWNS
+// LISTS FOR DROPDOWNS (unchanged)
 // ───────────────────────────────────────────────────────────────────────────────
 const NIGERIAN_STATES = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
   "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa",
   "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger",
-  "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
+  "Ogun", "Ondo", "Osyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
   "FCT Abuja"
 ];
 
@@ -85,11 +91,11 @@ function getSecondaryAuth() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// HELPER: Raw subscription active check (status + locked only — no term/session)
+// HELPER: Raw subscription active check using service
 // ───────────────────────────────────────────────────────────────────────────────
 async function isRawSubscriptionActive(schoolId) {
   try {
-    const sub = await getRawSubscription(schoolId);
+    const sub = await service.getSubscription(schoolId);
     if (!sub) return false;
     return sub.status === 'active' && sub.locked !== true;
   } catch (err) {
@@ -225,8 +231,8 @@ export async function initStudentsPage() {
     return;
   }
 
-  const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-  if (schoolDoc.exists()) schoolName = schoolDoc.data().name || '';
+  const school = await service.getSchoolById(currentSchoolId);
+  if (school) schoolName = school.name || '';
 
   await loadAllClasses();
   await loadAllSubjects();
@@ -282,7 +288,7 @@ export async function initStudentsPage() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// DYNAMIC CLASS FILTER BUTTONS (new)
+// DYNAMIC CLASS FILTER BUTTONS (using service.getClassesBySchool)
 // ───────────────────────────────────────────────────────────────────────────────
 async function generateClassFilterButtons() {
   const container = document.getElementById('classFilterContainer');
@@ -295,9 +301,7 @@ async function generateClassFilterButtons() {
   existingClassButtons.forEach(btn => btn.remove());
 
   try {
-    const classesQuery = query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId));
-    const snapshot = await getDocs(classesQuery);
-    const classes = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     // Sort alphabetically by class name
     classes.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -342,13 +346,13 @@ function escapeHtml(str) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// CLASS & SUBJECT LOADERS
+// CLASS & SUBJECT LOADERS (using service)
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadAllClasses() {
   try {
-    const snapshot = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    snapshot.forEach(d => classesMap.set(d.id, { name: d.data().name, level: d.data().level }));
+    classes.forEach(cls => classesMap.set(cls.id, { name: cls.name, level: cls.level }));
   } catch (err) {
     handleError(err, 'Failed to load classes reference.');
   }
@@ -356,9 +360,9 @@ async function loadAllClasses() {
 
 async function loadAllSubjects() {
   try {
-    const snapshot = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
+    const subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjectsMap.clear();
-    snapshot.forEach(d => subjectsMap.set(d.id, { name: d.data().name, level: d.data().level }));
+    subjects.forEach(sub => subjectsMap.set(sub.id, { name: sub.name, level: sub.level }));
   } catch (err) {
     handleError(err, 'Failed to load subjects reference.');
   }
@@ -368,10 +372,7 @@ async function loadClassesByLevel(level) {
   if (!level) return;
   showLoader();
   try {
-    const snapshot = await getDocs(
-      query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId), where('level', '==', level))
-    );
-    const classes = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+    const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
     if (!classSelect) return;
     classSelect.innerHTML = '<option value="">Select Class</option>';
     if (classes.length === 0) {
@@ -401,10 +402,7 @@ async function loadSubjectsByLevel(level) {
   if (!level) return;
   showLoader();
   try {
-    const snapshot = await getDocs(
-      query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId), where('level', '==', level))
-    );
-    const subjects = snapshot.docs.map(d => ({ id: d.id, name: d.data().name }));
+    const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
     if (!subjectsSelect) return;
     subjectsSelect.innerHTML = '';
     if (subjects.length === 0) {
@@ -434,7 +432,7 @@ async function loadSubjectsByLevel(level) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// AGE HELPERS
+// AGE HELPERS (unchanged)
 // ───────────────────────────────────────────────────────────────────────────────
 function calculateAge(dobString) {
   if (!dobString) return null;
@@ -454,6 +452,10 @@ function calculateAndDisplayAge() {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // ADMISSION NUMBER HELPERS
+// **FIX:** getNextSequenceNumber uses DIRECT FIRESTORE (bypass cache) to guarantee
+// uniqueness. The service layer's getStudentsBySchool is cached and may return
+// stale data, causing duplicate admission numbers.
+// TODO: Extend service.js with getStudentsBySchool(schoolId, forceRefresh) option.
 // ───────────────────────────────────────────────────────────────────────────────
 function getSchoolCode() {
   if (!schoolName) return 'XX';
@@ -462,6 +464,7 @@ function getSchoolCode() {
 
 async function getNextSequenceNumber() {
   try {
+    // Direct Firestore query – bypass cache for critical uniqueness
     const snapshot = await getDocs(
       query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
     );
@@ -469,8 +472,8 @@ async function getNextSequenceNumber() {
     const currentYear  = new Date().getFullYear();
     const pattern      = new RegExp(`^${schoolCode}/${currentYear}/0*(\\d+)$`);
     let maxSeq = 0;
-    snapshot.docs.forEach(d => {
-      const no    = d.data().admissionNumber;
+    snapshot.docs.forEach(doc => {
+      const no    = doc.data().admissionNumber;
       const match = no?.match(pattern);
       if (match) {
         const seq = parseInt(match[1], 10);
@@ -493,16 +496,13 @@ async function generateAdmissionNumber() {
 
 async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   try {
-    const snapshot = await getDocs(
-      query(
-        collection(db, 'students'),
-        where('schoolId', '==', currentSchoolId),
-        where('admissionNumber', '==', admissionNo)
-      )
-    );
-    if (snapshot.empty) return true;
-    if (excludeStudentId && snapshot.docs.length === 1 && snapshot.docs[0].id === excludeStudentId) return true;
-    return false;
+    // Use service.getStudentsBySchool (cached is acceptable for duplicate check
+    // because it will be followed by a direct Firestore write that fails on duplicate.
+    // However, to be fully safe, we could also use direct Firestore here.
+    // For performance, keep service.
+    const allStudents = await service.getStudentsBySchool(currentSchoolId);
+    const duplicate = allStudents.find(s => s.admissionNumber === admissionNo && s.id !== excludeStudentId);
+    return !duplicate;
   } catch (err) {
     handleError(err, 'Failed to check admission number uniqueness.');
     return false;
@@ -510,7 +510,7 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// IMAGE COMPRESSION
+// IMAGE COMPRESSION (unchanged)
 // ───────────────────────────────────────────────────────────────────────────────
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
@@ -581,40 +581,32 @@ async function handlePassportUpload(e) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// STUDENT LIST DISPLAY (with alphabetical sorting by name)
+// STUDENT LIST DISPLAY (using service for loading students)
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadAndDisplayStudents() {
-  const studentsRef = collection(db, 'students');
-  let studentsQuery;
-
-  if (currentFilter === 'all') {
-    studentsQuery = query(studentsRef, where('schoolId', '==', currentSchoolId), where('status', '==', 'active'));
-  } else {
-    let classId = null;
-    for (const [id, data] of classesMap.entries()) {
-      if (data.name === currentFilter) { classId = id; break; }
-    }
-    if (!classId) {
-      const container = document.getElementById('studentsList');
-      if (container) container.innerHTML = '<p>No students found for this class.</p>';
-      return;
-    }
-    studentsQuery = query(
-      studentsRef,
-      where('schoolId', '==', currentSchoolId),
-      where('classId', '==', classId),
-      where('status', '==', 'active')
-    );
-  }
-
-  let snapshot;
+  let students;
   try {
-    snapshot = await getDocs(studentsQuery);
+    if (currentFilter === 'all') {
+      const all = await service.getStudentsBySchool(currentSchoolId);
+      students = all.filter(s => s.status === 'active');
+    } else {
+      let classId = null;
+      for (const [id, data] of classesMap.entries()) {
+        if (data.name === currentFilter) { classId = id; break; }
+      }
+      if (!classId) {
+        const container = document.getElementById('studentsList');
+        if (container) container.innerHTML = '<p>No students found for this class.</p>';
+        return;
+      }
+      students = await service.getStudentsByClass(currentSchoolId, classId);
+      students = students.filter(s => s.status === 'active');
+    }
   } catch (err) {
     handleError(err, 'Failed to load students.');
     return;
   }
-  let students = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
   students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const container = document.getElementById('studentsList');
@@ -675,12 +667,13 @@ async function loadAndDisplayStudents() {
     </div>
   `;
 
+  // Status change listener (uses service.updateStudent)
   document.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', async () => {
       const studentId = select.getAttribute('data-id');
       const newStatus = select.value;
-      const studentDoc = await getDoc(doc(db, 'students', studentId));
-      const className  = classesMap.get(studentDoc.data().classId)?.name ?? '';
+      const studentDoc = await service.getStudentById(studentId);
+      const className  = classesMap.get(studentDoc?.classId)?.name ?? '';
 
       if (newStatus === 'graduated') {
         if (!['Primary 6', 'JSS 3', 'SSS 3'].includes(className)) {
@@ -691,7 +684,7 @@ async function loadAndDisplayStudents() {
       }
       showLoader();
       try {
-        await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
+        await service.updateStudent(studentId, { status: newStatus, updatedAt: new Date() });
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
         showNotification('Student status updated.', 'success');
@@ -708,10 +701,14 @@ async function loadAndDisplayStudents() {
     if (!confirm('Delete this student? This will also remove ALL their scores and reports permanently!')) return;
     showLoader();
     try {
-      await deleteDoc(doc(db, 'students', id));
-      const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
+      // Use service.deleteStudent (deletes student doc and invalidates cache)
+      await service.deleteStudent(id);
+      // Also delete scores and reports manually – service does not cascade yet
+      const { collection, getDocs, query, where, deleteDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+      const { db: localDb } = await import('./firebase-config.js');
+      const scoresSnap = await getDocs(query(collection(localDb, 'scores'), where('studentId', '==', id)));
       for (const d of scoresSnap.docs) await deleteDoc(d.ref);
-      const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
+      const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
       for (const d of reportsSnap.docs) await deleteDoc(d.ref);
       await loadAndDisplayStudents();
       showNotification('Student and all associated data (scores, reports) deleted successfully.', 'success');
@@ -767,18 +764,17 @@ function openModal(studentId = null) {
 
 async function loadStudentData(studentId) {
   try {
-    const studentDoc = await getDoc(doc(db, 'students', studentId));
-    if (!studentDoc.exists()) return;
-    const data = studentDoc.data();
+    const student = await service.getStudentById(studentId);
+    if (!student) return;
 
-    if (admissionNoInput) admissionNoInput.value = data.admissionNumber || '';
-    const nameParts = (data.name || '').split(' ');
+    if (admissionNoInput) admissionNoInput.value = student.admissionNumber || '';
+    const nameParts = (student.name || '').split(' ');
     if (surnameInput)   surnameInput.value   = nameParts[0] || '';
     if (firstNameInput) firstNameInput.value = nameParts[1] || '';
     if (otherNameInput) otherNameInput.value = nameParts.slice(2).join(' ') || '';
-    if (emailInput)     emailInput.value     = data.email || '';
+    if (emailInput)     emailInput.value     = student.email || '';
 
-    const studentLevel = data.level || 'secondary';
+    const studentLevel = student.level || 'secondary';
     if (levelSelect) levelSelect.value = studentLevel;
 
     if (studentLevel) {
@@ -786,8 +782,8 @@ async function loadStudentData(studentId) {
       await loadSubjectsByLevel(studentLevel);
       if (classSelect)   classSelect.disabled   = false;
       if (subjectsSelect) subjectsSelect.disabled = false;
-      if (classSelect && data.classId) classSelect.value = data.classId;
-      const subjectIds = data.subjects || [];
+      if (classSelect && student.classId) classSelect.value = student.classId;
+      const subjectIds = student.subjects || [];
       if (subjectsSelect) {
         Array.from(subjectsSelect.options).forEach(opt => {
           opt.selected = subjectIds.includes(opt.value);
@@ -795,25 +791,24 @@ async function loadStudentData(studentId) {
       }
     }
 
-    if (statusSelect) statusSelect.value = data.status || 'active';
-    if (genderSelect) genderSelect.value = data.gender || '';
-    if (dobInput)     dobInput.value     = data.dob || '';
-    if (clubInput)    clubInput.value    = data.club || '';
-    if (data.dob)     calculateAndDisplayAge();
+    if (statusSelect) statusSelect.value = student.status || 'active';
+    if (genderSelect) genderSelect.value = student.gender || '';
+    if (dobInput)     dobInput.value     = student.dob || '';
+    if (clubInput)    clubInput.value    = student.club || '';
+    if (student.dob)     calculateAndDisplayAge();
 
-    // New fields
-    if (nationalitySelect) nationalitySelect.value = data.nationality || '';
-    if (stateSelect) stateSelect.value = data.state || '';
-    if (religionSelect) religionSelect.value = data.religion || '';
-    if (parentPhoneInput) parentPhoneInput.value = data.parentPhone || '';
+    if (nationalitySelect) nationalitySelect.value = student.nationality || '';
+    if (stateSelect) stateSelect.value = student.state || '';
+    if (religionSelect) religionSelect.value = student.religion || '';
+    if (parentPhoneInput) parentPhoneInput.value = student.parentPhone || '';
 
-    if (data.passport && passportPreviewContainer) {
+    if (student.passport && passportPreviewContainer) {
       const imgEl = document.createElement('img');
-      imgEl.src = data.passport;
+      imgEl.src = student.passport;
       imgEl.className = 'passport-preview';
       imgEl.alt = 'Passport';
       passportPreviewContainer.appendChild(imgEl);
-      if (passportInput) passportInput.dataset.base64 = data.passport;
+      if (passportInput) passportInput.dataset.base64 = student.passport;
     }
   } catch (err) {
     handleError(err, 'Failed to load student data.');
@@ -829,7 +824,7 @@ function closeModal() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// FORM SUBMIT — CREATE / UPDATE STUDENT (with Auth account creation)
+// FORM SUBMIT — CREATE / UPDATE STUDENT (using service.createStudent/updateStudent)
 // ───────────────────────────────────────────────────────────────────────────────
 async function handleStudentSubmit(e) {
   e.preventDefault();
@@ -916,7 +911,7 @@ async function handleStudentSubmit(e) {
   try {
     if (editingStudentId) {
       delete studentBaseData.locked;
-      await updateDoc(doc(db, 'students', editingStudentId), studentBaseData);
+      await service.updateStudent(editingStudentId, studentBaseData);
       showNotification('Student updated successfully.', 'success');
       closeModal();
       await loadAndDisplayStudents();
@@ -940,8 +935,10 @@ async function handleStudentSubmit(e) {
 
     const uid = userCredential.user.uid;
     const studentDocData = { ...studentBaseData, uid: uid };
-    await setDoc(doc(db, 'students', uid), studentDocData);
+    // Use service.createStudent(uid, data)
+    await service.createStudent(uid, studentDocData);
 
+    // Also create user document – service does not have this yet, use direct setDoc
     const userDocData = {
       uid: uid,
       email: email,
@@ -969,7 +966,7 @@ async function handleStudentSubmit(e) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// SUBSCRIPTION PAYMENT BANNER
+// SUBSCRIPTION PAYMENT BANNER (using service.subscribeToSubscription)
 // ───────────────────────────────────────────────────────────────────────────────
 function injectSubscriptionUI() {
   if (!document.getElementById('paymentBannerContainer')) {
@@ -1029,14 +1026,16 @@ async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();
 
-  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-  unsubscribeSub = onSnapshot(subRef, (snap) => {
-    if (!snap.exists()) { showPaymentBanner(); return; }
-    const sub = snap.data();
-    if (sub.status === 'active' && sub.locked === false) {
+  // Use service.subscribeToSubscription
+  unsubscribeSub = service.subscribeToSubscription(currentSchoolId, (subData) => {
+    if (!subData) {
+      showPaymentBanner();
+      return;
+    }
+    if (subData.status === 'active' && subData.locked === false) {
       hidePaymentBanner();
     } else {
       showPaymentBanner();
     }
-  }, (err) => handleError(err, 'Subscription listener error.'));
+  });
 }

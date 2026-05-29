@@ -1,16 +1,8 @@
 // Central Academic Calendar Engine - SINGLE SOURCE OF TRUTH
 // This file is the ONLY source of truth for current term, session, and rollover logic.
-// Import your initialized Firestore db instance from firebase-config.js
-import { db } from './firebase-config.js';
-import { 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  setDoc, 
-  serverTimestamp, 
-  onSnapshot, 
-  FieldValue 
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+// All Firestore operations go through service.js (cache + offline queue).
+
+import * as service from './service.js';
 
 // ----------------------------------- State -----------------------------------
 let calendarState = {
@@ -90,7 +82,7 @@ export function calculateTermAndSessionFromDate(date = new Date()) {
   return { term, session, termStart, termEnd };
 }
 
-// ----------------------------------- Initialisation & Firestore Sync -----------------------------------
+// ----------------------------------- Initialisation & Firestore Sync (via service) -----------------------------------
 /**
  * Initialise the academic calendar – sets up real‑time listener to Firestore
  * and creates the document if it does not exist.
@@ -100,12 +92,10 @@ export async function initAcademicCalendar() {
   // Already initialised? Return current state.
   if (calendarState.initialized) return calendarState;
 
-  const calendarDocRef = doc(db, 'academicCalendar', 'current');
-
-  // Real‑time listener (handles both updates and initial creation)
-  unsubscribeFirestore = onSnapshot(calendarDocRef, async (docSnapshot) => {
-    if (docSnapshot.exists()) {
-      const data = docSnapshot.data();
+  // Use service's real-time subscription
+  unsubscribeFirestore = service.subscribeToAcademicCalendar(async (data) => {
+    if (data) {
+      // Document exists
       calendarState.manualOverride = data.manualOverride || false;
       calendarState.overrideSession = data.overrideSession || null;
       calendarState.overrideTerm = data.overrideTerm || null;
@@ -140,14 +130,14 @@ export async function initAcademicCalendar() {
         currentTerm: calculated.term,
         termStart: calculated.termStart,
         termEnd: calculated.termEnd,
-        lastUpdated: serverTimestamp(),
+        lastUpdated: new Date(),
         autoManaged: true,
         manualOverride: false,
         overrideSession: null,
         overrideTerm: null,
         forceSyncVersion: 1
       };
-      await setDoc(calendarDocRef, initialData);
+      await service.setAcademicCalendarDoc(initialData);
       calendarState.currentSession = calculated.session;
       calendarState.currentTerm = calculated.term;
       calendarState.termStart = calculated.termStart;
@@ -156,6 +146,32 @@ export async function initAcademicCalendar() {
       calendarState.listeners.forEach(callback => callback({ ...calendarState }));
     }
   });
+
+  // Also fetch initial data to avoid waiting for first snapshot
+  const initialData = await service.getAcademicCalendarDoc();
+  if (initialData) {
+    // Manually trigger the same update logic as above (the listener will also fire)
+    // To avoid duplication, we can rely on the listener, but we need to ensure initialized.
+    // The listener will call its callback with the data, so we can just wait.
+    // However, if the document doesn't exist, the listener will create it.
+  } else {
+    // No document – create it (listener will handle after setDoc)
+    const now = new Date();
+    const calculated = calculateTermAndSessionFromDate(now);
+    const initialData = {
+      currentSession: calculated.session,
+      currentTerm: calculated.term,
+      termStart: calculated.termStart,
+      termEnd: calculated.termEnd,
+      lastUpdated: new Date(),
+      autoManaged: true,
+      manualOverride: false,
+      overrideSession: null,
+      overrideTerm: null,
+      forceSyncVersion: 1
+    };
+    await service.setAcademicCalendarDoc(initialData);
+  }
 
   return calendarState;
 }
@@ -237,7 +253,7 @@ export function subscribeToCalendar(callback) {
   };
 }
 
-// ----------------------------------- Admin Override Functions -----------------------------------
+// ----------------------------------- Admin Override Functions (via service) -----------------------------------
 /**
  * Manually override the current term/session (admin only).
  * @param {Object} overrideData - { term, session, expiryDate (optional) }
@@ -245,16 +261,17 @@ export function subscribeToCalendar(callback) {
  */
 export async function adminOverrideCalendar(overrideData) {
   const { term, session, expiryDate } = overrideData;
-  const calendarDocRef = doc(db, 'academicCalendar', 'current');
+  const currentDoc = await service.getAcademicCalendarDoc() || {};
   const updatePayload = {
+    ...currentDoc,
     manualOverride: true,
     overrideSession: session,
     overrideTerm: term,
     overrideExpiry: expiryDate || null,
-    lastUpdated: serverTimestamp(),
-    forceSyncVersion: FieldValue.increment(1)
+    lastUpdated: new Date(),
+    forceSyncVersion: (currentDoc.forceSyncVersion || 0) + 1
   };
-  await updateDoc(calendarDocRef, updatePayload);
+  await service.setAcademicCalendarDoc(updatePayload);
   return getAcademicCalendar();
 }
 
@@ -263,10 +280,11 @@ export async function adminOverrideCalendar(overrideData) {
  * @returns {Promise<Object>} updated calendar
  */
 export async function adminResetToAuto() {
-  const calendarDocRef = doc(db, 'academicCalendar', 'current');
   const now = new Date();
   const calculated = calculateTermAndSessionFromDate(now);
+  const currentDoc = await service.getAcademicCalendarDoc() || {};
   const updatePayload = {
+    ...currentDoc,
     manualOverride: false,
     overrideSession: null,
     overrideTerm: null,
@@ -274,11 +292,11 @@ export async function adminResetToAuto() {
     currentTerm: calculated.term,
     termStart: calculated.termStart,
     termEnd: calculated.termEnd,
-    lastUpdated: serverTimestamp(),
+    lastUpdated: new Date(),
     overrideExpiry: null,
-    forceSyncVersion: FieldValue.increment(1)
+    forceSyncVersion: (currentDoc.forceSyncVersion || 0) + 1
   };
-  await updateDoc(calendarDocRef, updatePayload);
+  await service.setAcademicCalendarDoc(updatePayload);
   return getAcademicCalendar();
 }
 

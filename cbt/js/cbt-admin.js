@@ -1,4 +1,7 @@
 // cbt/js/cbt-admin.js - Super Admin CBT Question Management (no leaderboard)
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support question CRUD, bulk upload, bulk delete – those remain as direct Firestore calls.
+
 import { db, auth } from '../../js/firebase-config.js';
 import {
   collection, addDoc, getDocs, query, orderBy, limit, startAfter,
@@ -6,6 +9,7 @@ import {
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+import * as service from '../../js/service.js';
 
 // ========== DOM REFERENCES ==========
 let tabButtons, tabContents;
@@ -271,6 +275,7 @@ async function handleFormSubmit(e) {
     };
     if (questionImageBase64) qData.questionImage = questionImageBase64;
     if (solutionImageBase64) qData.solutionImage = solutionImageBase64;
+    // TODO: service.createQuestion / service.updateQuestion do not exist – direct Firestore calls
     if (questionIdField.value) {
       await updateDoc(doc(db, "questions", questionIdField.value), qData);
       showFeedback("✅ Question updated successfully");
@@ -294,6 +299,7 @@ cancelEditBtn?.addEventListener("click", resetQuestionForm);
 // ========== LOAD QUESTION FOR EDIT ==========
 async function loadQuestionForEdit(questionId) {
   try {
+    // TODO: service.getQuestionById does not exist – direct Firestore call
     const qSnap = await getDoc(doc(db, "questions", questionId));
     if (!qSnap.exists()) {
       showFeedback("❌ Question not found", "error");
@@ -343,6 +349,7 @@ async function loadQuestionForEdit(questionId) {
 async function deleteQuestion(questionId) {
   if (!confirm("Are you sure you want to delete this question permanently?")) return;
   try {
+    // TODO: service.deleteQuestion does not exist – direct Firestore call
     await deleteDoc(doc(db, "questions", questionId));
     showFeedback("✅ Question deleted successfully");
     loadQuestions(false, currentSearchTerm);
@@ -358,6 +365,7 @@ window.deleteQuestion = deleteQuestion;
 // ========== LOAD QUESTIONS ==========
 async function loadQuestions(loadMore = false, searchTerm = "") {
   try {
+    // TODO: service.getQuestions does not exist – direct Firestore queries
     let q;
     if (searchTerm) {
       q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
@@ -411,8 +419,8 @@ async function loadQuestions(loadMore = false, searchTerm = "") {
               <button class="action-btn edit-btn" onclick="editQuestion('${q.id}')" title="Edit"><i class="fas fa-edit"></i></button>
               <button class="action-btn delete-btn" onclick="deleteQuestion('${q.id}')" title="Delete"><i class="fas fa-trash"></i></button>
             </div>
-           </td>
-         </tr>
+          </td>
+        </tr>
       `;
     });
   } catch (error) {
@@ -572,9 +580,9 @@ function updateCSVPreview() {
   for (let i = 0; i < showCount; i++) {
     const r = csvData[i];
     const preview = r.questiontext.length > 50 ? r.questiontext.substring(0,50)+"..." : r.questiontext;
-    html += `<tr><td>${i+1}</td><td>${formatTextForDisplay(preview)}</td><td>${r.subject}</td><td>${r.topic||"-"}</td><td>${r.examtype||"WAEC/NECO"}</td><td>${(r.correctanswer||"A").toUpperCase()}</td><tr>`;
+    html += `<tr><td>${i+1}</td><td>${formatTextForDisplay(preview)}</td><td>${r.subject}</td><td>${r.topic||"-"}</td><td>${r.examtype||"WAEC/NECO"}</td><td>${(r.correctanswer||"A").toUpperCase()}</td></tr>`;
   }
-  if (csvData.length > 10) html += `<tr><td colspan="6">... and ${csvData.length-10} more</td><tr>`;
+  if (csvData.length > 10) html += `<tr><td colspan="6">... and ${csvData.length-10} more</tr>`;
   html += `</tbody></table><p>Total: ${csvData.length} questions</p>`;
   if (csvPreview) csvPreview.innerHTML = html;
 }
@@ -811,6 +819,7 @@ function initBulkDelete() {
       if (bulkDeleteProgressFill) bulkDeleteProgressFill.style.width = "0%";
       if (bulkDeleteStatus) bulkDeleteStatus.textContent = "Fetching...";
       try {
+        // TODO: service.bulkDeleteQuestions does not exist – direct Firestore call
         const q = query(collection(db, "questions"), where("subject", "==", subj));
         const snap = await getDocs(q);
         const total = snap.size;
@@ -949,8 +958,8 @@ document.addEventListener("DOMContentLoaded", () => {
   onAuthStateChanged(auth, async (user) => {
     if (!user) { window.location.href = "../../index.html"; return; }
     try {
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-      const userData = userDoc.data();
+      // Use service.getUserById for role check
+      const userData = await service.getUserById(user.uid);
       if (!userData || userData.role !== "super-admin") {
         alert("Access denied. Super Admin privileges required.");
         window.location.href = "../../index.html";

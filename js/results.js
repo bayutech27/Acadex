@@ -5,9 +5,12 @@
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 // UPDATED: Print comments now appear inline (same line as label)
+//
+// All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
+// some complex queries – those remain as direct Firestore calls.
 
-import { db } from './firebase-config.js';
-import { collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { onSubscriptionChange } from './plan.js';
@@ -128,45 +131,28 @@ function createTickRating(skillKey, currentValue) {
   return container;
 }
 
-// ------------------- Firestore Helpers -------------------
+// ------------------- Firestore Helpers (via service) -------------------
 function getScoringDocId(session, term, level) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
 
 async function loadSessionOptions(schoolId) {
-  try {
-    const scoresQuery = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
-    const snapshot = await getDocs(scoresQuery);
-    const sessionsSet = new Set();
-    snapshot.forEach(doc => { const session = doc.data().session; if (session) sessionsSet.add(session); });
-    const sortedSessions = Array.from(sessionsSet).sort((a, b) => {
-      const [yearA] = a.split('/');
-      const [yearB] = b.split('/');
-      return parseInt(yearB) - parseInt(yearA);
-    });
-    return sortedSessions;
-  } catch (err) {
-    console.error('Failed to load session options:', err);
-    const year = new Date().getFullYear();
-    const fallback = [];
-    for (let i = 0; i < 10; i++) fallback.push(`${year - i}/${year - i + 1}`);
-    return fallback;
-  }
+  // Use service.loadSessionOptions (cached)
+  return await service.loadSessionOptions(schoolId);
 }
 
-// ------------------- Data Loading -------------------
+// ------------------- Data Loading via service -------------------
 async function loadClassesAndSubjects() {
   try {
-    const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
+    const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    classesSnap.forEach(doc => classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level }));
-    const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
+    classes.forEach(cls => classesMap.set(cls.id, { name: cls.name, level: cls.level }));
+    const subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjectsMap.clear();
     allSubjectsList = [];
-    subjSnap.forEach(doc => {
-      const data = doc.data();
-      subjectsMap.set(doc.id, { name: data.name, level: data.level });
-      allSubjectsList.push({ id: doc.id, name: data.name, level: data.level });
+    subjects.forEach(subj => {
+      subjectsMap.set(subj.id, { name: subj.name, level: subj.level });
+      allSubjectsList.push({ id: subj.id, name: subj.name, level: subj.level });
     });
   } catch (err) {
     console.error('Failed to load classes/subjects:', err);
@@ -177,16 +163,16 @@ async function loadClassesAndSubjects() {
 
 async function loadAllStudents() {
   try {
-    const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId)));
-    studentsList = snap.docs.map(doc => ({
-      id: doc.id, name: doc.data().name, classId: doc.data().classId,
-      admissionNumber: doc.data().admissionNumber, gender: doc.data().gender,
-      dob: doc.data().dob, club: doc.data().club, passport: doc.data().passport || null,
-      subjects: doc.data().subjects || [],
-      parentPhone: doc.data().parentPhone || null,
-      nationality: doc.data().nationality || null,
-      state: doc.data().state || null,
-      religion: doc.data().religion || null
+    const students = await service.getStudentsBySchool(currentSchoolId);
+    studentsList = students.map(s => ({
+      id: s.id, name: s.name, classId: s.classId,
+      admissionNumber: s.admissionNumber, gender: s.gender,
+      dob: s.dob, club: s.club, passport: s.passport || null,
+      subjects: s.subjects || [],
+      parentPhone: s.parentPhone || null,
+      nationality: s.nationality || null,
+      state: s.state || null,
+      religion: s.religion || null
     }));
     studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
@@ -197,41 +183,33 @@ async function loadAllStudents() {
 }
 
 async function fetchClassScores(classId, term, session) {
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return [];
-  const studentIds = classStudents.map(s => s.id);
-  const scores = [];
-  for (let i = 0; i < studentIds.length; i += 30) {
-    const chunk = studentIds.slice(i, i + 30);
-    const q = query(
-      collection(db, 'scores'),
-      where('studentId', 'in', chunk),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snap = await getDocs(q);
-    snap.forEach(doc => scores.push({ ...doc.data(), id: doc.id }));
+  // Use service.getScoresByClass
+  try {
+    const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
+    return scores.map(s => ({ ...s, id: s.id })); // ensure id field
+  } catch (err) {
+    console.error('Failed to fetch class scores:', err);
+    return [];
   }
-  return scores;
 }
 
 async function fetchStudentScores(studentId, term, session) {
-  const q = query(
-    collection(db, 'scores'),
-    where('studentId', '==', studentId),
-    where('schoolId', '==', currentSchoolId),
-    where('term', '==', term),
-    where('session', '==', session)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(doc => ({ subjectId: doc.data().subjectId, ca: doc.data().ca, exam: doc.data().exam }));
+  try {
+    const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
+    return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
+  } catch (err) {
+    console.error('Failed to fetch student scores:', err);
+    return [];
+  }
 }
 
 async function loadGradingSetting(session, term, level = 'secondary') {
   try {
     const docId = getScoringDocId(session, term, level);
-    const docSnap = await getDoc(doc(db, 'scoring', docId));
+    // TODO: service.getScoringConfigById(docId) – use direct Firestore for now
+    const { getDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    const { db } = await import('./firebase-config.js');
+    const docSnap = await getDoc(fDoc(db, 'scoring', docId));
     let grading = '40/60';
     if (docSnap.exists()) grading = docSnap.data().grading;
     const [ca, exam] = grading.split('/').map(Number);
@@ -259,8 +237,11 @@ async function saveGradingSetting(level = 'secondary') {
   }
   if (!session || !term) { alert('Session/Term not set. Please select a session and term first.'); return; }
   const docId = getScoringDocId(session, term, level);
+  // TODO: service.setScoringConfig(docId, { grading, schoolId, session, term, level })
+  const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+  const { db } = await import('./firebase-config.js');
   try {
-    await setDoc(doc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
+    await setDoc(fDoc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
     if (level === 'secondary') { const [ca, exam] = grading.split('/').map(Number); currentGrading = { ca, exam }; }
     alert(`Grading saved for ${level} level.`);
     if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
@@ -309,18 +290,9 @@ async function getRelevantSubjectsForClass(classId, session) {
   const studentIds = classStudents.map(s => s.id);
   const subjectIdsWithScores = new Set();
   for (const term of ['1', '2', '3']) {
-    for (let i = 0; i < studentIds.length; i += 30) {
-      const chunk = studentIds.slice(i, i+30);
-      const q = query(
-        collection(db, 'scores'),
-        where('studentId', 'in', chunk),
-        where('schoolId', '==', currentSchoolId),
-        where('term', '==', term),
-        where('session', '==', session)
-      );
-      const snap = await getDocs(q);
-      snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
-    }
+    // Use service.getScoresByClass for each term – expensive but okay for admin
+    const scores = await fetchClassScores(classId, term, session);
+    scores.forEach(s => subjectIdsWithScores.add(s.subjectId));
   }
   return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
 }
@@ -353,16 +325,7 @@ async function renderReportCard(studentId, studentName) {
 
   await loadGradingSetting(editorState.session, editorState.term, classLevel);
 
-  const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-  const school = {
-    name:    schoolDoc.exists() ? schoolDoc.data().name    : 'School Name',
-    address: schoolDoc.exists() ? schoolDoc.data().address : '',
-    logo:    schoolDoc.exists() ? schoolDoc.data().logo    : null,
-    email:   schoolDoc.exists() ? (schoolDoc.data().email       || '') : '',
-    phone:   schoolDoc.exists() ? (schoolDoc.data().phone       || schoolDoc.data().phoneNumber || '') : '',
-    id:      currentSchoolId
-  };
-
+  const school = await service.getSchoolById(currentSchoolId);
   const student = studentsList.find(s => s.id === studentId) || {};
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
   const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
@@ -409,21 +372,13 @@ async function renderReportCard(studentId, studentName) {
 async function loadExistingEditorReport(studentId) {
   resetRatingsToDefaults();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
-  const q = query(
-    collection(db, 'reports'),
-    where('studentId', '==', studentId),
-    where('schoolId', '==', currentSchoolId),
-    where('term', '==', editorState.term),
-    where('session', '==', editorState.session)
-  );
-  const snap = await getDocs(q);
-  if (!snap.empty) {
-    const data = snap.docs[0].data();
-    if (data.psychomotor) Object.assign(editorState.psychomotor, data.psychomotor);
-    editorState.teacherComment   = data.teacherComment   || '';
-    editorState.principalComment = data.principalComment || '';
-    editorState.savedReportId    = snap.docs[0].id;
-    if (data.attendance) editorState.attendance = data.attendance;
+  const report = await service.getReportByStudent(studentId, currentSchoolId, editorState.term, editorState.session);
+  if (report) {
+    if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
+    editorState.teacherComment   = report.teacherComment   || '';
+    editorState.principalComment = report.principalComment || '';
+    editorState.savedReportId    = report.id;
+    if (report.attendance) editorState.attendance = report.attendance;
   } else {
     editorState.savedReportId = null;
   }
@@ -450,12 +405,7 @@ async function saveEditorReport() {
     attendance, updatedAt: new Date()
   };
   try {
-    if (editorState.savedReportId) {
-      await updateDoc(doc(db, 'reports', editorState.savedReportId), reportData);
-    } else {
-      const newRef = await addDoc(collection(db, 'reports'), { ...reportData, createdAt: new Date() });
-      editorState.savedReportId = newRef.id;
-    }
+    await service.saveReport(reportData, editorState.savedReportId);
     alert('Report saved.');
   } catch (error) {
     if (error.code === 'permission-denied') alert('Permission denied. Subscription required to save reports.');
@@ -487,7 +437,6 @@ function handlePrint() {
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
 
-  // ✅ UPDATED CSS: comments appear inline (same line as label)
   const extraPrintCSS = `
     @page { size: A4; margin: 8mm; }
     body, .print-container { margin: 0; padding: 0; background: white; }
@@ -498,7 +447,7 @@ function handlePrint() {
     .rc-col-left, .rc-col-right { min-width: 0; }
     .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
     .rc-print-val     { display: inline !important; }
-    .rc-print-comment { display: inline !important; }   /* inline instead of block */
+    .rc-print-comment { display: inline !important; }
     .rc-scroll-outer  { overflow: visible !important; }
     .rc-details-band  { background: #1a3a5c !important; }
     .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
@@ -508,8 +457,6 @@ function handlePrint() {
     .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
     .rc-grade-scale th { background: #FFD700 !important; }
     .rc-comments { background: #f9f9f9 !important; }
-
-    /* Ensure comment rows are flex to keep label and text on same line */
     .rc-comment-row, .rc-comment-item {
       display: flex !important;
       flex-direction: row !important;
@@ -733,8 +680,10 @@ async function saveBroadsheetToFirestore() {
     subjects: subjects.map(s => ({ id: s.id, name: s.name })),
     createdAt: new Date(), updatedAt: new Date()
   };
+  // TODO: service.saveBroadsheet already exists? In service.js we have saveBroadsheet(docId, data)
+  // Yes – service.saveBroadsheet is available.
   try {
-    await setDoc(doc(db, 'broadsheets', docId), broadsheetData, { merge: true });
+    await service.saveBroadsheet(docId, broadsheetData);
     alert('Broadsheet saved successfully.');
   } catch (err) {
     if (err.code === 'permission-denied') alert('Permission denied. Subscription required to save broadsheets.');

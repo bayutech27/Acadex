@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>Acadex - Subjects & Classes</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
@@ -91,6 +91,44 @@
       .hamburger-menu {
         display: none !important;
       }
+    }
+
+    /* ========== RESPONSIVE TABLE SCROLLBARS (copied from students page) ========== */
+    .table-responsive-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 60vh;
+      width: 100%;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      margin: 1rem 0;
+      background: #fff;
+    }
+    @media (max-width: 768px) {
+      .table-responsive-wrapper {
+        max-height: 50vh;
+      }
+    }
+    .table-responsive-wrapper table {
+      min-width: 500px;         /* force horizontal scroll on mobile */
+      width: 100%;
+      border-collapse: collapse;
+    }
+    /* For classes table (fewer columns) we use a smaller min-width, but consistent */
+    .table-responsive-wrapper table.data-table {
+      min-width: 400px;
+    }
+    .table-responsive-wrapper th,
+    .table-responsive-wrapper td {
+      white-space: nowrap;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      vertical-align: middle;
+    }
+    /* Ensure action buttons don't wrap */
+    .table-responsive-wrapper td:last-child button {
+      white-space: nowrap;
     }
   </style>
 </head>
