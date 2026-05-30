@@ -1,7 +1,6 @@
 // scores.js - Teacher score entry with direct Firestore subscription check
-// All Firestore operations go through service.js where possible.
-// TODO: service.js does not support fetchExistingScores (single score by student+subject),
-// bulk notifications, or direct writeBatch – those remain as direct Firestore calls.
+// FIXED: Duplicate scores – bypass cache for fetching existing scores and saving.
+// All other operations (subjects, classes, students, grading) still use service.js.
 
 import { auth } from './firebase-config.js';
 import {
@@ -27,7 +26,7 @@ let selectedSubjectId = null;
 let selectedTerm = '1';
 let selectedSession = '';
 let currentGrading = { ca: 40, exam: 60 };
-let isScoreEntryAllowed = false;      // will be set by checkSubscription()
+let isScoreEntryAllowed = false;
 
 // ------------------- Direct subscription check (via service) -------------------
 async function checkSubscription() {
@@ -108,7 +107,6 @@ async function loadGradingSetting(session, term) {
   } else {
     try {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
-      // TODO: service.getScoringConfigById(docId) – direct Firestore for now
       const docSnap = await getDoc(doc(db, 'scoring', docId));
       let grading = '40/60';
       if (docSnap.exists()) grading = docSnap.data().grading;
@@ -218,49 +216,62 @@ async function loadStudentsForClass(classId) {
   }
 }
 
-// TODO: service does not have getExistingScore – direct Firestore query
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX: fetchExistingScores – direct Firestore query (bypass cache)
+// ─────────────────────────────────────────────────────────────────────────────
 async function fetchExistingScores(studentId, subjectId, term, session) {
   try {
-    const existing = await service.getExistingScore(studentId, subjectId, currentSchoolId, term, session);
-    return existing;
+    const q = query(
+      collection(db, 'scores'),
+      where('studentId', '==', studentId),
+      where('subjectId', '==', subjectId),
+      where('schoolId', '==', currentSchoolId),
+      where('term', '==', term),
+      where('session', '==', session)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const docSnap = snap.docs[0];
+      return { id: docSnap.id, ...docSnap.data() };
+    }
+    return null;
   } catch (err) {
     handleError(err, "Failed to fetch existing scores.");
     return null;
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX: saveAllScores – use direct Firestore batch with proper existing ID lookup
+// ─────────────────────────────────────────────────────────────────────────────
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
   if (scoresData.length === 0) return;
-  // Use service.saveScoresBatch if available, otherwise direct Firestore
-  // service.saveScoresBatch expects array of score objects and schoolId/term/session
-  // We'll use service.saveScoresBatch for now (assumes it exists in service.js)
-  try {
-    await service.saveScoresBatch(scoresData, currentSchoolId, selectedTerm, selectedSession);
-  } catch (err) {
-    console.error("Service saveScoresBatch failed, falling back to direct batch:", err);
-    // Fallback: direct Firestore batch (original logic)
-    const batch = writeBatch(db);
-    for (const score of scoresData) {
-      const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
-      const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
-      const subjectName = subjectsMap.get(score.subjectId) || '';
-      const data = {
-        studentId: score.studentId,
-        subjectId: score.subjectId,
-        subjectName: subjectName,
-        schoolId: currentSchoolId,
-        term: selectedTerm,
-        session: selectedSession,
-        ca: score.ca,
-        exam: score.exam,
-        updatedAt: new Date()
-      };
-      if (!existing) data.createdAt = new Date();
-      batch.set(scoreRef, data, { merge: true });
-    }
-    await batch.commit();
+
+  const batch = writeBatch(db);
+  for (const score of scoresData) {
+    // Always fetch the most current version directly (bypass cache)
+    const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
+    const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
+    const subjectName = subjectsMap.get(score.subjectId) || '';
+    const data = {
+      studentId: score.studentId,
+      subjectId: score.subjectId,
+      subjectName: subjectName,
+      schoolId: currentSchoolId,
+      term: selectedTerm,
+      session: selectedSession,
+      ca: score.ca,
+      exam: score.exam,
+      updatedAt: new Date()
+    };
+    if (!existing) data.createdAt = new Date();
+    batch.set(scoreRef, data, { merge: true });
   }
+  await batch.commit();
+
+  // Invalidate scores cache so that any cached reads see the updated data
+  service.invalidateScores();
 }
 
 // ------------------- UI control based on subscription -------------------
@@ -287,7 +298,6 @@ function updateSubscriptionUI() {
       `;
       container.prepend(banner);
     }
-    // Disable all score inputs
     document.querySelectorAll('.ca-input, .exam-input').forEach(input => input.disabled = true);
   } else {
     if (saveBtn) {
@@ -296,7 +306,6 @@ function updateSubscriptionUI() {
       saveBtn.title = '';
     }
     if (existingBanner) existingBanner.remove();
-    // Re‑enable inputs that are not on a locked student
     document.querySelectorAll('.ca-input, .exam-input').forEach(input => {
       const row = input.closest('tr');
       const isLocked = row?.dataset.locked === 'true';
@@ -341,7 +350,7 @@ async function renderScoreTable() {
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
-  tableHtml += `</tbody></table>`;
+  tableHtml += `</tbody><table>`;
   
   const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
   container.innerHTML = wrapperHtml;
@@ -430,7 +439,6 @@ async function saveScores() {
   showLoader();
   try {
     await saveAllScores(unlockedScores);
-    // --- After scores have been successfully saved ---
     if (unlockedScores.length > 0) {
       try {
         const subjectName = subjectsMap.get(selectedSubjectId) || '';
@@ -445,7 +453,6 @@ async function saveScores() {
         await createBulkNotifications(notifications);
       } catch (notifErr) {
         console.error('Failed to create score notifications:', notifErr);
-        // Not critical – continue
       }
     }
     showNotification(`Scores saved successfully for ${unlockedScores.length} student(s).`, "success");
@@ -498,9 +505,7 @@ async function initScoresPage() {
   const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum = termMap[currentTermName] || '1';
 
-  // ===== Dynamic session options =====
   const distinctSessions = await loadSessionOptions(currentSchoolId);
-  // Ensure the current session is always present (even if no scores exist for it yet)
   if (!distinctSessions.includes(currentSession)) {
     distinctSessions.unshift(currentSession);
   }
@@ -514,7 +519,6 @@ async function initScoresPage() {
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;
 
-  // Initially set grading (may be overridden when class is selected)
   await loadGradingSetting(currentSession, defaultTermNum);
 
   const classSelect = document.getElementById('classSelect');
@@ -567,7 +571,6 @@ async function initScoresPage() {
   const saveBtn = document.getElementById('saveScoresBtn');
   if (saveBtn) saveBtn.addEventListener('click', saveScores);
 
-  // Set initial selections
   selectedSession = currentSession;
   selectedTerm = defaultTermNum;
   if (selectedClassId) {
