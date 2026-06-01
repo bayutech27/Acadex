@@ -2,8 +2,9 @@
 // Layout: subjects table extreme left, skills tables extreme right
 // Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
 // All Firestore operations now go through service.js (cache + offline queue).
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
-import { showNotification } from './error-handler.js';
+import { toast } from './error-handler.js';
 import * as service from './service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
 
   } catch (err) {
     console.warn('[reportCardRenderer] _fetchStudentAttendanceData error:', err);
+    toast.warning('Unable to load attendance data. Using default values.');
     return fallback;
   }
 }
@@ -111,7 +113,7 @@ export async function renderReportCardUI({
 }) {
   if (!container) {
     console.error("renderReportCardUI: container element is required");
-    showNotification("Failed to render report card: container missing.", "error");
+    toast.error('Report card container not found. Please refresh the page.');
     return;
   }
 
@@ -156,6 +158,7 @@ export async function renderReportCardUI({
     }
   } catch (err) {
     console.error('[reportCardRenderer] Attendance fetch error:', err);
+    toast.warning('Unable to load attendance data. Using provided values.');
     if (
       attendance.schoolOpened > 0 ||
       attendance.present      > 0 ||
@@ -263,21 +266,21 @@ export async function renderReportCardUI({
       if (isPrimary) {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
-          <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-          <td>${grade}</td><td>${remark}</td>
+          <td>${score.ca}</td><td class="rc-exam">${score.exam}</td><td class="rc-total">${total}</td>
+          <td>${grade}</td><td class="rc-remark">${remark}</td>
         </tr>`;
       } else {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
-          <td>${score.ca}</td><td>${score.exam}</td><td>${total}</td>
-          <td>${grade}</td><td>${remark}</td>
-          <td>${positionHtml}</td><td>${classAvg}</td>
+          <td>${score.ca}</td><td class="rc-exam">${score.exam}<td><td class="rc-total">${total}</td>
+          <td>${grade}</td><td class="rc-remark">${remark}</td>
+          <td class="rc-position">${positionHtml}</td><td class="rc-class-avg">${classAvg}</td>
         </tr>`;
       }
     }
   } else {
     const colSpan = isPrimary ? 6 : 8;
-    tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
+    tableRows = `<tr><td colspan="${colSpan}">No scores found</td>{'', ''}`;
   }
 
   const totalObtainable = subjectCount * 100;

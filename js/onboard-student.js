@@ -4,6 +4,7 @@
 // All Firestore reads/writes go through service.js where possible.
 // TODO: service.js does not yet support student status updates, bulk deletion of scores/reports,
 // or auth account creation – these remain as direct Firestore/auth calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -21,8 +22,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import * as service from './service.js';
-import { getRawSubscription } from './plan.js';  // plan.js is separate – keep as is
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { getRawSubscription } from './plan.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
 // Global state
 let currentSchoolId = null;
@@ -53,7 +54,7 @@ function getSecondaryAuth() {
   return secondaryAuth;
 }
 
-// Nigerian states & countries
+// Nigerian states & countries (unchanged)
 const NIGERIAN_STATES = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
   "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa",
@@ -177,11 +178,12 @@ async function loadSubjectsByLevel(level) {
       }
     }
   } catch (err) {
-    handleError(err, 'Failed to load subjects');
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
 
-// Admission number helpers (use service to get all students for the school)
+// Admission number helpers
 function getSchoolCode() {
   if (!schoolName) return 'XX';
   return schoolName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2);
@@ -203,6 +205,7 @@ async function getNextSequenceNumber() {
     });
     return maxSeq + 1;
   } catch (err) {
+    console.error('Sequence generation error:', err);
     return 1;
   }
 }
@@ -225,7 +228,7 @@ async function isDuplicateStudentName(fullName, classId, excludeStudentId = null
   return classStudents.some(s => s.id !== excludeStudentId && (s.name || '').toLowerCase() === normalizedName);
 }
 
-// Image compression (unchanged, not Firestore related)
+// Image compression
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -252,7 +255,7 @@ async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, 
           dataUrl = canvas.toDataURL('image/jpeg', quality);
         }
         if (dataUrl.length > maxSizeKB * 1024) {
-          reject(`Image too large after compression (${(dataUrl.length / 1024).toFixed(1)}KB). Please upload a smaller image.`);
+          reject(`Image too large after compression. Please upload a smaller image.`);
         } else {
           resolve(dataUrl);
         }
@@ -294,17 +297,17 @@ async function handlePassportUpload(e) {
   }
 }
 
-// Load and display students for the teacher's class only (using service)
+// Load and display students for the teacher's class only
 async function loadAndDisplayStudents() {
   if (!teacherClassId || !isClassTeacher) return;
   let students;
   try {
-    // Get all students for the school, then filter by class and active status
     const allStudents = await service.getStudentsBySchool(currentSchoolId);
     students = allStudents.filter(s => s.classId === teacherClassId && s.status === 'active');
     students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
-    handleError(err, 'Failed to load students');
+    console.error('Load students error:', err);
+    toast.error('Unable to load students. Please refresh the page.');
     return;
   }
   if (!studentsContainer) return;
@@ -349,20 +352,20 @@ async function loadAndDisplayStudents() {
       </table>
     </div>
   `;
-  // Status change listeners (direct Firestore update – TODO: add to service)
+  // Status change listeners
   document.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', async () => {
       const studentId = select.getAttribute('data-id');
       const newStatus = select.value;
       showLoader();
       try {
-        // TODO: Add service.updateStudentStatus(studentId, newStatus) to service layer
         await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
-        showNotification('Student status updated.', 'success');
+        toast.success('Student status updated.');
       } catch (err) {
-        handleError(err, 'Failed to update status');
+        console.error('Status update error:', err);
+        toast.error('Failed to update status. Please try again.');
       } finally {
         hideLoader();
       }
@@ -370,31 +373,30 @@ async function loadAndDisplayStudents() {
   });
   window.editStudent = (id) => openModal(id);
   window.deleteStudent = async (id) => {
-    if (!confirm('Delete this student permanently? All scores and reports will be removed.')) return;
-    showLoader();
-    try {
-      // Use service.deleteStudent (deletes the student doc and invalidates cache)
-      await service.deleteStudent(id);
-      // TODO: service.deleteStudent should also delete scores/reports, but currently doesn't.
-      // Manually delete scores and reports – direct Firestore calls
-      const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
-      for (const d of scoresSnap.docs) await deleteDoc(d.ref);
-      const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
-      for (const d of reportsSnap.docs) await deleteDoc(d.ref);
-      await loadAndDisplayStudents();
-      showNotification('Student and related data deleted.', 'success');
-    } catch (err) {
-      handleError(err, 'Deletion failed');
-    } finally {
-      hideLoader();
+    if (confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) {
+      showLoader();
+      try {
+        await service.deleteStudent(id);
+        const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
+        for (const d of scoresSnap.docs) await deleteDoc(d.ref);
+        const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
+        for (const d of reportsSnap.docs) await deleteDoc(d.ref);
+        await loadAndDisplayStudents();
+        toast.success('Student and related data deleted.');
+      } catch (err) {
+        console.error('Deletion error:', err);
+        toast.error('Failed to delete student. Please try again.');
+      } finally {
+        hideLoader();
+      }
     }
   };
 }
 
-// Modal logic (unchanged, uses service for loading student data)
+// Modal logic
 function openModal(studentId = null) {
   if (!isClassTeacher) {
-    showNotification('Access denied: You are not a class teacher.', 'error');
+    toast.error('Access denied: You are not a class teacher.');
     return;
   }
   editingStudentId = studentId;
@@ -411,7 +413,6 @@ function openModal(studentId = null) {
   if (religionSelect) religionSelect.value = '';
   if (parentPhoneInput) parentPhoneInput.value = '';
   if (clubInput) clubInput.value = '';
-  // Prefill fixed class & level
   if (levelDisplay) levelDisplay.value = classLevel ? classLevel.charAt(0).toUpperCase() + classLevel.slice(1) : '';
   if (levelHidden) levelHidden.value = classLevel;
   if (classDisplay) classDisplay.value = className;
@@ -459,7 +460,8 @@ async function loadStudentData(studentId) {
       if (passportInput) passportInput.dataset.base64 = studentData.passport;
     }
   } catch (err) {
-    handleError(err, 'Failed to load student data');
+    console.error('Load student data error:', err);
+    toast.error('Failed to load student data. Please refresh.');
   }
 }
 function closeModal() {
@@ -470,11 +472,11 @@ function closeModal() {
   if (passportInput) passportInput.dataset.base64 = '';
 }
 
-// Save / Update student (with duplicate prevention) – uses service.createStudent/updateStudent
+// Save / Update student
 async function handleStudentSubmit(e) {
   e.preventDefault();
   if (!isClassTeacher) {
-    showNotification('Access denied: You are not a class teacher.', 'error');
+    toast.error('Access denied: You are not a class teacher.');
     return;
   }
   let admissionNumber = admissionNoInput?.value.trim() ?? '';
@@ -497,24 +499,24 @@ async function handleStudentSubmit(e) {
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
   if (!surname || !firstName || !email || !gender || !dob || !nationality || !state || !religion || !parentPhone) {
-    showNotification('Please fill all required fields (*).', 'error');
+    toast.error('Please fill all required fields (*).');
     return;
   }
   const age = calculateAge(dob);
   if (age === null || age < 0 || age > 100) {
-    showNotification('Invalid date of birth', 'error');
+    toast.error('Please enter a valid date of birth.');
     return;
   }
   // Duplicate name check
   const isDuplicate = await isDuplicateStudentName(fullName, classId, editingStudentId);
   if (isDuplicate) {
-    showNotification(`A student with name "${fullName}" already exists in this class. Duplicate names are not allowed.`, 'error');
+    toast.error(`A student with name "${fullName}" already exists in this class. Duplicate names are not allowed.`);
     return;
   }
   if (!admissionNumber) admissionNumber = await generateAdmissionNumber();
   const isUniqueAdm = await isAdmissionNumberUnique(admissionNumber, editingStudentId);
   if (!isUniqueAdm) {
-    showNotification(`Admission number "${admissionNumber}" already exists.`, 'error');
+    toast.error(`Admission number "${admissionNumber}" already exists.`);
     return;
   }
 
@@ -558,12 +560,12 @@ async function handleStudentSubmit(e) {
     if (editingStudentId) {
       delete studentBaseData.locked;
       await service.updateStudent(editingStudentId, studentBaseData);
-      showNotification('Student updated successfully.', 'success');
+      toast.success('Student updated successfully.');
       closeModal();
       await loadAndDisplayStudents();
       return;
     }
-    // Create auth account for new student (direct Firebase Auth – not in service)
+    // Create auth account for new student
     const secondaryAuthInstance = getSecondaryAuth();
     const defaultPassword = '$Acadex123';
     let userCredential;
@@ -571,18 +573,16 @@ async function handleStudentSubmit(e) {
       userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
     } catch (authError) {
       if (authError.code === 'auth/email-already-in-use') {
-        showNotification('A user with this email already exists. Use a different email.', 'error');
+        toast.error('A user with this email already exists. Use a different email.');
       } else {
-        showNotification('Failed to create login account: ' + authError.message, 'error');
+        toast.error('Failed to create login account. Please check your internet connection.');
       }
       return;
     }
     const uid = userCredential.user.uid;
     const studentDocData = { ...studentBaseData, uid: uid };
-    // TODO: service.createStudent does not accept uid override – use direct setDoc for now
     const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
     await setDoc(fDoc(db, 'students', uid), studentDocData);
-    // Also create user doc (not in service)
     const userDocData = {
       uid: uid,
       email: email,
@@ -599,7 +599,8 @@ async function handleStudentSubmit(e) {
     closeModal();
     await loadAndDisplayStudents();
   } catch (error) {
-    handleError(error, 'Failed to save student.');
+    console.error('Save student error:', error);
+    toast.error('Failed to save student. Please try again.');
   } finally {
     hideLoader();
   }
@@ -627,13 +628,12 @@ function showCredentialsModal(fullName, email, tempPassword) {
   `;
   document.body.appendChild(overlay);
   document.getElementById('copyCredsBtn').addEventListener('click', () => {
-    navigator.clipboard.writeText(`Email: ${email}\nPassword: ${tempPassword}`).then(() => showNotification('Copied', 'success'));
+    navigator.clipboard.writeText(`Email: ${email}\nPassword: ${tempPassword}`).then(() => toast.success('Copied to clipboard.'));
   });
   document.getElementById('closeCredsBtn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
-// Show a blocking error message when teacher is not a class teacher
 function showAccessDenied(message) {
   if (classInfoContainer) {
     classInfoContainer.innerHTML = `<div style="background:#fee2e2; border-left:5px solid #dc2626; padding:15px; border-radius:12px; color:#991b1b;">
@@ -654,13 +654,11 @@ function showAccessDenied(message) {
 // Main initializer with strict class teacher verification
 export async function initOnboardStudentPage() {
   try {
-    // STEP 1: Enforce class teacher status
     const teacherData = await verifyAndGetClassTeacherData();
     if (!teacherClassId) {
       throw new Error('No class assigned to this teacher.');
     }
 
-    // Setup DOM references
     studentForm = document.getElementById('studentForm');
     modal = document.getElementById('studentModal');
     admissionNoInput = document.getElementById('studentAdmissionNo');
@@ -689,7 +687,6 @@ export async function initOnboardStudentPage() {
     studentsContainer = document.getElementById('studentsList');
     classInfoContainer = document.getElementById('classInfoContainer');
 
-    // Populate nationality & state dropdowns
     if (nationalitySelect) {
       nationalitySelect.innerHTML = '<option value="">-- Select Country --</option>';
       COUNTRIES.forEach(c => { const opt = document.createElement('option'); opt.value = c; opt.textContent = c; nationalitySelect.appendChild(opt); });
@@ -699,7 +696,6 @@ export async function initOnboardStudentPage() {
       NIGERIAN_STATES.forEach(s => { const opt = document.createElement('option'); opt.value = s; opt.textContent = s; stateSelect.appendChild(opt); });
     }
 
-    // Display class info banner
     if (classInfoContainer) {
       classInfoContainer.innerHTML = `<i class="fa-solid fa-chalkboard"></i> Your Class: <strong>${escapeHtml(className)}</strong> (${classLevel.charAt(0).toUpperCase() + classLevel.slice(1)})`;
     }
@@ -707,7 +703,6 @@ export async function initOnboardStudentPage() {
     await loadSubjectsByLevel(classLevel);
     await loadAndDisplayStudents();
 
-    // Attach event listeners only when teacher is authorized
     if (addStudentBtn) addStudentBtn.addEventListener('click', () => openModal());
     document.querySelector('#studentModal .close-modal')?.addEventListener('click', closeModal);
     document.getElementById('cancelModalBtn')?.addEventListener('click', closeModal);

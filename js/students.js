@@ -12,6 +12,7 @@
 // All Firestore operations go through service.js where possible.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
 // TODO: Extend service.js with getStudentsBySchool(schoolId, forceRefresh) to avoid direct Firestore.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -21,13 +22,13 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
-import { handleNewStudentAddition } from './plan.js';   // keep as is (plan.js not fully migrated)
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { handleNewStudentAddition } from './plan.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import * as service from './service.js';
 
 let currentSchoolId = null;
-let subjectsMap = new Map();      // full map { id: { name, level } }
-let classesMap = new Map();       // full map { id: { name, level } }
+let subjectsMap = new Map();
+let classesMap = new Map();
 let editingStudentId = null;
 let currentFilter = 'all';
 let schoolName = '';
@@ -38,7 +39,6 @@ let studentForm, modal, admissionNoInput;
 let surnameInput, firstNameInput, otherNameInput;
 let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
-// New DOM elements
 let nationalitySelect, stateSelect, religionSelect, parentPhoneInput;
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -100,6 +100,7 @@ async function isRawSubscriptionActive(schoolId) {
     return sub.status === 'active' && sub.locked !== true;
   } catch (err) {
     console.warn('Failed to get raw subscription:', err);
+    toast.warning('Unable to verify subscription status. Please refresh.');
     return false;
   }
 }
@@ -164,8 +165,8 @@ function showCredentialsModal(fullName, email, tempPassword) {
   document.getElementById('copyCredsBtn').addEventListener('click', () => {
     const text = `Student Login\nEmail: ${email}\nPassword: ${tempPassword}`;
     navigator.clipboard.writeText(text)
-      .then(() => showNotification('Credentials copied to clipboard.', 'success'))
-      .catch(() => showNotification('Copy failed — please copy manually.', 'error'));
+      .then(() => toast.success('Credentials copied to clipboard.'))
+      .catch(() => toast.error('Copy failed — please copy manually.'));
   });
 
   document.getElementById('closeCredsBtn').addEventListener('click', () => overlay.remove());
@@ -179,7 +180,7 @@ export async function initStudentsPage() {
   await protectAdminPage();
   currentSchoolId = await getCurrentSchoolId();
   if (!currentSchoolId) {
-    showNotification('School ID missing.', 'error');
+    toast.error('School ID missing. Please log out and log in again.');
     return;
   }
 
@@ -228,6 +229,7 @@ export async function initStudentsPage() {
 
   if (!studentForm || !modal || !surnameInput || !firstNameInput || !levelSelect || !classSelect || !subjectsSelect) {
     console.error('Required DOM elements not found');
+    toast.error('Page not loaded correctly. Please refresh.');
     return;
   }
 
@@ -237,9 +239,7 @@ export async function initStudentsPage() {
   await loadAllClasses();
   await loadAllSubjects();
   
-  // ───────── NEW: Generate dynamic class filter buttons ─────────
   await generateClassFilterButtons();
-  // ─────────────────────────────────────────────────────────────
 
   await loadAndDisplayStudents();
 
@@ -272,7 +272,6 @@ export async function initStudentsPage() {
     });
   }
 
-  // Ensure "All Students" button works
   const allBtn = document.querySelector('.filter-btn[data-class="all"]');
   if (allBtn) {
     allBtn.addEventListener('click', () => {
@@ -294,15 +293,12 @@ async function generateClassFilterButtons() {
   const container = document.getElementById('classFilterContainer');
   if (!container) return;
 
-  // Keep the "All Students" button (already present as the first child)
   const allButton = container.querySelector('.filter-btn[data-class="all"]');
-  // Remove any existing class-specific buttons (except the "All Students" button)
   const existingClassButtons = container.querySelectorAll('.filter-btn:not([data-class="all"])');
   existingClassButtons.forEach(btn => btn.remove());
 
   try {
     const classes = await service.getClassesBySchool(currentSchoolId);
-    // Sort alphabetically by class name
     classes.sort((a, b) => a.name.localeCompare(b.name));
 
     classes.forEach(cls => {
@@ -311,7 +307,6 @@ async function generateClassFilterButtons() {
       btn.setAttribute('data-class', cls.name);
       btn.textContent = cls.name;
       btn.addEventListener('click', () => {
-        // Update active state
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentFilter = cls.name;
@@ -320,7 +315,8 @@ async function generateClassFilterButtons() {
       container.appendChild(btn);
     });
   } catch (err) {
-    handleError(err, 'Failed to load classes for filter buttons.');
+    console.error('Generate filter buttons error:', err);
+    toast.error('Unable to load classes for filters. Please refresh.');
   }
 }
 
@@ -354,7 +350,8 @@ async function loadAllClasses() {
     classesMap.clear();
     classes.forEach(cls => classesMap.set(cls.id, { name: cls.name, level: cls.level }));
   } catch (err) {
-    handleError(err, 'Failed to load classes reference.');
+    console.error('Load classes error:', err);
+    toast.error('Unable to load classes. Please refresh the page.');
   }
 }
 
@@ -364,7 +361,8 @@ async function loadAllSubjects() {
     subjectsMap.clear();
     subjects.forEach(sub => subjectsMap.set(sub.id, { name: sub.name, level: sub.level }));
   } catch (err) {
-    handleError(err, 'Failed to load subjects reference.');
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
 
@@ -388,7 +386,8 @@ async function loadClassesByLevel(level) {
       classSelect.disabled = false;
     }
   } catch (err) {
-    handleError(err, 'Failed to load classes for selected level.');
+    console.error('Load classes by level error:', err);
+    toast.error('Unable to load classes for selected level.');
     if (classSelect) {
       classSelect.innerHTML = '<option value="">Error loading classes</option>';
       classSelect.disabled = true;
@@ -421,7 +420,8 @@ async function loadSubjectsByLevel(level) {
       subjectsSelect.disabled = false;
     }
   } catch (err) {
-    handleError(err, 'Failed to load subjects for selected level.');
+    console.error('Load subjects by level error:', err);
+    toast.error('Unable to load subjects for selected level.');
     if (subjectsSelect) {
       subjectsSelect.innerHTML = '<option value="">Error loading subjects</option>';
       subjectsSelect.disabled = true;
@@ -452,11 +452,6 @@ function calculateAndDisplayAge() {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // ADMISSION NUMBER HELPERS
-// **FIX:** getNextSequenceNumber uses DIRECT FIRESTORE (bypass cache) to guarantee
-// uniqueness. The service layer's getStudentsBySchool is cached and may return
-// stale data, causing duplicate admission numbers.
-// TODO: Extend service.js with getStudentsBySchool(schoolId, forceRefresh) option.
-// ───────────────────────────────────────────────────────────────────────────────
 function getSchoolCode() {
   if (!schoolName) return 'XX';
   return schoolName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2);
@@ -464,7 +459,6 @@ function getSchoolCode() {
 
 async function getNextSequenceNumber() {
   try {
-    // Direct Firestore query – bypass cache for critical uniqueness
     const snapshot = await getDocs(
       query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
     );
@@ -482,7 +476,8 @@ async function getNextSequenceNumber() {
     });
     return maxSeq + 1;
   } catch (err) {
-    handleError(err, 'Failed to generate admission number.');
+    console.error('Get next sequence number error:', err);
+    toast.error('Unable to generate admission number. Please try again.');
     return 1;
   }
 }
@@ -496,15 +491,12 @@ async function generateAdmissionNumber() {
 
 async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   try {
-    // Use service.getStudentsBySchool (cached is acceptable for duplicate check
-    // because it will be followed by a direct Firestore write that fails on duplicate.
-    // However, to be fully safe, we could also use direct Firestore here.
-    // For performance, keep service.
     const allStudents = await service.getStudentsBySchool(currentSchoolId);
     const duplicate = allStudents.find(s => s.admissionNumber === admissionNo && s.id !== excludeStudentId);
     return !duplicate;
   } catch (err) {
-    handleError(err, 'Failed to check admission number uniqueness.');
+    console.error('Check admission number uniqueness error:', err);
+    toast.error('Unable to verify admission number. Please try again.');
     return false;
   }
 }
@@ -538,7 +530,7 @@ async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, 
           dataUrl = canvas.toDataURL('image/jpeg', quality);
         }
         if (dataUrl.length > maxSizeKB * 1024) {
-          reject(`Image too large after compression (${(dataUrl.length / 1024).toFixed(1)}KB). Please upload a smaller image.`);
+          reject(`Image too large after compression. Please upload a smaller image.`);
         } else {
           resolve(dataUrl);
         }
@@ -603,7 +595,8 @@ async function loadAndDisplayStudents() {
       students = students.filter(s => s.status === 'active');
     }
   } catch (err) {
-    handleError(err, 'Failed to load students.');
+    console.error('Load and display students error:', err);
+    toast.error('Unable to load students. Please refresh the page.');
     return;
   }
 
@@ -667,7 +660,6 @@ async function loadAndDisplayStudents() {
     </div>
   `;
 
-  // Status change listener (uses service.updateStudent)
   document.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', async () => {
       const studentId = select.getAttribute('data-id');
@@ -677,7 +669,7 @@ async function loadAndDisplayStudents() {
 
       if (newStatus === 'graduated') {
         if (!['Primary 6', 'JSS 3', 'SSS 3'].includes(className)) {
-          showNotification('Graduated status can only be set for final year classes (Primary 6, JSS 3, or SSS 3).', 'error');
+          toast.error('Graduated status can only be set for final year classes (Primary 6, JSS 3, or SSS 3).');
           select.value = select.getAttribute('data-current');
           return;
         }
@@ -687,9 +679,10 @@ async function loadAndDisplayStudents() {
         await service.updateStudent(studentId, { status: newStatus, updatedAt: new Date() });
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
-        showNotification('Student status updated.', 'success');
+        toast.success('Student status updated.');
       } catch (err) {
-        handleError(err, 'Failed to update student status.');
+        console.error('Status update error:', err);
+        toast.error('Failed to update student status. Please try again.');
       } finally {
         hideLoader();
       }
@@ -698,12 +691,10 @@ async function loadAndDisplayStudents() {
 
   window.editStudent = (id) => openModal(id);
   window.deleteStudent = async (id) => {
-    if (!confirm('Delete this student? This will also remove ALL their scores and reports permanently!')) return;
+    if (!confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) return;
     showLoader();
     try {
-      // Use service.deleteStudent (deletes student doc and invalidates cache)
       await service.deleteStudent(id);
-      // Also delete scores and reports manually – service does not cascade yet
       const { collection, getDocs, query, where, deleteDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db: localDb } = await import('./firebase-config.js');
       const scoresSnap = await getDocs(query(collection(localDb, 'scores'), where('studentId', '==', id)));
@@ -711,9 +702,10 @@ async function loadAndDisplayStudents() {
       const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
       for (const d of reportsSnap.docs) await deleteDoc(d.ref);
       await loadAndDisplayStudents();
-      showNotification('Student and all associated data (scores, reports) deleted successfully.', 'success');
+      toast.success('Student and all associated data deleted successfully.');
     } catch (err) {
-      handleError(err, 'Failed to delete student and related data.');
+      console.error('Delete student error:', err);
+      toast.error('Failed to delete student. Please try again.');
     } finally {
       hideLoader();
     }
@@ -811,7 +803,8 @@ async function loadStudentData(studentId) {
       if (passportInput) passportInput.dataset.base64 = student.passport;
     }
   } catch (err) {
-    handleError(err, 'Failed to load student data.');
+    console.error('Load student data error:', err);
+    toast.error('Failed to load student data. Please refresh.');
   }
 }
 
@@ -843,31 +836,28 @@ async function handleStudentSubmit(e) {
   const dob     = dobInput?.value ?? '';
   const club    = clubInput?.value.trim() || null;
   const passport = passportInput?.dataset.base64 || null;
-
-  // New fields
   const nationality = nationalitySelect?.value ?? '';
   const state = stateSelect?.value ?? '';
   const religion = religionSelect?.value ?? '';
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
-  // Validation
   if (!surname || !firstName || !email || !classId || !gender || !dob || !level) {
-    showNotification('Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).', 'error');
+    toast.error('Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).');
     return;
   }
   if (!nationality || !state || !religion || !parentPhone) {
-    showNotification('Please fill in Nationality, State, Religion and Parent Phone.', 'error');
+    toast.error('Please fill in Nationality, State, Religion and Parent Phone.');
     return;
   }
   const age = calculateAge(dob);
   if (age === null || age < 0 || age > 100) {
-    showNotification('Please enter a valid date of birth.', 'error');
+    toast.error('Please enter a valid date of birth.');
     return;
   }
   if (!admissionNumber) admissionNumber = await generateAdmissionNumber();
   const isUnique = await isAdmissionNumberUnique(admissionNumber, editingStudentId);
   if (!isUnique) {
-    showNotification(`Admission number "${admissionNumber}" already exists. Please use a different one.`, 'error');
+    toast.error(`Admission number "${admissionNumber}" already exists. Please use a different one.`);
     return;
   }
 
@@ -896,7 +886,6 @@ async function handleStudentSubmit(e) {
     schoolId: currentSchoolId,
     updatedAt: timestamp,
     subscriptionCovered: false,
-    // New fields
     nationality,
     state,
     religion,
@@ -912,7 +901,7 @@ async function handleStudentSubmit(e) {
     if (editingStudentId) {
       delete studentBaseData.locked;
       await service.updateStudent(editingStudentId, studentBaseData);
-      showNotification('Student updated successfully.', 'success');
+      toast.success('Student updated successfully.');
       closeModal();
       await loadAndDisplayStudents();
       return;
@@ -926,19 +915,17 @@ async function handleStudentSubmit(e) {
     } catch (authError) {
       console.error('Student Auth creation error:', authError);
       if (authError.code === 'auth/email-already-in-use') {
-        showNotification('A user with this email already exists. Please use a different email.', 'error');
+        toast.error('A user with this email already exists. Please use a different email.');
       } else {
-        showNotification('Failed to create login account: ' + authError.message, 'error');
+        toast.error('Failed to create login account. Please check your internet connection.');
       }
       return;
     }
 
     const uid = userCredential.user.uid;
     const studentDocData = { ...studentBaseData, uid: uid };
-    // Use service.createStudent(uid, data)
     await service.createStudent(uid, studentDocData);
 
-    // Also create user document – service does not have this yet, use direct setDoc
     const userDocData = {
       uid: uid,
       email: email,
@@ -959,7 +946,8 @@ async function handleStudentSubmit(e) {
     await loadAndDisplayStudents();
 
   } catch (error) {
-    handleError(error, 'Failed to save student.');
+    console.error('Save student error:', error);
+    toast.error('Failed to save student. Please try again.');
   } finally {
     hideLoader();
   }
@@ -1026,7 +1014,6 @@ async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();
 
-  // Use service.subscribeToSubscription
   unsubscribeSub = service.subscribeToSubscription(currentSchoolId, (subData) => {
     if (!subData) {
       showPaymentBanner();

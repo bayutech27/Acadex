@@ -1,6 +1,7 @@
 // scores.js - Teacher score entry with direct Firestore subscription check
 // FIXED: Duplicate scores – bypass cache for fetching existing scores and saving.
 // All other operations (subjects, classes, students, grading) still use service.js.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth } from './firebase-config.js';
 import {
@@ -8,7 +9,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import { getTeacherData } from './teacher-dashboard.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { createBulkNotifications } from './notification-service.js';
 import * as service from './service.js';
@@ -36,7 +37,8 @@ async function checkSubscription() {
     updateSubscriptionUI();
     return isScoreEntryAllowed;
   } catch (err) {
-    handleError(err, "Failed to verify subscription.");
+    console.error('Subscription check error:', err);
+    toast.error('Unable to verify subscription status. Please refresh the page.');
     isScoreEntryAllowed = false;
     updateSubscriptionUI();
     return false;
@@ -96,7 +98,7 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
     console.error("Failed to load grading by class level:", err);
     currentGrading = { ca: 40, exam: 60 };
     if (err.code === 'permission-denied') {
-      showNotification("Unable to load grading settings – using default CA=40, Exam=60.", "warning");
+      toast.warning('Unable to load grading settings – using default values (CA=40, Exam=60).');
     }
   }
 }
@@ -113,7 +115,9 @@ async function loadGradingSetting(session, term) {
       const [ca, exam] = grading.split('/').map(Number);
       currentGrading = { ca, exam };
     } catch (err) {
+      console.error('Grading setting error:', err);
       currentGrading = { ca: 40, exam: 60 };
+      toast.warning('Unable to load grading settings. Using default values.');
     }
   }
 }
@@ -125,7 +129,8 @@ async function loadAllSubjects() {
     subjectsMap.clear();
     subjects.forEach(subj => subjectsMap.set(subj.id, subj.name));
   } catch (err) {
-    handleError(err, "Failed to load subjects.");
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
 
@@ -137,7 +142,8 @@ async function loadAllClasses() {
       classesMap.set(cls.id, { name: cls.name, level: cls.level });
     });
   } catch (err) {
-    handleError(err, "Failed to load classes.");
+    console.error('Load classes error:', err);
+    toast.error('Unable to load classes. Please refresh the page.');
   }
 }
 
@@ -154,7 +160,8 @@ async function loadTeacherAssignedSubjectsAndClasses() {
       console.warn("Teacher document not found for UID:", teacherId);
     }
   } catch (err) {
-    handleError(err, "Failed to retrieve teacher assignments.");
+    console.error('Load teacher assignments error:', err);
+    toast.warning('Unable to load teacher assignments. Please refresh the page.');
   }
 }
 
@@ -211,13 +218,14 @@ async function loadStudentsForClass(classId) {
       locked: s.locked === true
     }));
   } catch (err) {
-    handleError(err, "Failed to load students for class.");
+    console.error('Load students for class error:', err);
+    toast.error('Unable to load students for this class. Please refresh.');
     studentsList = [];
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX: fetchExistingScores – direct Firestore query (bypass cache)
+// fetchExistingScores – direct Firestore query (bypass cache)
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchExistingScores(studentId, subjectId, term, session) {
   try {
@@ -236,13 +244,14 @@ async function fetchExistingScores(studentId, subjectId, term, session) {
     }
     return null;
   } catch (err) {
-    handleError(err, "Failed to fetch existing scores.");
+    console.error('Fetch existing scores error:', err);
+    toast.warning('Unable to load existing scores. Please refresh.');
     return null;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX: saveAllScores – use direct Firestore batch with proper existing ID lookup
+// saveAllScores – use direct Firestore batch with proper existing ID lookup
 // ─────────────────────────────────────────────────────────────────────────────
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
@@ -250,7 +259,6 @@ async function saveAllScores(scoresData) {
 
   const batch = writeBatch(db);
   for (const score of scoresData) {
-    // Always fetch the most current version directly (bypass cache)
     const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
     const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
     const subjectName = subjectsMap.get(score.subjectId) || '';
@@ -350,7 +358,7 @@ async function renderScoreTable() {
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
-  tableHtml += `</tbody><table>`;
+  tableHtml += `</tbody></table>`;
   
   const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
   container.innerHTML = wrapperHtml;
@@ -376,28 +384,28 @@ async function renderScoreTable() {
 async function saveScores() {
   const active = await checkSubscription();
   if (!active) {
-    showNotification("❌ School subscription is inactive. Cannot save scores. Please contact your school administrator to renew.", "error");
+    toast.error('School subscription is inactive. Cannot save scores. Please contact your school administrator to renew.');
     return;
   }
 
   if (!selectedClassId || !selectedSubjectId) {
-    showNotification("Select class and subject first", "error");
+    toast.error('Please select a class and subject first.');
     return;
   }
 
   if (teacherSubjectIds.length > 0 && !teacherSubjectIds.includes(selectedSubjectId)) {
-    showNotification(`❌ You are not assigned to teach the subject "${subjectsMap.get(selectedSubjectId) || selectedSubjectId}".`, "error");
+    toast.error(`You are not assigned to teach the subject "${subjectsMap.get(selectedSubjectId) || selectedSubjectId}".`);
     return;
   }
 
   if (teacherClassIds.length > 0 && !teacherClassIds.includes(selectedClassId)) {
-    showNotification(`❌ You are not assigned to teach the class "${classesMap.get(selectedClassId)?.name || selectedClassId}".`, "error");
+    toast.error(`You are not assigned to teach the class "${classesMap.get(selectedClassId)?.name || selectedClassId}".`);
     return;
   }
 
   const rows = document.querySelectorAll('#scoresTableContainer tbody tr');
   if (!rows.length) {
-    showNotification("No students found. Please refresh the class list.", "error");
+    toast.error('No students found. Please refresh the class list.');
     return;
   }
 
@@ -415,7 +423,7 @@ async function saveScores() {
     const exam = parseInt(examInput.value) || 0;
 
     if (ca > currentGrading.ca || exam > currentGrading.exam) {
-      showNotification(`Invalid scores for ${studentName}. CA max = ${currentGrading.ca}, Exam max = ${currentGrading.exam}`, "error");
+      toast.error(`Invalid scores for ${studentName}. CA max = ${currentGrading.ca}, Exam max = ${currentGrading.exam}`);
       return;
     }
 
@@ -428,11 +436,11 @@ async function saveScores() {
   }
 
   if (lockedStudentNames.length) {
-    showNotification(`⚠️ Scores not saved for locked students: ${lockedStudentNames.join(', ')}`, "warning");
+    toast.warning(`Scores not saved for locked students: ${lockedStudentNames.join(', ')}`);
   }
 
   if (unlockedScores.length === 0) {
-    showNotification("No scores were saved because all students are locked.", "info");
+    toast.info('No scores were saved because all students are locked.');
     return;
   }
 
@@ -455,16 +463,16 @@ async function saveScores() {
         console.error('Failed to create score notifications:', notifErr);
       }
     }
-    showNotification(`Scores saved successfully for ${unlockedScores.length} student(s).`, "success");
+    toast.success(`Scores saved successfully for ${unlockedScores.length} student(s).`);
     await renderScoreTable();
   } catch (err) {
     console.error("Full error object:", err);
     if (err.code === 'permission-denied') {
-      showNotification("❌ You don't have permission to save these scores. Make sure you are assigned to this subject and class, and that the students are approved (unlocked).", "error");
+      toast.error('Permission denied. Make sure you are assigned to this subject and class, and that the students are approved (unlocked).');
     } else if (err.message === 'subscription_inactive') {
-      showNotification("❌ School subscription is inactive. Please renew to save scores.", "error");
+      toast.error('School subscription is inactive. Please renew to save scores.');
     } else {
-      handleError(err, "Failed to save scores.");
+      toast.error('Failed to save scores. Please try again.');
     }
   } finally {
     hideLoader();
@@ -475,19 +483,19 @@ async function saveScores() {
 async function initScoresPage() {
   const user = auth.currentUser;
   if (!user) {
-    showNotification("User not logged in. Please refresh.", "error");
+    toast.error('User not logged in. Please refresh the page.');
     return;
   }
   teacherId = user.uid;
 
   teacherData = getTeacherData();
   if (!teacherData) {
-    showNotification("Teacher data not found. Please contact admin.", "error");
+    toast.error('Teacher data not found. Please contact your administrator.');
     return;
   }
   currentSchoolId = teacherData.schoolId;
   if (!currentSchoolId) {
-    showNotification("School ID missing.", "error");
+    toast.error('School ID missing. Please log out and log in again.');
     return;
   }
 

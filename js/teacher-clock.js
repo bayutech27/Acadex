@@ -23,6 +23,7 @@
  * All Firestore operations go through service.js where possible.
  * TODO: service.js does not yet support teacher attendance operations (addDoc, updateDoc, getDocs for teacher_attendance).
  * These remain as direct Firestore calls.
+ * All user-facing errors now show clear, friendly messages without technical jargon.
  */
 
 import { auth, db } from './firebase-config.js';
@@ -31,19 +32,19 @@ import {
   collection, query, where, getDocs, getDoc,
   doc, addDoc, updateDoc, serverTimestamp, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { handleError, showNotification } from './error-handler.js';
+import { handleError, showNotification, toast } from './error-handler.js';
 import * as service from './service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────────────────────
 let _schoolId      = null;
-let _teacherUid    = null;   // Firebase auth UID — primary identity
-let _teacherDbId   = null;   // Optional teachers/{docId} reference
+let _teacherUid    = null;
+let _teacherDbId   = null;
 let _teacherName   = '';
 let _geofence      = null;
-let _todayRecord   = null;   // Current teacher_attendance doc for today
-let _lastGps       = null;   // { lat, lng, accuracy }
+let _todayRecord   = null;
+let _lastGps       = null;
 let _clockTimer    = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +152,7 @@ function setGpsBar(state, message) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FEEDBACK TOAST
+// FEEDBACK TOAST (inline feedback, not to be confused with the global toast system)
 // ─────────────────────────────────────────────────────────────────────────────
 function showFeedback(type, text) {
   const el   = document.getElementById('clockFeedback');
@@ -170,7 +171,6 @@ function showFeedback(type, text) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadTeacherProfile(uid) {
   try {
-    // 1. Load mandatory user document
     const user = await service.getUserById(uid);
     if (!user) {
       throw new Error('User profile not found.');
@@ -182,12 +182,11 @@ async function loadTeacherProfile(uid) {
     const schoolId = user.schoolId;
     const name = user.name || user.fullName || 'Teacher';
 
-    // 2. Optionally fetch the teacher's extended metadata doc (service.getTeacherById uses uid as doc id)
     let dbId = null;
     try {
       const teacher = await service.getTeacherById(uid);
       if (teacher) {
-        dbId = uid; // In the service, teacher doc ID equals uid
+        dbId = uid;
       }
     } catch (e) {
       console.warn('Teacher metadata document not found; continuing with user profile only.', e);
@@ -195,7 +194,8 @@ async function loadTeacherProfile(uid) {
 
     return { schoolId, name, dbId };
   } catch (err) {
-    handleError(err, 'Failed to load teacher profile.');
+    console.error('Load teacher profile error:', err);
+    toast.error('Unable to load your profile. Please refresh the page.');
     return null;
   }
 }
@@ -209,7 +209,8 @@ async function loadGeofence(schoolId) {
     if (!school) return null;
     return school.geofence || null;
   } catch (err) {
-    handleError(err, 'Failed to load school geofence.');
+    console.error('Load geofence error:', err);
+    toast.error('Unable to load geofence settings. Please refresh.');
     return null;
   }
 }
@@ -291,7 +292,8 @@ async function loadTodayRecord() {
     renderTodayStatus();
     updateButtonStates();
   } catch (err) {
-    handleError(err, 'Failed to load today\'s attendance record.');
+    console.error('Load today record error:', err);
+    toast.error('Unable to load today\'s attendance. Please refresh.');
   }
 }
 
@@ -366,7 +368,6 @@ async function performClockIn() {
     return;
   }
 
-  // Double-check: no duplicate clock-in today
   await loadTodayRecord();
   if (_todayRecord?.clockIn) {
     showFeedback('info', `You already clocked in today at ${formatTime(_todayRecord.clockIn)}.`);
@@ -379,7 +380,7 @@ async function performClockIn() {
 
     const docRef = await addDoc(collection(db, 'teacher_attendance'), {
       uid:          _teacherUid,
-      teacherDbId:  _teacherDbId,      // null is allowed
+      teacherDbId:  _teacherDbId,
       teacherName:  _teacherName,
       schoolId:     _schoolId,
       date:         today,
@@ -405,11 +406,12 @@ async function performClockIn() {
     _todayRecord = { id: docRef.id };
     showFeedback('success',
       `Clocked in successfully — ${gpsResult.distance}m from school. Have a great day!`);
-    showNotification('Clock-in recorded!', 'success');
+    toast.success('Clock-in recorded!');
     await loadTodayRecord();
     await loadHistory();
   } catch (err) {
-    handleError(err, 'Clock-in failed. Please try again.');
+    console.error('Clock-in error:', err);
+    toast.error('Clock-in failed. Please try again.');
     showFeedback('error', `Error: ${err.message}`);
     if (inBtn) {
       inBtn.disabled = false;
@@ -456,11 +458,12 @@ async function performClockOut() {
     });
 
     showFeedback('success', `Clocked out successfully — ${gpsResult.distance}m from school. See you tomorrow!`);
-    showNotification('Clock-out recorded!', 'success');
+    toast.success('Clock-out recorded!');
     await loadTodayRecord();
     await loadHistory();
   } catch (err) {
-    handleError(err, 'Clock-out failed. Please try again.');
+    console.error('Clock-out error:', err);
+    toast.error('Clock-out failed. Please try again.');
     showFeedback('error', `Error: ${err.message}`);
     if (outBtn) {
       outBtn.disabled = false;
@@ -526,8 +529,9 @@ async function loadHistory() {
         </tr>`;
     }).join('');
   } catch (err) {
-    handleError(err, 'Failed to load attendance history.');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;">Failed to load history.</td></tr>`;
+    console.error('Load history error:', err);
+    toast.error('Failed to load attendance history. Please refresh.');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;">Failed to load history.您</td><td>`;
   }
 }
 
@@ -553,30 +557,28 @@ export async function initTeacherClockPage(passedTeacherName = '') {
   });
 
   if (!uid) {
-    showFeedback('error', 'You are not logged in. Please log in again.');
+    toast.error('You are not logged in. Please log in again.');
     return;
   }
   _teacherUid = uid;
 
-  // Load teacher profile from service
   const profile = await loadTeacherProfile(uid);
   if (!profile) {
-    showFeedback('error', 'Teacher profile not found. Please contact your admin.');
+    toast.error('Teacher profile not found. Please contact your administrator.');
     return;
   }
   _schoolId    = profile.schoolId;
   _teacherName = profile.name;
-  _teacherDbId = profile.dbId;   // may be null
+  _teacherDbId = profile.dbId;
 
   const nameEl = document.getElementById('teacherDisplayName');
   if (nameEl) nameEl.textContent = _teacherName;
 
   if (!_schoolId) {
-    showFeedback('error', 'School not linked to your profile. Please contact admin.');
+    toast.error('School not linked to your profile. Please contact your administrator.');
     return;
   }
 
-  // Load geofence using service
   _geofence = await loadGeofence(_schoolId);
   if (!_geofence || !_geofence.enabled) {
     setGpsBar('disabled', 'Geofence not yet configured by your admin. Clock-in is unavailable.');
@@ -584,11 +586,9 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     return;
   }
 
-  // Load today's record and history
   await loadTodayRecord();
   await loadHistory();
 
-  // Wire up GPS check button
   document.getElementById('checkGpsBtn')?.addEventListener('click', async () => {
     const result = await performGpsCheck();
     updateButtonStates();
@@ -600,13 +600,11 @@ export async function initTeacherClockPage(passedTeacherName = '') {
     if (outBtn) outBtn.disabled = !result.valid || !hasClockedIn || hasClockedOut;
   });
 
-  // Clock In button
   document.getElementById('clockInBtn')?.addEventListener('click', async (e) => {
     addRipple(e.currentTarget);
     await performClockIn();
   });
 
-  // Clock Out button
   document.getElementById('clockOutBtn')?.addEventListener('click', async (e) => {
     addRipple(e.currentTarget);
     await performClockOut();

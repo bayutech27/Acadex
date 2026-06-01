@@ -2,6 +2,7 @@
 // FIX 4: Activation uses rolling 3-month end date (no more hardcoded term dates that could immediately expire).
 // FIX 5: Activation sets status=active, locked=false, and a real future endDate — nothing else reverts this.
 // FIX 9: endDate is now always the end of the current term from the academic calendar.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db, auth } from './firebase-config.js';
 import {
@@ -9,7 +10,7 @@ import {
   writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
-import { showNotification, handleError } from './error-handler.js';
+import { showNotification, handleError, toast } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession, getTermDates, subscribeToCalendar } from './academic-calendar.js';
 
 let currentUser = null;
@@ -70,7 +71,8 @@ onAuthStateChanged(auth, async (user) => {
     });
     await loadDashboard();
   } catch (err) {
-    handleError(err, "Failed to verify super admin access.");
+    console.error('Auth guard error:', err);
+    toast.error('Unable to verify super admin access. Please log in again.');
     window.location.href = '/';
   }
 });
@@ -88,8 +90,12 @@ async function loadDashboard(options = { silent: false }) {
   try {
     await Promise.all([loadStats(), loadSchools()]);
   } catch (err) {
-    if (!options.silent) handleError(err, "Error loading dashboard data.");
-    else console.error(err);
+    if (!options.silent) {
+      console.error('Dashboard load error:', err);
+      toast.error('Unable to load dashboard data. Please refresh the page.');
+    } else {
+      console.error(err);
+    }
   } finally {
     isLoading = false;
   }
@@ -97,7 +103,10 @@ async function loadDashboard(options = { silent: false }) {
 
 function debouncedLoadSchools() {
   if (loadTimeout) clearTimeout(loadTimeout);
-  loadTimeout = setTimeout(() => loadSchools().catch(console.error), 300);
+  loadTimeout = setTimeout(() => loadSchools().catch(err => {
+    console.error(err);
+    toast.error('Unable to load schools. Please refresh.');
+  }), 300);
 }
 
 async function loadStats() {
@@ -118,7 +127,9 @@ async function loadStats() {
           }
           const studentsSnap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolDoc.id)));
           totalStudents += studentsSnap.size;
-        } catch (err) { console.warn(err); }
+        } catch (err) { 
+          console.warn('Stats sub-error:', err); 
+        }
       })());
     });
     await Promise.all(promises);
@@ -127,7 +138,8 @@ async function loadStats() {
     document.getElementById('expiredSubscriptions').innerText = expiredSubs;
     document.getElementById('totalStudentsSuper').innerText = totalStudents;
   } catch (err) {
-    handleError(err, "Failed to load statistics.");
+    console.error('Load stats error:', err);
+    toast.error('Unable to load statistics. Please refresh.');
   }
 }
 
@@ -172,7 +184,8 @@ async function loadSchools() {
     });
     renderTable(filtered);
   } catch (err) {
-    handleError(err, "Failed to load schools data.");
+    console.error('Load schools error:', err);
+    toast.error('Unable to load schools data. Please refresh.');
   }
 }
 
@@ -189,7 +202,6 @@ function renderTable(schools) {
     const statusClass = status === 'active' ? 'active' : (status === 'expired' ? 'expired' : 'suspended');
     const buttonText = status === 'active' ? 'Suspend' : 'Activate';
 
-    // Display: prefer stored endDate, fall back to term-based calculation for display only
     let expiryDisplay = '—';
     if (sub.endDate) {
       expiryDisplay = new Date(sub.endDate.toDate ? sub.endDate.toDate() : sub.endDate).toLocaleDateString();
@@ -215,8 +227,8 @@ function renderTable(schools) {
         <td>
           <button class="btn-warning approve-extra" data-id="${s.id}" ${!hasPending ? 'disabled' : ''}>Approve Extra</button>
           <button class="btn-danger toggle-subscription" data-id="${s.id}" data-status="${status}">${buttonText}</button>
-         </td>
-       </tr>
+        </td>
+      </tr>
     `;
   }).join('');
 
@@ -239,26 +251,24 @@ async function handleToggle(e) {
     const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
     const subSnap = await getDoc(subRef);
     if (!subSnap.exists()) {
-      showNotification("Subscription document not found. Please refresh.", "error");
+      toast.error('Subscription record not found. Please refresh the page.');
       btn.disabled = false;
       return;
     }
 
     if (currentStatus === 'active') {
-      // Suspend: mark expired and locked (endDate left unchanged)
       await updateDoc(subRef, {
         status: 'expired',
         locked: true,
         lastUpdated: new Date(),
         autoExpired: false
       });
-      showNotification("School suspended.", "success");
+      toast.success('School suspended successfully.');
     } else {
-      // Activate: use the current term's end date from the academic calendar
       const currentTerm = getCurrentTerm();
       const currentSession = getCurrentSession();
-      const termDates = getTermDates();   // { start, end } as "YYYY-MM-DD"
-      const termEndDate = new Date(termDates.end + 'T23:59:59.999Z'); // term end in UTC
+      const termDates = getTermDates();
+      const termEndDate = new Date(termDates.end + 'T23:59:59.999Z');
 
       const updateData = {
         status: 'active',
@@ -270,12 +280,16 @@ async function handleToggle(e) {
         autoExpired: false
       };
       await updateDoc(subRef, updateData);
-      showNotification("School activated. Subscription valid until end of current term.", "success");
+      toast.success('School activated. Subscription valid until end of current term.');
     }
     await loadDashboard();
   } catch (err) {
-    console.error("Toggle error:", err);
-    handleError(err, "Operation failed. Check console and Firestore rules.");
+    console.error('Toggle error:', err);
+    if (err.code === 'permission-denied') {
+      toast.error('Permission denied. Please check your super-admin privileges.');
+    } else {
+      toast.error('Operation failed. Please try again.');
+    }
     btn.disabled = false;
     btn.innerText = originalText;
   }
@@ -308,14 +322,15 @@ async function openApproveModal(schoolId) {
             unlocked++;
           }
           await batch.commit();
-          showNotification(`${unlocked} student(s) unlocked.`, "success");
+          toast.success(`${unlocked} student(s) unlocked successfully.`);
           modal.style.display = 'none';
           await loadDashboard();
         } catch (err) {
-          handleError(err, "Approval failed.");
+          console.error('Approve extra error:', err);
+          toast.error('Failed to approve extra students. Please try again.');
         }
       } else {
-        showNotification("Invalid count", "error");
+        toast.error('Invalid count. Please enter a number between 1 and the pending count.');
       }
     };
   }

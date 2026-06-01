@@ -2,12 +2,13 @@
 // MODIFIED: Guaranteed horizontal and vertical scrolling using inline styles.
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support deleteSubject or addSubject – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { db } from './firebase-config.js';
 import { collection, addDoc, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
 let currentSchoolId = null;
 
@@ -33,7 +34,8 @@ export async function initSubjects() {
       setupPrimaryForm();
     }
   } catch (error) {
-    handleError(error, "Failed to initialize subjects page.");
+    console.error('Init subjects error:', error);
+    toast.error('Unable to initialise subjects page. Please refresh.');
   }
 }
 
@@ -75,21 +77,23 @@ async function loadSubjects() {
     container.innerHTML = createScrollableWrapper(tableHtml);
     
     window.deleteSubject = async (id) => {
-      if (confirm('Delete this subject?')) {
+      if (confirm('Delete this subject permanently? This action cannot be undone.')) {
         showLoader();
         try {
           await deleteDoc(doc(db, 'subjects', id));
-          showNotification("Subject deleted.", "success");
+          toast.success('Subject deleted successfully.');
           await loadSubjects();
         } catch (err) {
-          handleError(err, "Failed to delete subject.");
+          console.error('Delete subject error:', err);
+          toast.error('Failed to delete subject. Please try again.');
         } finally {
           hideLoader();
         }
       }
     };
   } catch (err) {
-    handleError(err, "Failed to load subjects.");
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
 
@@ -138,7 +142,7 @@ function setupSecondaryForm() {
     }
     
     if (!name) {
-      showNotification("Please select a subject from the list or enter a subject name manually.", "error");
+      toast.error('Please select a subject from the list or enter a subject name manually.');
       return;
     }
     
@@ -151,10 +155,11 @@ function setupSecondaryForm() {
       if (manualInput) manualInput.value = '';
       if (codeInput) codeInput.value = '';
       if (select) select.value = '';
-      showNotification("Secondary subject added successfully.", "success");
+      toast.success('Secondary subject added successfully.');
       await loadSubjects();
     } catch (err) {
-      handleError(err, err.message || "Failed to add secondary subject.");
+      console.error('Add secondary subject error:', err);
+      toast.error(err.message || 'Failed to add secondary subject. Please try again.');
     } finally {
       hideLoader();
     }
@@ -172,7 +177,7 @@ function setupPrimaryForm() {
     
     const name = nameInput ? nameInput.value.trim() : '';
     if (!name) {
-      showNotification("Please enter a subject name.", "error");
+      toast.error('Please enter a subject name.');
       return;
     }
     
@@ -182,10 +187,11 @@ function setupPrimaryForm() {
     try {
       await addSubjectToFirestore(name, code, 'primary');
       form.reset();
-      showNotification("Primary subject added successfully.", "success");
+      toast.success('Primary subject added successfully.');
       await loadSubjects();
     } catch (err) {
-      handleError(err, err.message || "Failed to add primary subject.");
+      console.error('Add primary subject error:', err);
+      toast.error(err.message || 'Failed to add primary subject. Please try again.');
     } finally {
       hideLoader();
     }

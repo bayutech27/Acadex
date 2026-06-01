@@ -9,13 +9,17 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
 // some complex queries – those remain as direct Firestore calls.
+//
+// FIXED: All user-facing errors now show toast notifications instead of alerts.
+// ADDED: Subscription restriction – if subscription is inactive, users can only view results from
+//        previous sessions/terms (not the current one). Current session/term results are blocked.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { onSubscriptionChange } from './plan.js';
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
 // ------------------- Global State -------------------
 let currentSchoolId = null;
@@ -26,6 +30,8 @@ let allSubjectsList = [];
 let currentGrading = { ca: 40, exam: 60 };
 let isSubscriptionActive = false;
 let unsubscribeSub = null;
+let currentAcademicSession = '';
+let currentAcademicTerm = '';
 
 let editorState = {
   selectedStudent: null,
@@ -40,6 +46,23 @@ let editorState = {
 
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
+
+// ------------------- Helper: Check if requested session/term is current -------------------
+function isCurrentSessionTerm(session, term) {
+  if (!currentAcademicSession || !currentAcademicTerm) return false;
+  // Convert term number to full name for comparison
+  const termMap = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
+  const termName = termMap[term] || term;
+  return session === currentAcademicSession && termName === currentAcademicTerm;
+}
+
+// ------------------- Helper: Check if user can view this result -------------------
+function canViewResult(session, term) {
+  // If subscription is active, always allow
+  if (isSubscriptionActive) return true;
+  // If subscription is inactive, block current session/term only
+  return !isCurrentSessionTerm(session, term);
+}
 
 // ------------------- Utility Functions -------------------
 function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
@@ -105,7 +128,7 @@ function getCommentOptionsByGrade(grade) {
 }
 function getGradeScaleHtml() {
   const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody><tr>`;
 }
 function createTickRating(skillKey, currentValue) {
   const container = document.createElement('div');
@@ -137,7 +160,6 @@ function getScoringDocId(session, term, level) {
 }
 
 async function loadSessionOptions(schoolId) {
-  // Use service.loadSessionOptions (cached)
   return await service.loadSessionOptions(schoolId);
 }
 
@@ -156,7 +178,7 @@ async function loadClassesAndSubjects() {
     });
   } catch (err) {
     console.error('Failed to load classes/subjects:', err);
-    alert('Unable to load classes/subjects. Check your permissions.');
+    toast.error('Unable to load classes and subjects. Please refresh the page.');
     throw err;
   }
 }
@@ -177,18 +199,18 @@ async function loadAllStudents() {
     studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     console.error('Failed to load students:', err);
-    alert('Unable to load students. Check your permissions.');
+    toast.error('Unable to load students. Please refresh the page.');
     throw err;
   }
 }
 
 async function fetchClassScores(classId, term, session) {
-  // Use service.getScoresByClass
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
-    return scores.map(s => ({ ...s, id: s.id })); // ensure id field
+    return scores.map(s => ({ ...s, id: s.id }));
   } catch (err) {
     console.error('Failed to fetch class scores:', err);
+    toast.warning('Unable to load class scores. Please refresh the page.');
     return [];
   }
 }
@@ -199,6 +221,7 @@ async function fetchStudentScores(studentId, term, session) {
     return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
   } catch (err) {
     console.error('Failed to fetch student scores:', err);
+    toast.warning('Unable to load student scores. Please refresh the page.');
     return [];
   }
 }
@@ -206,7 +229,6 @@ async function fetchStudentScores(studentId, term, session) {
 async function loadGradingSetting(session, term, level = 'secondary') {
   try {
     const docId = getScoringDocId(session, term, level);
-    // TODO: service.getScoringConfigById(docId) – use direct Firestore for now
     const { getDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
     const { db } = await import('./firebase-config.js');
     const docSnap = await getDoc(fDoc(db, 'scoring', docId));
@@ -221,11 +243,18 @@ async function loadGradingSetting(session, term, level = 'secondary') {
       const primaryGradingSelect = document.getElementById('primaryGradingSelect');
       if (primaryGradingSelect) primaryGradingSelect.value = grading;
     }
-  } catch (err) { console.error(err); currentGrading = { ca: 40, exam: 60 }; }
+  } catch (err) { 
+    console.error(err); 
+    currentGrading = { ca: 40, exam: 60 };
+    toast.warning('Unable to load grading settings. Using default values.');
+  }
 }
 
 async function saveGradingSetting(level = 'secondary') {
-  if (!isSubscriptionActive) { alert('Subscription inactive. Cannot save grading settings.'); return; }
+  if (!isSubscriptionActive) { 
+    toast.error('Subscription inactive. Cannot save grading settings.'); 
+    return; 
+  }
   const gradingSelect = document.getElementById(level === 'secondary' ? 'gradingSelect' : 'primaryGradingSelect');
   if (!gradingSelect) return;
   const grading = gradingSelect.value;
@@ -235,19 +264,25 @@ async function saveGradingSetting(level = 'secondary') {
     session = document.getElementById('broadsheetSessionSelect')?.value;
     term = document.getElementById('broadsheetTermSelect')?.value;
   }
-  if (!session || !term) { alert('Session/Term not set. Please select a session and term first.'); return; }
+  if (!session || !term) { 
+    toast.error('Please select a session and term first.'); 
+    return; 
+  }
   const docId = getScoringDocId(session, term, level);
-  // TODO: service.setScoringConfig(docId, { grading, schoolId, session, term, level })
   const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
   const { db } = await import('./firebase-config.js');
   try {
     await setDoc(fDoc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
     if (level === 'secondary') { const [ca, exam] = grading.split('/').map(Number); currentGrading = { ca, exam }; }
-    alert(`Grading saved for ${level} level.`);
+    toast.success(`Grading saved for ${level} level.`);
     if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   } catch (err) {
-    if (err.code === 'permission-denied') alert('Permission denied. Subscription required to save grading.');
-    else { console.error(err); alert('Failed to save grading. Check console.'); }
+    if (err.code === 'permission-denied') {
+      toast.error('Permission denied. Subscription required to save grading.');
+    } else { 
+      console.error(err); 
+      toast.error('Failed to save grading. Please try again.');
+    }
   }
 }
 
@@ -290,7 +325,6 @@ async function getRelevantSubjectsForClass(classId, session) {
   const studentIds = classStudents.map(s => s.id);
   const subjectIdsWithScores = new Set();
   for (const term of ['1', '2', '3']) {
-    // Use service.getScoresByClass for each term – expensive but okay for admin
     const scores = await fetchClassScores(classId, term, session);
     scores.forEach(s => subjectIdsWithScores.add(s.subjectId));
   }
@@ -306,14 +340,42 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// ------------------- renderReportCard -------------------
+// ------------------- renderReportCard (MODIFIED with subscription restriction) -------------------
 async function renderReportCard(studentId, studentName) {
-  if (!isSubscriptionActive) {
+  const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
+  const requestedTermNum = editorState.term || document.getElementById('editorTermSelect')?.value || '1';
+  const termMap = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
+  const requestedTermName = termMap[requestedTermNum] || requestedTermNum;
+
+  // Check if user can view this result
+  if (!canViewResult(requestedSession, requestedTermNum)) {
     const container = document.getElementById('reportCardContent');
-    container.innerHTML = `<div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;"><h3>⚠️ Subscription Required</h3><p>Report cards are unavailable because the school subscription is inactive.</p><p>Please contact your administrator to renew.</p></div>`;
-    document.getElementById('reportActions').style.display = 'none';
+    if (container) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;margin:20px;">
+          <h3>⚠️ Subscription Required for Current Term</h3>
+          <p>Your school subscription is inactive. You can only view results from previous sessions/terms.</p>
+          <p>To access results for <strong>${requestedSession} - ${requestedTermName}</strong>, please renew your subscription.</p>
+          <p><a href="#" onclick="document.getElementById('paymentBannerContainer')?.scrollIntoView({behavior:'smooth'}); return false;">Click here to see renewal options</a></p>
+        </div>`;
+    }
+    const actions = document.getElementById('reportActions');
+    if (actions) actions.style.display = 'none';
     return;
   }
+
+  if (!isSubscriptionActive) {
+    // Allow viewing of previous terms but show a warning banner
+    const container = document.getElementById('reportCardContent');
+    if (container && !container.querySelector('.subscription-view-warning')) {
+      const warningDiv = document.createElement('div');
+      warningDiv.className = 'subscription-view-warning';
+      warningDiv.style.cssText = 'background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-bottom:15px;text-align:center;';
+      warningDiv.innerHTML = '⚠️ Subscription inactive. You are viewing historical results (view only). Current term results are locked.';
+      container.prepend(warningDiv);
+    }
+  }
+
   editorState.selectedStudent = { id: studentId, name: studentName };
   editorState.term    = document.getElementById('editorTermSelect')?.value    || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
@@ -366,7 +428,26 @@ async function renderReportCard(studentId, studentName) {
     onTeacherCommentChange:  (newComment)          => { editorState.teacherComment   = newComment; },
     onPrincipalCommentChange:(newComment)          => { editorState.principalComment = newComment; }
   });
-  document.getElementById('reportActions').style.display = 'flex';
+  
+  const actions = document.getElementById('reportActions');
+  if (actions) actions.style.display = 'flex';
+  
+  // If subscription is inactive, disable save button (view only for historical)
+  if (!isSubscriptionActive) {
+    const saveBtn = document.getElementById('saveReportBtn');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.5';
+      saveBtn.title = 'Saving disabled – subscription inactive';
+    }
+  } else {
+    const saveBtn = document.getElementById('saveReportBtn');
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.style.opacity = '1';
+      saveBtn.title = '';
+    }
+  }
 }
 
 async function loadExistingEditorReport(studentId) {
@@ -385,8 +466,14 @@ async function loadExistingEditorReport(studentId) {
 }
 
 async function saveEditorReport() {
-  if (!isSubscriptionActive) { alert('Cannot save report – subscription inactive.'); return; }
-  if (!editorState.selectedStudent) return alert('Select a student.');
+  if (!isSubscriptionActive) { 
+    toast.error('Cannot save report – subscription inactive.'); 
+    return; 
+  }
+  if (!editorState.selectedStudent) {
+    toast.error('Please select a student first.');
+    return;
+  }
   const totalScore      = parseInt(document.querySelector('.rc-summary-table tr:nth-child(1) td')?.textContent) || 0;
   const totalObtainable = parseInt(document.querySelector('.rc-summary-table tr:nth-child(2) td')?.textContent) || 0;
   const average         = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
@@ -406,10 +493,14 @@ async function saveEditorReport() {
   };
   try {
     await service.saveReport(reportData, editorState.savedReportId);
-    alert('Report saved.');
+    toast.success('Report saved successfully.');
   } catch (error) {
-    if (error.code === 'permission-denied') alert('Permission denied. Subscription required to save reports.');
-    else { console.error(error); alert('Save failed.'); }
+    if (error.code === 'permission-denied') {
+      toast.error('Permission denied. Subscription required to save reports.');
+    } else { 
+      console.error(error); 
+      toast.error('Failed to save report. Please try again.');
+    }
   }
 }
 
@@ -426,13 +517,16 @@ function handlePrint() {
   if (!reportContent || reportContent.children.length === 0 ||
       (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
        reportContent.children[0].textContent.includes('Select a student'))) {
-    alert('Report not ready yet. Please select a student and ensure the report is loaded.');
+    toast.error('Report not ready. Please select a student first.');
     return;
   }
 
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { alert('Please allow popups for this site to print the report.'); return; }
+  if (!printWindow) { 
+    toast.error('Please allow pop-ups to print the report.'); 
+    return; 
+  }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
@@ -496,13 +590,13 @@ function handlePrint() {
 // ─────────── Send to WhatsApp function ───────────
 function sendToWhatsApp() {
   if (!editorState.selectedStudent) {
-    showNotification('No student selected. Please select a student first.', 'error');
+    toast.error('Please select a student first.');
     return;
   }
 
   let phone = editorState.selectedStudent.parentPhone;
   if (!phone || phone.trim() === '') {
-    showNotification('Parent phone number is not available for this student. Please update the student record with a valid phone number.', 'error');
+    toast.error('Parent phone number not available. Please update the student record.');
     return;
   }
 
@@ -519,16 +613,16 @@ function sendToWhatsApp() {
   } else if (digits.length === 10 && /^[789]/.test(digits)) {
     digits = '234' + digits;
   } else {
-    showNotification(`Phone number could not be normalised. Raw input: ${phone}. Please use a valid Nigerian number.`, 'error');
+    toast.error('Invalid phone number format. Please update the parent phone number.');
     return;
   }
   
   if (!digits.startsWith('234')) {
-    showNotification(`Phone number does not start with Nigeria country code. Raw: ${phone}`, 'error');
+    toast.error('Phone number must start with Nigeria country code (234).');
     return;
   }
   if (digits.length !== 13) {
-    showNotification(`Phone number normalised to ${digits} (length ${digits.length}) – expected 13 digits. Raw: ${phone}`, 'error');
+    toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).');
     return;
   }
   
@@ -548,7 +642,10 @@ async function generateBroadsheet() {
   const classId = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
   const term    = document.getElementById('broadsheetTermSelect')?.value;
-  if (!classId || !session || !term) { alert('Please select Class, Session and Term'); return; }
+  if (!classId || !session || !term) { 
+    toast.error('Please select Class, Session and Term'); 
+    return; 
+  }
 
   const classInfo     = classesMap.get(classId);
   const className     = classInfo?.name || 'Class';
@@ -646,10 +743,10 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
-      for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
-      html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
-      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
+      html += `<tr><td class="sn-cell">${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td class="exam-cell">${sub.exam}</td><td class="total-cell">${sub.total}</td>`;
+      html += `<td>${r.totalScore}</td><td class="term1-cell">${r.term1Avg}</td><td class="term2-cell">${r.term2Avg}</td><td class="term3-cell">${r.term3Avg}</td><td class="combined-cell">${r.combinedAvg}</td><td class="grade-cell">${r.grade}</td>`;
+      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td class="remark-cell">${r.remark}</td></tr>`;
     }
     html += `</tbody></table></div>`;
     const container = document.getElementById('broadsheetContainer');
@@ -658,15 +755,22 @@ async function generateBroadsheet() {
     if (actions) actions.style.display = 'flex';
     window.currentBroadsheetData = { classId, session, term, studentResults, subjects: relevantSubjects };
   } catch (err) {
-    handleError(err, "Failed to generate broadsheet.");
+    console.error('Broadsheet generation error:', err);
+    toast.error('Failed to generate broadsheet. Please try again.');
   } finally {
     hideLoader();
   }
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionActive) { alert('Cannot save broadsheet – subscription inactive.'); return; }
-  if (!window.currentBroadsheetData) { alert('No broadsheet data to save. Generate first.'); return; }
+  if (!isSubscriptionActive) { 
+    toast.error('Cannot save broadsheet – subscription inactive.'); 
+    return; 
+  }
+  if (!window.currentBroadsheetData) { 
+    toast.error('No broadsheet data to save. Generate first.'); 
+    return; 
+  }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
@@ -680,24 +784,32 @@ async function saveBroadsheetToFirestore() {
     subjects: subjects.map(s => ({ id: s.id, name: s.name })),
     createdAt: new Date(), updatedAt: new Date()
   };
-  // TODO: service.saveBroadsheet already exists? In service.js we have saveBroadsheet(docId, data)
-  // Yes – service.saveBroadsheet is available.
   try {
     await service.saveBroadsheet(docId, broadsheetData);
-    alert('Broadsheet saved successfully.');
+    toast.success('Broadsheet saved successfully.');
   } catch (err) {
-    if (err.code === 'permission-denied') alert('Permission denied. Subscription required to save broadsheets.');
-    else { console.error(err); alert('Save failed.'); }
+    if (err.code === 'permission-denied') {
+      toast.error('Permission denied. Subscription required to save broadsheets.');
+    } else { 
+      console.error(err); 
+      toast.error('Failed to save broadsheet. Please try again.');
+    }
   }
 }
 
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { alert('No broadsheet to download.'); return; }
+  if (!container || !container.innerHTML.trim()) { 
+    toast.error('No broadsheet to download.'); 
+    return; 
+  }
   const originalContent = container.cloneNode(true);
   const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { alert('Please allow popups.'); return; }
+  if (!printWindow) { 
+    toast.error('Please allow pop-ups to print.'); 
+    return; 
+  }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
   const printCSS = `
@@ -826,7 +938,15 @@ export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
   currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) { alert('School ID missing. Please log out and log in again.'); return; }
+  if (!currentSchoolId) { 
+    toast.error('School ID missing. Please log out and log in again.'); 
+    return; 
+  }
+
+  // Get current academic session and term for comparison
+  await initAcademicCalendar();
+  currentAcademicSession = getCurrentSession();
+  currentAcademicTerm = getCurrentTerm();
 
   if (unsubscribeSub) unsubscribeSub();
   unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
@@ -834,8 +954,6 @@ export async function initResultsPage() {
     updateSubscriptionUI();
     if (editorState.selectedStudent) renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   });
-
-  await initAcademicCalendar();
 
   const currentSession = getCurrentSession();
   const currentTerm    = getCurrentTerm();
@@ -845,7 +963,10 @@ export async function initResultsPage() {
   try {
     await loadClassesAndSubjects();
     await loadAllStudents();
-  } catch (err) { console.error('Data loading failed', err); return; }
+  } catch (err) { 
+    console.error('Data loading failed', err); 
+    return; 
+  }
 
   const classSelects = ['broadsheetClassSelect', 'editorClassSelect'];
   classSelects.forEach(id => {

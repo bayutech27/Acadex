@@ -2,6 +2,7 @@
 // EXTENDED: Added student and parent role authentication and redirects.
 // MODIFIED: Student redirect points to /student/student-portal.html (inside student folder).
 // All existing admin and teacher functionality remains fully intact.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -23,14 +24,13 @@ import {
   writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getUserData, getSchoolById } from './app.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { calculateTermAndSessionFromDate } from './academic-calendar.js';
 
 // ---------- VALID ROLES ----------
 const VALID_ROLES = ['super-admin', 'admin', 'teacher', 'student', 'parent'];
 
 // ---------- ROLE → REDIRECT MAP ----------
-// UPDATED: student now goes to /student/student-portal.html
 const ROLE_REDIRECTS = {
   'super-admin': '/super-admin.html',
   'admin':       '/admin/admin-dashboard.html',
@@ -41,7 +41,11 @@ const ROLE_REDIRECTS = {
 
 // ---------- Notification helper ----------
 function showMessage(message, isError = true) {
-  showNotification(message, isError ? 'error' : 'success');
+  if (isError) {
+    toast.error(message);
+  } else {
+    toast.success(message);
+  }
 }
 
 // ---------- Helper: redirect an authenticated user based on their role ----------
@@ -74,7 +78,8 @@ async function isUsernameTaken(username) {
     const querySnapshot = await getDocs(q);
     return !querySnapshot.empty;
   } catch (err) {
-    handleError(err, 'Failed to check username availability.');
+    console.error('Username check error:', err);
+    toast.error('Unable to check username availability. Please try again.');
     return true;
   }
 }
@@ -102,6 +107,7 @@ async function isEmailAlreadyRegistered(email) {
     return methods.length > 0;
   } catch (error) {
     console.warn('Email check failed:', error);
+    toast.warning('Unable to verify email. Please try again.');
     return false;
   }
 }
@@ -129,11 +135,11 @@ function getTermStartEndDates(term, session) {
 }
 
 // =============================================================================
-// SIGNUP (unchanged)
+// SIGNUP
 // =============================================================================
 export async function signupSchool(schoolName, username, address, phone, email, password) {
   if (!username) {
-    showMessage('Please enter a username.', true);
+    toast.error('Please enter a username.');
     return;
   }
 
@@ -141,13 +147,13 @@ export async function signupSchool(schoolName, username, address, phone, email, 
   try {
     const usernameTaken = await isUsernameTaken(username);
     if (usernameTaken) {
-      showMessage('This username is already taken. Please choose another.', true);
+      toast.error('This username is already taken. Please choose another.');
       return;
     }
 
     const emailRegistered = await isEmailAlreadyRegistered(email);
     if (emailRegistered) {
-      showMessage('This email is already registered. Please log in or use a different email.', true);
+      toast.error('This email is already registered. Please log in or use a different email.');
       return;
     }
 
@@ -204,22 +210,22 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     });
 
     await batch.commit();
-    showMessage('Account created successfully! Redirecting...', false);
+    toast.success('Account created successfully! Redirecting...');
     localStorage.setItem('schoolSlug', username);
     window.location.href = `/?school=${username}`;
   } catch (error) {
     console.error('Signup error:', error);
     let errorMessage = 'Signup failed. ';
     if (error.code === 'auth/email-already-in-use') {
-      errorMessage += 'Email already in use.';
+      errorMessage = 'This email is already registered. Please log in instead.';
     } else if (error.code === 'auth/weak-password') {
-      errorMessage += 'Password should be at least 6 characters.';
+      errorMessage = 'Password is too weak. Please use at least 6 characters.';
     } else if (error.code === 'permission-denied') {
-      errorMessage += 'Permission denied. Please check Firestore rules.';
+      errorMessage = 'Permission denied. Please check your internet connection.';
     } else {
-      errorMessage += error.message;
+      errorMessage = 'Unable to create account. Please check your internet connection and try again.';
     }
-    showMessage(errorMessage, true);
+    toast.error(errorMessage);
     if (error.code !== 'auth/email-already-in-use') {
       try { await userCredential?.user?.delete(); } catch (e) { /* ignore */ }
     }
@@ -240,7 +246,8 @@ export async function loginUser(email, password) {
     const userDocSnap = await getDoc(doc(db, 'users', user.uid));
     if (!userDocSnap.exists()) {
       await signOut(auth);
-      throw new Error('User account exists but no role document found. Please contact support.');
+      toast.error('Account exists but is not fully set up. Please contact support.');
+      return;
     }
 
     const userData = userDocSnap.data();
@@ -249,12 +256,14 @@ export async function loginUser(email, password) {
 
     if (!VALID_ROLES.includes(role)) {
       await signOut(auth);
-      throw new Error(`Unknown role "${role}". Please contact support.`);
+      toast.error(`Account type "${role}" is not recognised. Please contact support.`);
+      return;
     }
 
     if (role !== 'super-admin' && !schoolId) {
       await signOut(auth);
-      throw new Error('Account is not linked to a school. Please contact support.');
+      toast.error('Account is not linked to a school. Please contact support.');
+      return;
     }
 
     localStorage.setItem('userSchoolId', schoolId || '');
@@ -268,7 +277,7 @@ export async function loginUser(email, password) {
       localStorage.setItem('parentId', user.uid);
     }
 
-    showMessage(`Welcome back! Redirecting to your dashboard.`, false);
+    toast.success('Welcome back! Redirecting to your dashboard...');
     redirectByRole(role);
 
   } catch (error) {
@@ -279,13 +288,13 @@ export async function loginUser(email, password) {
       error.code === 'auth/wrong-password' ||
       error.code === 'auth/invalid-credential'
     ) {
-      errorMessage += 'Invalid email or password.';
+      errorMessage = 'Invalid email or password. Please try again.';
     } else if (error.message === 'Network error') {
-      errorMessage = 'Login failed due to network failure.';
+      errorMessage = 'Network error. Please check your internet connection.';
     } else {
-      errorMessage += error.message;
+      errorMessage = 'Unable to log in. Please check your internet connection and try again.';
     }
-    showMessage(errorMessage, true);
+    toast.error(errorMessage);
   } finally {
     hideLoader();
   }
@@ -302,10 +311,11 @@ export async function logoutUser() {
     localStorage.removeItem('studentId');
     localStorage.removeItem('parentId');
     await signOut(auth);
-    showNotification('Logged out successfully.', 'success');
-    window.location.href = '/';   // redirect to index.html (login page)
+    toast.success('Logged out successfully.');
+    window.location.href = '/';
   } catch (error) {
-    handleError(error, 'Logout failed. Please try again.');
+    console.error('Logout error:', error);
+    toast.error('Logout failed. Please try again.');
   }
 }
 
@@ -316,16 +326,16 @@ export async function resetPassword(email) {
   showLoader();
   try {
     await sendPasswordResetEmail(auth, email);
-    showMessage('Password reset email sent! Check your inbox or SPAM message.', false);
+    toast.success('Password reset email sent! Check your inbox or spam folder.');
   } catch (error) {
     console.error('Reset password error:', error);
     let errorMessage = 'Reset failed. ';
     if (error.code === 'auth/user-not-found') {
-      errorMessage += 'No account found with this email.';
+      errorMessage = 'No account found with this email address.';
     } else {
-      errorMessage += error.message;
+      errorMessage = 'Unable to send reset email. Please check your internet connection.';
     }
-    showMessage(errorMessage, true);
+    toast.error(errorMessage);
   } finally {
     hideLoader();
   }
@@ -347,7 +357,8 @@ function handleAlreadyLoggedIn(user, onNotLoggedIn) {
           }
         }
       } catch (err) {
-        handleError(err, 'Failed to verify user role.');
+        console.error('Auth guard error:', err);
+        toast.error('Failed to verify user session. Please try again.');
       }
     }
     if (typeof onNotLoggedIn === 'function') onNotLoggedIn();
@@ -367,7 +378,7 @@ export function initLoginPage() {
         const email    = document.getElementById('email')?.value;
         const password = document.getElementById('password')?.value;
         if (!email || !password) {
-          showNotification('Please enter both email and password.', 'error');
+          toast.error('Please enter both email and password.');
           return;
         }
         await loginUser(email, password);
@@ -423,7 +434,7 @@ export function initSignupPage() {
         const email         = document.getElementById('email')?.value;
         const password      = document.getElementById('password')?.value;
         if (!schoolName || !username || !email || !password) {
-          showNotification('Please fill all required fields.', 'error');
+          toast.error('Please fill all required fields.');
           return;
         }
         await signupSchool(schoolName, username, schoolAddress, phone, email, password);
@@ -442,7 +453,7 @@ export function initResetPasswordPage() {
         e.preventDefault();
         const email = document.getElementById('email')?.value;
         if (!email) {
-          showNotification('Please enter your email address.', 'error');
+          toast.error('Please enter your email address.');
           return;
         }
         await resetPassword(email);
@@ -466,7 +477,8 @@ export async function initAdminDashboard() {
       const schoolNameEl = document.getElementById('schoolName');
       if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
     } catch (err) {
-      handleError(err, 'Failed to load admin dashboard data.');
+      console.error('Admin dashboard error:', err);
+      toast.error('Failed to load dashboard data. Please refresh the page.');
     }
   });
 
@@ -486,11 +498,6 @@ export function getCurrentTeacherSchoolId() {
 // PORTAL PAGE GUARDS
 // =============================================================================
 
-/**
- * Protects the student portal page.
- * Signs out and redirects to home if the authenticated user is not a student
- * belonging to the expected school.
- */
 export function initStudentPortal() {
   onAuthStateChanged(auth, async (user) => {
     if (!user) { window.location.href = '/'; return; }
@@ -511,7 +518,8 @@ export function initStudentPortal() {
       localStorage.setItem('userRole', 'student');
       localStorage.setItem('studentId', user.uid);
     } catch (err) {
-      handleError(err, 'Failed to verify student session.');
+      console.error('Student portal guard error:', err);
+      toast.error('Failed to verify student session. Please log in again.');
       await signOut(auth);
       window.location.href = '/';
     }
@@ -543,7 +551,8 @@ export function initParentPortal() {
       localStorage.setItem('userRole', 'parent');
       localStorage.setItem('parentId', user.uid);
     } catch (err) {
-      handleError(err, 'Failed to verify parent session.');
+      console.error('Parent portal guard error:', err);
+      toast.error('Failed to verify parent session. Please log in again.');
       await signOut(auth);
       window.location.href = '/';
     }

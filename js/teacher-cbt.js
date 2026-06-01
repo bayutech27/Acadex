@@ -2,6 +2,7 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support teacher class list retrieval, test_results queries,
 // manual start/end test status updates, notification creation – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -10,9 +11,9 @@ import {
   getDoc, orderBy, serverTimestamp, onSnapshot, setDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { db } from './firebase-config.js';
-import { getSchoolById } from './app.js';  // keep for backward compatibility, but we can use service.getSchoolById
+import { getSchoolById } from './app.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { createBulkNotifications } from './notification-service.js';
 
 // ==============================
@@ -162,6 +163,7 @@ async function loadTeacherClasses() {
     return classes;
   } catch (err) {
     console.error('Error loading teacher classes:', err);
+    toast.error('Unable to load your classes. Please refresh the page.');
     return [];
   }
 }
@@ -170,7 +172,11 @@ async function loadSubjects() {
   if (!currentSchoolId) return [];
   try {
     return await service.getSubjectsBySchool(currentSchoolId);
-  } catch (e) { console.warn('Subjects load error:', e); return []; }
+  } catch (e) { 
+    console.warn('Subjects load error:', e);
+    toast.error('Unable to load subjects. Please refresh the page.');
+    return []; 
+  }
 }
 
 // ==============================
@@ -184,7 +190,6 @@ function subscribeToTests() {
   }
   if (unsubscribeTests) unsubscribeTests();
 
-  // Use service.subscribeToTeacherCbt (real-time listener)
   unsubscribeTests = service.subscribeToTeacherCbt(currentTeacherId, currentSchoolId, (testsList) => {
     tests = testsList;
     checkAndExpireTests(tests);
@@ -273,7 +278,6 @@ function scheduleExpiration(testId, msUntilExpiry) {
 
 async function expireTest(testId) {
   try {
-    // Direct Firestore – service does not have expireTest
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
   } catch (e) { console.warn('Expire error:', e); }
 }
@@ -282,8 +286,11 @@ async function endTest(testId) {
   if (!confirm('End this test early? Students will no longer be able to take it.')) return;
   try {
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
-    showNotification('Test ended.', 'success');
-  } catch (e) { handleError(e, 'Failed to end test'); }
+    toast.success('Test ended successfully.');
+  } catch (e) { 
+    console.error('End test error:', e);
+    toast.error('Failed to end test. Please try again.');
+  }
 }
 
 async function startTest(testId) {
@@ -291,8 +298,11 @@ async function startTest(testId) {
   try {
     showLoader();
     await updateDoc(doc(db, 'cbt', testId), { status: 'started', startedAt: serverTimestamp() });
-    showNotification('Test activated! Students can now take it.', 'success');
-  } catch (e) { handleError(e, 'Failed to start test'); }
+    toast.success('Test activated! Students can now take it.');
+  } catch (e) { 
+    console.error('Start test error:', e);
+    toast.error('Failed to start test. Please try again.');
+  }
   finally { hideLoader(); }
 }
 
@@ -300,11 +310,13 @@ async function confirmDeleteTest(testId) {
   if (!confirm('Permanently delete this test? This cannot be undone.')) return;
   try {
     showLoader();
-    // Use service.deleteCbt
     await service.deleteCbt(testId);
     if (expirationTimers[testId]) { clearTimeout(expirationTimers[testId]); delete expirationTimers[testId]; }
-    showNotification('Test deleted.', 'success');
-  } catch (e) { handleError(e, 'Failed to delete test'); }
+    toast.success('Test deleted successfully.');
+  } catch (e) { 
+    console.error('Delete test error:', e);
+    toast.error('Failed to delete test. Please try again.');
+  }
   finally { hideLoader(); }
 }
 
@@ -313,7 +325,7 @@ async function confirmDeleteTest(testId) {
 // ==============================
 async function openCreateModal() {
   if (!currentTeacherId || !currentSchoolId) {
-    alert('Teacher data not loaded. Please refresh the page.');
+    toast.error('Teacher data not loaded. Please refresh the page.');
     return;
   }
   resetModalState();
@@ -496,11 +508,17 @@ function saveCurrentQuestion() {
   const explanation = document.getElementById('qExplanation')?.value || '';
 
   if (!qText && !currentQuestions[currentQuestionIndex]?.questionImage) {
-    alert('Question text or image is required.');
+    toast.error('Question text or image is required.');
     return false;
   }
-  if (!optA || !optB || !optC || !optD) { alert('All four options (A–D) are required.'); return false; }
-  if (!['A','B','C','D'].includes(correct)) { alert('Select a valid correct answer.'); return false; }
+  if (!optA || !optB || !optC || !optD) { 
+    toast.error('All four options (A–D) are required.');
+    return false; 
+  }
+  if (!['A','B','C','D'].includes(correct)) { 
+    toast.error('Please select a valid correct answer.');
+    return false; 
+  }
 
   currentQuestions[currentQuestionIndex] = {
     ...currentQuestions[currentQuestionIndex],
@@ -630,16 +648,22 @@ async function saveTestToFirestore() {
   const scheduledDate = testDate.value;
 
   if (!type || !subjectId || !classId || isNaN(duration) || !scheduledDate) {
-    alert('Please fill in all required fields.');
+    toast.error('Please fill in all required fields.');
     return;
   }
 
   const totalQ = parseInt(questionCountEl.value, 10);
-  if (!totalQ || totalQ < 1) { alert('Please set the number of questions.'); return; }
+  if (!totalQ || totalQ < 1) { 
+    toast.error('Please set the number of questions.');
+    return; 
+  }
   if (questionsSection.style.display !== 'none' && !saveCurrentQuestion()) return;
 
   const incomplete = currentQuestions.filter(q => !q || (!q.questionText && !q.questionImage));
-  if (incomplete.length > 0) { alert(`${incomplete.length} question(s) are empty. Please complete all questions.`); return; }
+  if (incomplete.length > 0) { 
+    toast.error(`${incomplete.length} question(s) are empty. Please complete all questions.`);
+    return; 
+  }
 
   const className = teacherClasses.find(c => c.id === classId)?.name || classId;
   const subjectName = subjectsList.find(s => s.id === subjectId)?.name || subjectId;
@@ -673,13 +697,12 @@ async function saveTestToFirestore() {
     let newTestId = editingTestId;
     if (editingTestId) {
       await service.updateCbt(editingTestId, testData);
-      showNotification('Test updated successfully.', 'success');
+      toast.success('Test updated successfully.');
     } else {
       newTestId = await service.createCbt(testData);
-      showNotification('Test created successfully.', 'success');
+      toast.success('Test created successfully.');
     }
 
-    // --- Trigger notifications to all students in the assigned class ---
     try {
       const studentsQuery = query(
         collection(db, 'students'),
@@ -701,12 +724,12 @@ async function saveTestToFirestore() {
       }
     } catch (notifErr) {
       console.error('Failed to create notifications:', notifErr);
-      // Non‑critical – do not throw
     }
 
     closeModal();
   } catch (err) {
-    handleError(err, 'Failed to save test');
+    console.error('Save test error:', err);
+    toast.error('Failed to save test. Please try again.');
   } finally {
     hideLoader();
   }
@@ -741,16 +764,16 @@ function attachEventListeners() {
     if (!saveCurrentQuestion()) return;
     const total = parseInt(questionCountEl.value, 10);
     if (currentQuestionIndex + 1 < total) { currentQuestionIndex++; showQuestionEditor(currentQuestionIndex); }
-    else { updatePendingCount(); showNotification('All questions recorded. You can now save the test.', 'success'); }
+    else { updatePendingCount(); toast.success('All questions recorded. You can now save the test.'); }
   });
 
-  // ── Logout (unchanged) ──
   async function handleLogout() {
     try {
       const auth = getAuth();
       await signOut(auth);
     } catch (err) {
       console.error('Logout error:', err);
+      toast.error('Logout failed. Please try again.');
     } finally {
       window.location.href = '/index.html';
     }
@@ -760,7 +783,6 @@ function attachEventListeners() {
   const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
   if (mobileLogoutBtn) mobileLogoutBtn.addEventListener('click', handleLogout);
 
-  // ── Hamburger menu (fixed – uses 'open' class for sidebar, 'active' for overlay) ──
   const hamburger = document.querySelector('.hamburger-menu');
   const mobileSidebar = document.getElementById('mobileSidebar');
   const overlay = document.getElementById('overlay');
@@ -811,7 +833,8 @@ async function loadSchoolInfo() {
     if (termDisplay) termDisplay.textContent = term;
     if (sessionDisplay) sessionDisplay.textContent = session;
   } catch (err) {
-    handleError(err, "Failed to load school information.");
+    console.error('Load school info error:', err);
+    toast.error('Unable to load school information. Please refresh the page.');
   }
 }
 
@@ -994,7 +1017,7 @@ const cbtScoresModule = (() => {
         </tr>`;
       });
     }
-    html += `</tbody></table></div>`;
+    html += `</tbody></tr></div>`;
     el.innerHTML = `<div class="scores-summary-bar">
       <div class="scores-summary-stat"><span class="stat-label">Class</span><span class="stat-value">${escapeHtml(className)}</span></div>
       <div class="scores-summary-stat"><span class="stat-label">Subject</span><span class="stat-value">${escapeHtml(subjectName)}</span></div>
@@ -1018,15 +1041,15 @@ const cbtScoresModule = (() => {
     const selectedTerm = termEl.value;
 
     if (!classId || !subjectId) {
-      showNotification('Please select class and subject.', 'error');
+      toast.error('Please select a class and subject.');
       return;
     }
     if (!selectedSession || !selectedTerm) {
-      showNotification('Please select session and term.', 'error');
+      toast.error('Please select a session and term.');
       return;
     }
     if (!currentSchoolId) {
-      showNotification('School information not loaded.', 'error');
+      toast.error('School information not loaded. Please refresh.');
       return;
     }
 
@@ -1045,10 +1068,11 @@ const cbtScoresModule = (() => {
       } else {
         const grouped = _groupByStudent(results);
         _renderTable(grouped, results.length, className, subjectName);
-        showNotification(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`, 'success');
+        toast.success(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`);
       }
     } catch (err) {
-      handleError(err, 'Failed to fetch CBT scores.');
+      console.error('Handle get scores error:', err);
+      toast.error('Failed to fetch CBT scores. Please try again.');
       _setResultsState('error', 'Error loading scores.');
     } finally {
       hideLoader();
@@ -1101,7 +1125,11 @@ async function initializeTeacherContext() {
       await loadSchoolInfo();
       subscribeToTests();
       await cbtScoresModule.init();
-    } catch (err) { console.error("Initialization error:", err); if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">⚠️ Failed to load teacher data. Please refresh.</p>'; }
+    } catch (err) { 
+      console.error("Initialization error:", err); 
+      toast.error('Failed to load teacher data. Please refresh the page.');
+      if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">⚠️ Failed to load teacher data. Please refresh.</p>';
+    }
   });
 }
 
@@ -1111,7 +1139,12 @@ async function initializeTeacherContext() {
 export async function initTeacherCBT(teacherId, schoolId) {
   currentTeacherId = teacherId;
   currentSchoolId = schoolId;
-  if (!currentTeacherId || !currentSchoolId) { console.error('Invalid teacherId or schoolId provided'); if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">Invalid teacher or school information. Please refresh.</p>'; return; }
+  if (!currentTeacherId || !currentSchoolId) { 
+    console.error('Invalid teacherId or schoolId provided'); 
+    toast.error('Invalid teacher or school information. Please refresh.');
+    if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">Invalid teacher or school information. Please refresh.</p>';
+    return; 
+  }
   teacherClasses = await loadTeacherClasses();
   subjectsList = await loadSubjects();
   subscribeToTests();

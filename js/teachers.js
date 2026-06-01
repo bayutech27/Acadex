@@ -1,6 +1,7 @@
 // teachers.js - Manage teachers (primary exemption + Auth deletion via Cloud Function)
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support teacher deletion (cloud function) or conflict checks – those remain direct.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db, auth, functions } from './firebase-config.js';
 import {
@@ -11,7 +12,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/fireba
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-functions.js';
 import { getCurrentSchoolId } from './admin.js';
 import { isSubscriptionActive } from './plan.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import * as service from './service.js';
 
 let currentSchoolId = null;
@@ -46,6 +47,7 @@ export async function initTeachersPage() {
 
   if (!teacherForm || !modal || !nameInput || !emailInput || !levelSelect || !subjectsSelect || !classesSelect || !classTeacherSelect) {
     console.error('Required DOM elements not found');
+    toast.error('Page not loaded correctly. Please refresh.');
     return;
   }
 
@@ -92,7 +94,8 @@ async function loadAllSubjects() {
       subjectsMap.set(sub.id, { name: sub.name, level: sub.level });
     });
   } catch (err) {
-    handleError(err, "Failed to load subjects.");
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
 
@@ -104,7 +107,8 @@ async function loadAllClasses() {
       classesMap.set(cls.id, { name: cls.name, level: cls.level });
     });
   } catch (err) {
-    handleError(err, "Failed to load classes.");
+    console.error('Load classes error:', err);
+    toast.error('Unable to load classes. Please refresh the page.');
   }
 }
 
@@ -118,7 +122,6 @@ async function loadSubjectsByLevel(level) {
   showLoader();
   try {
     const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
-    // Sort subjects by name
     subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     subjectsSelect.innerHTML = '';
@@ -138,7 +141,8 @@ async function loadSubjectsByLevel(level) {
       subjectsSelect.disabled = false;
     }
   } catch (err) {
-    handleError(err, "Failed to load subjects for selected level.");
+    console.error('Load subjects by level error:', err);
+    toast.error(`Unable to load subjects for ${level} level. Please refresh.`);
     subjectsSelect.innerHTML = '<option value="">Error loading subjects</option>';
     subjectsSelect.disabled = true;
   } finally {
@@ -156,7 +160,6 @@ async function loadClassesByLevel(level) {
   showLoader();
   try {
     const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
-    // Sort classes by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classesSelect.innerHTML = '';
@@ -176,7 +179,8 @@ async function loadClassesByLevel(level) {
       classesSelect.disabled = false;
     }
   } catch (err) {
-    handleError(err, "Failed to load classes for selected level.");
+    console.error('Load classes by level error:', err);
+    toast.error(`Unable to load classes for ${level} level. Please refresh.`);
     classesSelect.innerHTML = '<option value="">Error loading classes</option>';
     classesSelect.disabled = true;
   } finally {
@@ -193,7 +197,6 @@ async function loadClassTeacherOptions(level) {
   
   try {
     const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
-    // Sort classes by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
     
     classTeacherSelect.innerHTML = '<option value="">None</option>';
@@ -205,7 +208,8 @@ async function loadClassTeacherOptions(level) {
     }
     classTeacherSelect.disabled = false;
   } catch (err) {
-    handleError(err, "Failed to load classes for class teacher selection.");
+    console.error('Load class teacher options error:', err);
+    toast.error('Unable to load classes for class teacher selection. Please refresh.');
     classTeacherSelect.innerHTML = '<option value="">None</option>';
     classTeacherSelect.disabled = true;
   }
@@ -213,9 +217,7 @@ async function loadClassTeacherOptions(level) {
 
 async function loadTeachers() {
   try {
-    // Use service.getTeachersBySchool
     let teachers = await service.getTeachersBySchool(currentSchoolId);
-    // Sort teachers alphabetically by name
     teachers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     const container = document.getElementById('teachersList');
@@ -283,10 +285,9 @@ async function loadTeachers() {
     window.editTeacher = (id) => openModal(id);
 
     window.deleteTeacher = async (id) => {
-      if (confirm('Delete this teacher? This action cannot be undone.')) {
+      if (confirm('Delete this teacher permanently? This action cannot be undone.')) {
         showLoader();
         try {
-          // TODO: service does not support cloud function call; keep direct Firestore for deletion
           await deleteDoc(doc(db, 'teachers', id));
           try {
             await deleteDoc(doc(db, 'users', id));
@@ -295,10 +296,10 @@ async function loadTeachers() {
           }
           const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
           await deleteTeacherAccount({ teacherUid: id });
-
-          showNotification("Teacher and login account deleted successfully.", "success");
+          toast.success('Teacher and login account deleted successfully.');
         } catch (err) {
-          handleError(err, "Failed to delete teacher. Firestore data removed, but authentication may still exist.");
+          console.error('Delete teacher error:', err);
+          toast.error('Failed to delete teacher. Firestore data removed, but authentication may still exist. Please contact support.');
         } finally {
           hideLoader();
           await loadTeachers();
@@ -306,7 +307,8 @@ async function loadTeachers() {
       }
     };
   } catch (err) {
-    handleError(err, "Failed to load teachers.");
+    console.error('Load teachers error:', err);
+    toast.error('Unable to load teachers. Please refresh the page.');
   }
 }
 
@@ -370,7 +372,8 @@ async function loadTeacherData(teacherId) {
       }
     }
   } catch (err) {
-    handleError(err, "Failed to load teacher data.");
+    console.error('Load teacher data error:', err);
+    toast.error('Failed to load teacher data. Please refresh.');
   }
 }
 
@@ -386,7 +389,6 @@ async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null)
   if (!subjectIds.length) return null;
   
   try {
-    // Use service.getTeachersBySchool and filter client-side
     const teachers = await service.getTeachersBySchool(currentSchoolId);
     const levelTeachers = teachers.filter(t => t.level === level);
     const conflictingSubjects = [];
@@ -403,11 +405,14 @@ async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null)
     }
     
     if (conflictingSubjects.length) {
-      return `The following subjects are already assigned to another teacher at the same level: ${conflictingSubjects.join(', ')}`;
+      const message = `The following subjects are already assigned to another teacher at the same level: ${conflictingSubjects.join(', ')}`;
+      toast.error(message);
+      return message;
     }
     return null;
   } catch (err) {
-    handleError(err, "Failed to check subject conflicts.");
+    console.error('Check subject conflicts error:', err);
+    toast.error('Unable to verify subject conflicts. Please try again.');
     return "Unable to verify subject conflicts. Please try again.";
   }
 }
@@ -416,7 +421,6 @@ async function checkClassTeacherConflict(classId, level, excludeTeacherId = null
   if (!classId) return null;
   
   try {
-    // Use service.getTeachersBySchool and filter
     const teachers = await service.getTeachersBySchool(currentSchoolId);
     const conflicting = teachers.find(t =>
       t.level === level &&
@@ -426,11 +430,14 @@ async function checkClassTeacherConflict(classId, level, excludeTeacherId = null
     );
     if (conflicting) {
       const className = classesMap.get(classId)?.name || classId;
-      return `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
+      const message = `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
+      toast.error(message);
+      return message;
     }
     return null;
   } catch (err) {
-    handleError(err, "Failed to check class teacher conflict.");
+    console.error('Check class teacher conflict error:', err);
+    toast.error('Unable to verify class teacher conflict. Please try again.');
     return "Unable to verify class teacher conflict. Please try again.";
   }
 }
@@ -446,14 +453,13 @@ async function handleTeacherSubmit(e) {
   const isClassTeacher = hostClassIdValue !== null && hostClassIdValue !== '';
 
   if (!name || !email || !level) {
-    showNotification("Please fill in all required fields (Name, Email, Level).", "error");
+    toast.error('Please fill in all required fields (Name, Email, Level).');
     return;
   }
 
   if (level !== 'primary') {
     const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
     if (subjectConflictMsg) {
-      showNotification(subjectConflictMsg, "error");
       return;
     }
   }
@@ -461,7 +467,6 @@ async function handleTeacherSubmit(e) {
   if (isClassTeacher) {
     const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, level, editingTeacherId);
     if (classTeacherConflictMsg) {
-      showNotification(classTeacherConflictMsg, "error");
       return;
     }
   }
@@ -482,7 +487,7 @@ async function handleTeacherSubmit(e) {
   try {
     if (editingTeacherId) {
       await service.updateTeacher(editingTeacherId, teacherDataObj);
-      showNotification("Teacher updated successfully.", "success");
+      toast.success('Teacher updated successfully.');
       closeModal();
       await loadTeachers();
     } else {
@@ -495,9 +500,9 @@ async function handleTeacherSubmit(e) {
       } catch (authError) {
         console.error('Secondary auth creation error:', authError);
         if (authError.code === 'auth/email-already-in-use') {
-          showNotification("A user with this email already exists. Please use a different email.", "error");
+          toast.error('A user with this email already exists. Please use a different email.');
         } else {
-          showNotification("Failed to create authentication: " + authError.message, "error");
+          toast.error('Failed to create login account. Please check your internet connection.');
         }
         return;
       }
@@ -523,16 +528,16 @@ async function handleTeacherSubmit(e) {
       };
       
       await setDoc(doc(db, 'users', uid), userDocData);
-      // Use service.createTeacher
       await service.createTeacher(uid, teacherDocData);
       
-      showNotification(`Teacher created successfully!\n\nEmail: ${email}\nPassword: ${defaultPassword}`, "success");
+      toast.success(`Teacher created successfully! Email: ${email} | Password: ${defaultPassword}`);
       
       closeModal();
       await loadTeachers();
     }
   } catch (error) {
-    handleError(error, "Failed to save teacher.");
+    console.error('Handle teacher submit error:', error);
+    toast.error('Failed to save teacher. Please try again.');
   } finally {
     hideLoader();
   }

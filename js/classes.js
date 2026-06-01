@@ -2,10 +2,11 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet provide createClass/deleteClass – direct Firestore writes kept temporarily.
 // ADDED: Guaranteed horizontal and vertical scrolling using inline styles.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
 let currentSchoolId = null;
 let unsubscribeSub = null;
@@ -28,7 +29,8 @@ export async function initClasses() {
     setupSubscriptionUI();
     initSubscriptionListener();
   } catch (error) {
-    handleError(error, "Failed to initialize classes page.");
+    console.error('Classes init error:', error);
+    toast.error('Unable to initialise classes page. Please refresh.');
   }
 }
 
@@ -82,23 +84,25 @@ async function loadClasses() {
     container.innerHTML = createScrollableWrapper(tableHtml);
     
     window.deleteClass = async (id) => {
-      if (confirm('Delete this class?')) {
+      if (confirm('Delete this class permanently? This action cannot be undone.')) {
         showLoader();
         try {
           const { deleteDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
           const { db } = await import('./firebase-config.js');
           await deleteDoc(doc(db, 'classes', id));
-          showNotification("Class deleted successfully.", "success");
+          toast.success('Class deleted successfully.');
           await loadClasses();
         } catch (err) {
-          handleError(err, "Failed to delete class.");
+          console.error('Class deletion error:', err);
+          toast.error('Failed to delete class. Please try again.');
         } finally {
           hideLoader();
         }
       }
     };
   } catch (err) {
-    handleError(err, "Failed to load classes.");
+    console.error('Load classes error:', err);
+    toast.error('Unable to load classes. Please refresh the page.');
   }
 }
 
@@ -106,6 +110,7 @@ function setupClassForm() {
   const classForm = document.getElementById('classForm');
   if (!classForm) {
     console.error('Class form not found');
+    toast.error('Form not found. Please refresh the page.');
     return;
   }
 
@@ -115,6 +120,7 @@ function setupClassForm() {
 
   if (!classSelect || !manualClassName || !manualLevelSelect) {
     console.error('Form elements missing');
+    toast.error('Form elements missing. Please refresh the page.');
     return;
   }
 
@@ -147,12 +153,12 @@ function setupClassForm() {
     const isManualUsed = manualValue !== '';
 
     if (!isDropdownUsed && !isManualUsed) {
-      showNotification("Please either select a class from the list or enter a manual class name.", "error");
+      toast.error('Please either select a class from the list or enter a manual class name.');
       return;
     }
 
     if (isDropdownUsed && isManualUsed) {
-      showNotification("Please use only one method: either select from dropdown OR enter manually, not both.", "error");
+      toast.error('Please use only one method: either select from dropdown OR enter manually, not both.');
       return;
     }
 
@@ -164,11 +170,11 @@ function setupClassForm() {
       classLevel = getClassLevel(className);
     } else {
       if (manualValue === '') {
-        showNotification("Please enter a class name.", "error");
+        toast.error('Please enter a class name.');
         return;
       }
       if (!manualLevel) {
-        showNotification("Please select a level (Primary/Secondary) for the manual class.", "error");
+        toast.error('Please select a level (Primary/Secondary) for the manual class.');
         return;
       }
       className = manualValue;
@@ -179,7 +185,7 @@ function setupClassForm() {
     try {
       const existingClasses = await service.getClassesBySchool(currentSchoolId);
       if (existingClasses.some(c => c.name === className)) {
-        showNotification(`Class "${className}" already exists. Duplicate classes are not allowed.`, "error");
+        toast.error(`Class "${className}" already exists. Duplicate classes are not allowed.`);
         return;
       }
 
@@ -192,10 +198,11 @@ function setupClassForm() {
         createdAt: new Date()
       });
       classForm.reset();
-      showNotification("Class added successfully.", "success");
+      toast.success('Class added successfully.');
       await loadClasses();
     } catch (error) {
-      handleError(error, "Failed to add class.");
+      console.error('Add class error:', error);
+      toast.error('Failed to add class. Please try again.');
     } finally {
       hideLoader();
     }

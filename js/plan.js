@@ -4,18 +4,19 @@
 // TODO: service.js does not yet support lockSchool/unlockSchool, handleNewStudentAddition,
 // approveExtraStudents, autoLockExpiredSubscriptions, renewSubscriptionForCurrentTerm.
 // These remain as direct Firestore calls and should be moved to the service layer in the future.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import {
   doc, updateDoc, setDoc, collection, query, where, getDocs,
-  writeBatch, orderBy, limit, onSnapshot
+  writeBatch, orderBy, limit, onSnapshot, getDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
-import { handleError } from './error-handler.js';
+import { toast } from './error-handler.js';
 
 const SUBSCRIPTION_DOC_ID = 'current';
 
-// ------------------- FIX 4: Rolling 3-month end date (replaces hardcoded term dates) -------------------
+// ------------------- FIX 4: Rolling 3-month end date -------------------
 function getRollingEndDate(monthsAhead = 3) {
   const end = new Date();
   end.setMonth(end.getMonth() + monthsAhead);
@@ -42,14 +43,14 @@ export async function getSubscriptionStatus(schoolId) {
   try {
     return await service.getSubscription(schoolId);
   } catch (err) {
-    handleError(err, "Failed to get subscription status.");
+    console.error('Get subscription status error:', err);
+    toast.error('Unable to check subscription status. Please refresh the page.');
     return null;
   }
 }
 
 /**
  * FOR DISPLAY ONLY – returns status exactly as stored in Firestore.
- * Never checks term/session. Never triggers writes.
  */
 export async function getSubscriptionDisplayStatus(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -59,12 +60,10 @@ export async function getSubscriptionDisplayStatus(schoolId) {
 }
 
 /**
- * FIX 1 & 2: isSubscriptionActive checks ONLY:
+ * isSubscriptionActive checks ONLY:
  *   1. status === 'active'
  *   2. locked !== true
  *   3. endDate has NOT passed
- *
- * Term/session mismatch is NO LONGER a reason to return false.
  */
 export async function isSubscriptionActive(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -84,9 +83,6 @@ export async function canEnterScores(schoolId) {
   return await isSubscriptionActive(schoolId);
 }
 
-/**
- * FIX 1: enforceAccessGuard no longer uses term/session validation.
- */
 export async function enforceAccessGuard(user, schoolId) {
   if (user.role === 'super-admin') return { allowed: true };
   const active = await isSubscriptionActive(schoolId);
@@ -96,13 +92,15 @@ export async function enforceAccessGuard(user, schoolId) {
   return { allowed: true };
 }
 
-// ------------------- Lock / Unlock school (direct Firestore – TODO) -------------------
+// ------------------- Lock / Unlock school (direct Firestore) -------------------
 export async function lockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     await updateDoc(subRef, { locked: true, status: 'expired', lastUpdated: new Date() });
+    console.log(`School ${schoolId} locked`);
   } catch (err) {
-    handleError(err, "Failed to lock school subscription.");
+    console.error('Lock school error:', err);
+    toast.error('Failed to lock subscription. Please try again.');
   }
 }
 
@@ -110,12 +108,14 @@ export async function unlockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     await updateDoc(subRef, { locked: false, status: 'active', lastUpdated: new Date() });
+    console.log(`School ${schoolId} unlocked`);
   } catch (err) {
-    handleError(err, "Failed to unlock school subscription.");
+    console.error('Unlock school error:', err);
+    toast.error('Failed to unlock subscription. Please try again.');
   }
 }
 
-// ------------------- Payment & student coverage (direct Firestore – TODO) -------------------
+// ------------------- Payment & student coverage -------------------
 export function calculateSubscriptionCost(coveredStudents, costPerStudent = 1000) {
   return coveredStudents * costPerStudent;
 }
@@ -133,7 +133,8 @@ export async function updateSubscriptionAmount(schoolId) {
     const totalAmount = (data.coveredStudents || 0) * (data.costPerStudent || 1000);
     await updateDoc(subRef, { totalAmount, lastUpdated: new Date() });
   } catch (err) {
-    handleError(err, "Failed to update subscription amount.");
+    console.error('Update subscription amount error:', err);
+    toast.warning('Unable to update subscription amount. Please refresh the page.');
   }
 }
 
@@ -162,7 +163,8 @@ export async function handleNewStudentAddition(schoolId, studentCount = 1) {
     }
     return null;
   } catch (err) {
-    handleError(err, "Failed to process new student addition.");
+    console.error('Handle new student addition error:', err);
+    toast.error('Failed to process new student. Please contact support.');
     return null;
   }
 }
@@ -187,7 +189,8 @@ export async function approveExtraStudents(schoolId, approveCount) {
     await markStudentsAsCovered(schoolId, approveCount);
     return true;
   } catch (err) {
-    handleError(err, "Failed to approve extra students.");
+    console.error('Approve extra students error:', err);
+    toast.error('Failed to approve extra students. Please try again.');
     return false;
   }
 }
@@ -210,11 +213,12 @@ async function markStudentsAsCovered(schoolId, count) {
     });
     await batch.commit();
   } catch (err) {
-    handleError(err, "Failed to mark students as covered.");
+    console.error('Mark students as covered error:', err);
+    toast.warning('Unable to mark students as covered. Please contact support.');
   }
 }
 
-// ------------------- FIX 8: Safe autoLockExpiredSubscriptions (direct Firestore – TODO) -------------------
+// ------------------- Safe autoLockExpiredSubscriptions -------------------
 export async function autoLockExpiredSubscriptions() {
   const now = new Date();
   try {
@@ -254,11 +258,12 @@ export async function autoLockExpiredSubscriptions() {
       console.log(`autoLockExpiredSubscriptions: expired ${updateCount} school(s) whose endDate has passed.`);
     }
   } catch (err) {
-    handleError(err, "Failed to run autoLockExpiredSubscriptions.");
+    console.error('Auto-lock expired subscriptions error:', err);
+    toast.warning('Failed to check for expired subscriptions. Please try again later.');
   }
 }
 
-// ------------------- FIX 4: renewSubscriptionForCurrentTerm (direct Firestore – TODO) -------------------
+// ------------------- renewSubscriptionForCurrentTerm -------------------
 export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents, costPerStudent = 1000) {
   try {
     const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
@@ -273,12 +278,11 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
         await new Promise(r => setTimeout(r, 100));
       }
     }
-    if (!currentTerm || !currentSession) throw new Error('Cannot renew: calendar not ready');
+    if (!currentTerm || !currentSession) throw new Error('Calendar not ready');
 
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     const subSnap = await getDoc(subRef);
     const now = new Date();
-
     const endDate = getRollingEndDate(3);
 
     const data = {
@@ -307,7 +311,8 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     }
     return true;
   } catch (err) {
-    handleError(err, "Failed to renew subscription for the current term.");
+    console.error('Renew subscription error:', err);
+    toast.error('Failed to renew subscription. Please try again or contact support.');
     return false;
   }
 }
@@ -317,13 +322,14 @@ export async function getRawSubscription(schoolId) {
   try {
     return await service.getRawSubscription(schoolId);
   } catch (err) {
-    handleError(err, "Failed to fetch raw subscription.");
+    console.error('Get raw subscription error:', err);
+    toast.error('Unable to fetch subscription details. Please refresh the page.');
     return null;
   }
 }
 
 /**
- * FIX 6: Real-time subscription listener — now using service.subscribeToSubscription.
+ * Real-time subscription listener — now using service.subscribeToSubscription.
  */
 export function onSubscriptionChange(schoolId, callback) {
   const unsubscribe = service.subscribeToSubscription(schoolId, (subData) => {

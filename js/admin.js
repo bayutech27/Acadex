@@ -2,6 +2,7 @@
 // FULLY INTEGRATED with Central Academic Calendar Engine
 // REMOVED: createStudentAccount(), createParentAccount() and all secondary Firebase auth code.
 // Only Firestore operations remain.
+// All user-facing errors are now shown as toast notifications with plain English messages.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -20,7 +21,7 @@ import {
   approveExtraStudents,
   getSubscriptionDisplayStatus,
 } from './plan.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
 
 // ========== ACADEMIC CALENDAR IMPORTS ==========
@@ -55,7 +56,8 @@ function initAuthListener() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         currentUserData = userDoc.exists() ? userDoc.data() : null;
       } catch (err) {
-        handleError(err, 'Failed to load user data. Please refresh the page.');
+        console.error('Auth listener error:', err);
+        toast.error('Unable to load your profile. Please refresh the page.');
         currentUserData = null;
       }
     } else {
@@ -86,25 +88,25 @@ export async function getCurrentSchoolId() {
 let calendarStopPeriodicSync = null;
 
 // ───────────────────────────────────────────────────────────────────────────────
-// ADMIN PAGE PROTECTION (unchanged)
+// ADMIN PAGE PROTECTION
 // ───────────────────────────────────────────────────────────────────────────────
 export async function protectAdminPage() {
   await waitForAuth();
 
   if (!currentUser) {
-    showNotification('You must be logged in to access this page.', 'error');
+    toast.error('Please log in to access this page.');
     window.location.href = '/';
     return null;
   }
   if (!currentUserData || currentUserData.role !== 'admin') {
-    showNotification('Access denied. Admin only.', 'error');
+    toast.error('Access denied. Admin privileges required.');
     window.location.href = '/';
     return null;
   }
 
   const schoolId = currentUserData.schoolId;
   if (!schoolId) {
-    handleError(new Error('Admin user has no schoolId'), 'Invalid school configuration. Please contact support.');
+    toast.error('School configuration error. Please contact support.');
     window.location.href = '/';
     return null;
   }
@@ -116,7 +118,8 @@ export async function protectAdminPage() {
     if (calendarStopPeriodicSync) calendarStopPeriodicSync();
     calendarStopPeriodicSync = startPeriodicSync(30);
   } catch (err) {
-    handleError(err, 'Failed to initialize academic calendar.');
+    console.error('Calendar init error:', err);
+    toast.warning('Calendar is still loading. Some date features may be delayed.');
   } finally {
     hidePageLoader();
   }
@@ -125,7 +128,8 @@ export async function protectAdminPage() {
   try {
     access = await enforceAccessGuard(currentUserData, schoolId);
   } catch (err) {
-    handleError(err, 'Failed to verify access rights.');
+    console.error('Access check error:', err);
+    toast.error('Unable to verify subscription status. Please refresh the page.');
     window.__subscriptionExpired = true;
     showSubscriptionExpiredBanner();
     access = { allowed: false, onboardingOnly: true };
@@ -145,7 +149,7 @@ export async function protectAdminPage() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// LOGOUT (unchanged)
+// LOGOUT
 // ───────────────────────────────────────────────────────────────────────────────
 let logoutHandlersAttached = false;
 
@@ -163,7 +167,8 @@ export function setupLogout() {
       }
       await logoutUser();
     } catch (err) {
-      handleError(err, 'Logout failed. Please try again.');
+      console.error('Logout error:', err);
+      toast.error('Could not log out. Please try again.');
       hideLoader();
     }
   };
@@ -187,7 +192,7 @@ export function setupLogout() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// SUBSCRIPTION BANNERS (unchanged)
+// SUBSCRIPTION BANNERS
 // ───────────────────────────────────────────────────────────────────────────────
 function showSubscriptionExpiredBanner() {
   const existingBanner = document.getElementById('subscriptionExpiredBanner');
@@ -200,7 +205,7 @@ function showSubscriptionExpiredBanner() {
     text-align: center; font-weight: 500; border-bottom: 1px solid #fbbf24;
     position: sticky; top: 0; z-index: 1000;
   `;
-  banner.innerHTML = `⚠️ You have not subscribed for this term. You can still manage students and teachers onboarding, but other features are restricted. Subscribe now to unlock all Features.`;
+  banner.innerHTML = `⚠️ Your subscription has expired. You can still add students and teachers, but other features are restricted. Please renew to unlock all features.`;
   document.body?.prepend(banner);
 }
 
@@ -309,7 +314,8 @@ async function updateSubscriptionBadge(schoolId) {
       }
     }
   } catch (err) {
-    handleError(err, 'Failed to update subscription badge.');
+    console.error('Badge update error:', err);
+    toast.warning('Unable to update subscription status. Please refresh the page.');
   }
 }
 
@@ -340,6 +346,7 @@ async function alignSubscriptionEndDate(schoolId, currentSubData) {
     await updateDoc(subRef, { endDate: termEndDate, lastUpdated: new Date() });
   } catch (err) {
     console.warn('Failed to align subscription endDate:', err);
+    // Silent fail – not critical for user
   }
 }
 
@@ -365,7 +372,10 @@ export function initSubscriptionUI(schoolId) {
       showPaymentBanner();
     }
     await updateSubscriptionBadge(schoolId);
-  }, (err) => handleError(err, 'Subscription listener error.'));
+  }, (err) => {
+    console.error('Subscription listener error:', err);
+    toast.warning('Subscription status update failed. Please refresh the page.');
+  });
 }
 
 async function updateFeeDisplay(schoolId, sub) {
@@ -384,14 +394,15 @@ async function updateFeeDisplay(schoolId, sub) {
       );
       totalActiveStudents = snap.size;
     } catch (err) {
-      handleError(err, 'Failed to count active students.');
+      console.error('Student count error:', err);
+      toast.warning('Unable to calculate student count. Please refresh the page.');
     }
     const totalFee = totalActiveStudents * costPerStudent;
     feeContainer.innerHTML = `
       <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:8px;margin:16px 0;">
         <strong>💰 Subscription Fee Due</strong><br>
         Active students: ${totalActiveStudents} × ₦${costPerStudent} = <strong>₦${totalFee.toLocaleString()}</strong><br>
-        <small>Your subscription is currently ${sub.status}. Please renew to unlock all features.</small>
+        <small>Your subscription has expired. Please renew to unlock all features.</small>
       </div>`;
   } else {
     feeContainer.innerHTML = `
@@ -414,7 +425,8 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
     );
     lockedCount = lockedSnap.size;
   } catch (err) {
-    handleError(err, 'Failed to count locked students.');
+    console.error('Locked students count error:', err);
+    toast.warning('Unable to load pending students list.');
   }
 
   if (lockedCount === 0) { pendingContainer.innerHTML = ''; return; }
@@ -425,7 +437,7 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
       const subSnap = await getDoc(doc(db, 'schools', schoolId, 'subscription', 'current'));
       if (subSnap.exists()) costPerStudent = subSnap.data().costPerStudent || 1000;
     } catch (err) {
-      handleError(err, 'Failed to fetch subscription cost.');
+      console.error('Cost fetch error:', err);
     }
   }
 
@@ -434,7 +446,7 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
     <div style="background:#e0f2fe;border-left:4px solid #0284c7;border-radius:12px;padding:16px 20px;margin:16px 0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;">
       <div>
         <strong style="font-size:1rem;">⏳ Pending Extra Students</strong><br>
-        ${lockedCount} student(s) awaiting super-admin approval.<br>
+        ${lockedCount} student(s) awaiting approval.<br>
         <strong>Payment required:</strong> ${lockedCount} × ₦${costPerStudent} = <strong>₦${totalExtraFee.toLocaleString()}</strong>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -449,7 +461,7 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// ACADEMIC CALENDAR (unchanged)
+// ACADEMIC CALENDAR
 // ───────────────────────────────────────────────────────────────────────────────
 export async function initAcademicCalendar(schoolId) {
   await initCentralCalendar();
@@ -477,13 +489,14 @@ export async function loadAcademicInfo() {
     if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
   } catch (err) {
     console.warn('Could not load academic info', err);
+    // Silent fail – non-critical
   }
 }
 
 export { adminOverrideCalendar, adminResetToAuto };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// LOGO UPLOAD (unchanged)
+// LOGO UPLOAD
 // ───────────────────────────────────────────────────────────────────────────────
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve, reject) => {
@@ -517,10 +530,11 @@ async function uploadSchoolLogo(schoolId, file) {
   try {
     const compressed = await compressImage(file, 500, 500);
     await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
-    showNotification('Logo uploaded successfully', 'success');
+    toast.success('Logo uploaded successfully');
     return compressed;
   } catch (error) {
-    handleError(error, 'Failed to upload logo. Please try again with a smaller image.');
+    console.error('Logo upload error:', error);
+    toast.error('Failed to upload logo. Please try with a smaller image (under 500KB).');
     return null;
   }
 }
@@ -548,7 +562,8 @@ export async function loadSchoolInfo() {
       initSubscriptionUI(userData.schoolId);
     }
   } catch (err) {
-    handleError(err, 'Failed to load school information.');
+    console.error('School info error:', err);
+    toast.warning('Unable to load school information. Please refresh the page.');
   }
 }
 
@@ -557,7 +572,8 @@ async function getSchoolById(schoolId) {
     const snap = await getDoc(doc(db, 'schools', schoolId));
     return snap.exists() ? snap.data() : null;
   } catch (err) {
-    handleError(err, 'Failed to fetch school data.');
+    console.error('School fetch error:', err);
+    toast.error('Unable to load school data. Please check your internet connection.');
     return null;
   }
 }
@@ -571,14 +587,14 @@ export function setupLogoUpload() {
       const file = e.target.files[0];
       if (file && file.type.startsWith('image/')) {
         const schoolId = await getCurrentSchoolId();
-        if (!schoolId) { showNotification('School ID not found.', 'error'); return; }
+        if (!schoolId) { toast.error('School ID not found. Please refresh the page.'); return; }
         const newLogo = await uploadSchoolLogo(schoolId, file);
         if (newLogo) {
           const logoImg = document.getElementById('schoolLogoImg');
           if (logoImg) logoImg.src = newLogo;
         }
       } else if (file) {
-        showNotification('Please select a valid image file.', 'error');
+        toast.error('Please select a valid image file (JPG, PNG, GIF).');
       }
       if (fileInput) fileInput.value = '';
     });
@@ -593,13 +609,19 @@ export async function loadDashboardCounts() {
     const snap = await getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalTeachers');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, 'Failed to load teacher count.'); }
+  } catch (err) {
+    console.error('Teacher count error:', err);
+    toast.warning('Unable to load teacher count. Please refresh the page.');
+  }
 
   try {
     const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalStudents');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, 'Failed to load total students.'); }
+  } catch (err) {
+    console.error('Student count error:', err);
+    toast.warning('Unable to load total student count.');
+  }
 
   try {
     const snap = await getDocs(
@@ -608,14 +630,18 @@ export async function loadDashboardCounts() {
     const el = document.getElementById('activeStudents');
     if (el) el.textContent = snap.size;
   } catch (err) {
-    handleError(err, 'Failed to load active students.');
+    console.error('Active students error:', err);
+    toast.warning('Unable to load active student count.');
     const el = document.getElementById('activeStudents');
-    if (el) el.textContent = err.code === 'failed-precondition' ? '⚠️ Create Index' : 'Error';
+    if (el) el.textContent = 'Error';
   }
 
   try {
     const snap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)));
     const el = document.getElementById('totalSubjects');
     if (el) el.textContent = snap.size;
-  } catch (err) { handleError(err, 'Failed to load subjects.'); }
+  } catch (err) {
+    console.error('Subjects count error:', err);
+    toast.warning('Unable to load subject count.');
+  }
 }

@@ -16,6 +16,7 @@
  * TODO: service.js does not yet support teacher attendance queries, teacher list retrieval
  * (getTeachersBySchool exists? Yes, service.getTeachersBySchool), and admin override updates.
  * Those remain as direct Firestore calls.
+ * All user-facing errors now show clear, friendly messages without technical jargon.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
@@ -26,7 +27,7 @@ import {
   doc, updateDoc, addDoc, serverTimestamp, orderBy
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentUser, getCurrentUserData, getCurrentSchoolId } from './admin.js';
-import { handleError, showNotification, showLoader, hideLoader } from './error-handler.js';
+import { handleError, showNotification, showLoader, hideLoader, toast } from './error-handler.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HAVERSINE – distance between two GPS points in metres (unchanged)
@@ -120,7 +121,8 @@ async function loadAttendanceSettings(schoolId) {
       updatedAt: gf.updatedAt || null,
     };
   } catch (err) {
-    handleError(err, 'Failed to load attendance settings.');
+    console.error('Load attendance settings error:', err);
+    toast.warning('Unable to load attendance settings. Using default values.');
     return null;
   }
 }
@@ -162,7 +164,7 @@ function setupSettingsUI(schoolId) {
         <span>Requesting GPS location…</span>`;
     }
     if (!navigator.geolocation) {
-      showNotification('Geolocation is not supported by this browser.', 'error');
+      toast.error('Geolocation is not supported by this browser.');
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -178,7 +180,7 @@ function setupSettingsUI(schoolId) {
         }
       },
       (err) => {
-        showNotification(`GPS error: ${err.message}`, 'error');
+        toast.error(`GPS error: ${err.message}`);
         if (status) {
           status.className = 'geofence-status notset';
           status.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i>
@@ -197,11 +199,11 @@ function setupSettingsUI(schoolId) {
     const lateMin = parseInt(document.getElementById('geofenceLateThreshold')?.value, 10);
 
     if (isNaN(lat) || isNaN(lng)) {
-      showNotification('Please enter valid latitude and longitude values.', 'error');
+      toast.error('Please enter valid latitude and longitude values.');
       return;
     }
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      showNotification('Coordinates out of valid range.', 'error');
+      toast.error('Coordinates out of valid range.');
       return;
     }
 
@@ -209,7 +211,6 @@ function setupSettingsUI(schoolId) {
     if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…'; }
 
     try {
-      // Use service.updateGeofence (exists in service.js)
       await service.updateGeofence(schoolId, {
         lat,
         lng,
@@ -223,9 +224,10 @@ function setupSettingsUI(schoolId) {
       renderGeofenceStatus(newSettings);
       const msg = document.getElementById('geofenceSaveMsg');
       if (msg) { msg.style.display = 'inline-flex'; setTimeout(() => { msg.style.display = 'none'; }, 3500); }
-      showNotification('Settings saved successfully!', 'success');
+      toast.success('Settings saved successfully!');
     } catch (err) {
-      handleError(err, 'Failed to save settings.');
+      console.error('Save geofence error:', err);
+      toast.error('Failed to save settings. Please try again.');
     } finally {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Settings'; }
     }
@@ -246,14 +248,12 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   const lateAfterMinutes   = settings?.lateAfterMinutes ?? 30;
 
   try {
-    // Use service.getTeachersBySchool (cached)
     const teachers = await service.getTeachersBySchool(schoolId);
     const allTeachers = {};
     teachers.forEach(t => { allTeachers[t.uid || t.id] = t; });
     const totalCount = teachers.length;
     document.getElementById('countTotal').textContent = totalCount;
 
-    // Direct Firestore query for teacher_attendance (service does not support)
     const attSnap = await getDocs(
       query(
         collection(db, 'teacher_attendance'),
@@ -290,7 +290,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       else if (status === 'late') countLate++;
       else countAbsent++;
 
-      // *** FIX: store uid in the row object ***
       rows.push({ teacher, rec, status, uid });
     }
 
@@ -300,7 +299,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
     if (rows.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
-        No teachers found for this school. </tr>`;
+        No teachers found for this school. </td></tr>`;
       return;
     }
 
@@ -318,7 +317,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       const overrideMark = r.rec?.adminOverride
         ? ' <i class="fa-solid fa-pen-ruler" style="color:#0369a1;font-size:.7rem;" title="Admin override"></i>'
         : '';
-      // *** FIX: use r.uid (stored earlier) ***
       return `
         <tr>
           <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
@@ -359,9 +357,10 @@ async function loadAttendanceForDate(schoolId, dateStr) {
     }));
 
   } catch (err) {
-    handleError(err, 'Failed to load attendance records.');
+    console.error('Load attendance error:', err);
+    toast.error('Failed to load attendance records. Please refresh the page.');
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#ef4444;padding:2rem;">
-      Error loading records. Please try again. </tr>`;
+      Error loading records. Please try again. </td></tr>`;
   }
 }
 
@@ -370,7 +369,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 // ─────────────────────────────────────────────────────────────────────────────
 function exportToCSV(data, filename) {
   if (!data || !data.length) {
-    showNotification('No data to export.', 'error');
+    toast.error('No data to export.');
     return;
   }
   const headers = Object.keys(data[0]);
@@ -392,7 +391,7 @@ function exportToCSV(data, filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showNotification('CSV exported.', 'success');
+  toast.success('CSV exported successfully.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -413,7 +412,8 @@ async function populateTeacherSelect(schoolId) {
       select.appendChild(option);
     });
   } catch (err) {
-    handleError(err, 'Failed to load teacher list for override.');
+    console.error('Populate teacher select error:', err);
+    toast.error('Unable to load teacher list. Please refresh the page.');
   }
 }
 
@@ -429,7 +429,7 @@ async function setupOverrideUI(schoolId) {
     const status = document.getElementById('overrideStatus')?.value;
     const note = document.getElementById('overrideNote')?.value.trim() || 'Admin override';
     if (!teacherUid || !status) {
-      showNotification('Please select a teacher and choose a status.', 'error');
+      toast.error('Please select a teacher and choose a status.');
       return;
     }
 
@@ -437,7 +437,6 @@ async function setupOverrideUI(schoolId) {
 
     showLoader();
     try {
-      // Check if a record already exists for this teacher + date
       const q = query(
         collection(db, 'teacher_attendance'),
         where('schoolId', '==', schoolId),
@@ -456,7 +455,6 @@ async function setupOverrideUI(schoolId) {
           updatedAt: serverTimestamp()
         });
       } else {
-        // Create a new record for this date
         ref = doc(collection(db, 'teacher_attendance'));
         await addDoc(collection(db, 'teacher_attendance'), {
           uid: teacherUid,
@@ -470,10 +468,11 @@ async function setupOverrideUI(schoolId) {
           updatedAt: serverTimestamp()
         });
       }
-      showNotification(`Override applied for teacher.`, 'success');
+      toast.success('Override applied successfully.');
       await loadAttendanceForDate(schoolId, date);
     } catch (err) {
-      handleError(err, 'Failed to apply override.');
+      console.error('Override error:', err);
+      toast.error('Failed to apply override. Please try again.');
     } finally {
       hideLoader();
     }
@@ -486,7 +485,7 @@ async function setupOverrideUI(schoolId) {
 export async function initTeacherAttendancePage() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) {
-    showNotification('School ID not found. Please log in again.', 'error');
+    toast.error('School ID not found. Please log in again.');
     return;
   }
 

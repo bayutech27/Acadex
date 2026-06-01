@@ -13,8 +13,8 @@
 import { auth } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { logoutUser }     from './auth.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { logoutUser } from './auth.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { initMobileMenu } from './menu.js';
 import * as service from './service.js';
 
@@ -24,69 +24,52 @@ import {
   getCurrentTerm,
   getCurrentSession,
   subscribeToCalendar,
-  calculateTermAndSessionFromDate  // fallback client-side calculation
+  calculateTermAndSessionFromDate
 } from './academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from './calendar-sync.js';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ═════════════════════════════════════════════════════════════════════════════
-const WEEKS        = 15;                          // maximum weeks per term
+const WEEKS        = 15;
 const DAYS         = ['mon', 'tue', 'wed', 'thu', 'fri'];
 const DAY_LABELS   = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri' };
 const PERIODS      = ['M', 'A'];
-const MAX_BATCH    = 490;                         // safe below Firestore 500-op limit
+const MAX_BATCH    = 490;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CENTRALIZED STATE
-// Single source of truth — no scattered globals.
 // ═════════════════════════════════════════════════════════════════════════════
 const STATE = {
   teacher:    { id: null, schoolId: null, hostClassId: null, name: null },
   academic:   { session: null, term: null },
   school:     { id: null, name: null, address: null, logo: null },
   class:      { id: null, name: null },
-  students:   [],          // sorted alphabetically
+  students:   [],
   stats:      { boys: 0, girls: 0, total: 0 },
-
-  // Attendance records keyed by `${studentId}_w${weekNumber}`
-  // Each value: { mon:{M,A}, tue:{M,A}, wed:{M,A}, thu:{M,A}, fri:{M,A} }
   attendance: {},
-
-  // Set of keys whose attendance data has changed since last save
   modified:   new Set(),
-
-  // Stop-function for the periodic calendar sync
   stopSync:   null,
-
   initialized: false
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ═════════════════════════════════════════════════════════════════════════════
-
-/** Builds the in-memory map key for a student + week combination. */
 function attKey(studentId, week) {
   return `${studentId}_w${week}`;
 }
 
-/**
- * Derives a deterministic, URL-safe Firestore document ID.
- * Using setDoc with this ID gives us free upsert semantics.
- */
 function firestoreDocId(classId, studentId, week, term, session) {
   const safeTerm    = term.replace(/\s+/g, '-').toLowerCase();
   const safeSession = session.replace('/', '-');
   return `${classId}_${studentId}_w${week}_${safeTerm}_${safeSession}`;
 }
 
-/** Returns the attendance value (boolean) for one checkbox, defaulting to false. */
 function getVal(studentId, week, day, period) {
   return STATE.attendance[attKey(studentId, week)]?.[day]?.[period] ?? false;
 }
 
-/** Writes one checkbox value into STATE and marks the record as modified. */
 function setVal(studentId, week, day, period, value) {
   const key = attKey(studentId, week);
   if (!STATE.attendance[key]) {
@@ -100,7 +83,6 @@ function setVal(studentId, week, day, period, value) {
   STATE.modified.add(key);
 }
 
-/** Returns a blank day-attendance object. */
 function blankDay() { return { M: false, A: false }; }
 
 function escapeHtml(str) {
@@ -111,29 +93,21 @@ function escapeHtml(str) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PUBLIC HOLIDAY DETECTION
-//
-// Rule (from spec): if NO student has any attendance marked (M or A) for a
-// specific (week, day) pair → that day is a Public Holiday / School Closed.
-// Holiday days must not count in any totals or percentages.
 // ═════════════════════════════════════════════════════════════════════════════
 function isHoliday(week, day) {
   for (const s of STATE.students) {
     const rec = STATE.attendance[attKey(s.id, week)]?.[day];
     if (rec && (rec.M === true || rec.A === true)) return false;
   }
-  return true;   // no student was marked → holiday
+  return true;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // EFFECTIVE LAST WEEK
-//
-// The last week that contains ANY attendance data is the effective final week.
-// Weeks beyond it are excluded from all calculations.
 // ═════════════════════════════════════════════════════════════════════════════
 function effectiveLastWeek() {
   let last = 0;
   for (const key of Object.keys(STATE.attendance)) {
-    // key format: `${studentId}_w${week}`
     const match = key.match(/_w(\d+)$/);
     if (!match) continue;
     const week = parseInt(match[1], 10);
@@ -142,16 +116,12 @@ function effectiveLastWeek() {
     const hasData = DAYS.some(d => PERIODS.some(p => rec[d]?.[p] === true));
     if (hasData && week > last) last = week;
   }
-  return last;   // 0 = no data recorded yet
+  return last;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // CALCULATIONS
 // ═════════════════════════════════════════════════════════════════════════════
-
-/**
- * Total checked boxes for one student across all effective, non-holiday days.
- */
 function calcStudentTotal(studentId) {
   const lastWeek = effectiveLastWeek();
   if (lastWeek === 0) return 0;
@@ -167,14 +137,6 @@ function calcStudentTotal(studentId) {
   return total;
 }
 
-/**
- * Per-week statistics object used by both the weekly summary table and
- * the term summary.
- *
- * Returns:
- *   { days: { mon: {holiday, M, A, combined}, ... },
- *     totalM, totalA, combined, percentage, schoolOpenSessions }
- */
 function calcWeekStats(week) {
   const stats = { days: {}, totalM: 0, totalA: 0, combined: 0, percentage: 0, schoolOpenSessions: 0 };
 
@@ -190,40 +152,26 @@ function calcWeekStats(week) {
       if (a) { stats.totalA++; stats.days[day].A++; }
       stats.days[day].combined += (m ? 1 : 0) + (a ? 1 : 0);
     }
-    // Each non-holiday day: every student is expected for M + A
     stats.schoolOpenSessions += STATE.students.length * 2;
   }
 
   stats.combined = stats.totalM + stats.totalA;
   stats.percentage = stats.schoolOpenSessions > 0
     ? Math.round((stats.combined / stats.schoolOpenSessions) * 100)
-    : null;   // null = no school sessions this week (all holidays)
+    : null;
 
   return stats;
 }
 
-/**
- * Aggregate term statistics across all effective, non-holiday days.
- * 
- * FIXED: Average Class Attendance now calculates the average of each week's
- *        percentage (from the Weekly Summary) instead of the overall
- *        totalPresent/totalOpenedSessions.
- *
- * Returns:
- *   { totalOpenedSessions: number,
- *     totalPresent: number,
- *     avgPercentage: number }   // average of weekly percentages
- */
 function calcTermStats() {
   const lastWeek = effectiveLastWeek();
   let totalOpenedSessions = 0;
   let totalPresent = 0;
 
-  // First pass: calculate totals for the first two cards (unchanged)
   for (let w = 1; w <= lastWeek; w++) {
     for (const day of DAYS) {
       if (isHoliday(w, day)) continue;
-      totalOpenedSessions += 2;   // M + A
+      totalOpenedSessions += 2;
       for (const s of STATE.students) {
         if (getVal(s.id, w, day, 'M')) totalPresent++;
         if (getVal(s.id, w, day, 'A')) totalPresent++;
@@ -231,7 +179,6 @@ function calcTermStats() {
     }
   }
 
-  // Second pass: compute average of weekly percentages
   let weeklyPercentagesSum = 0;
   let weeksWithData = 0;
   for (let w = 1; w <= lastWeek; w++) {
@@ -241,40 +188,25 @@ function calcTermStats() {
       weeksWithData++;
     }
   }
-  const avgPercentage = weeksWithData > 0
-    ? Math.round(weeklyPercentagesSum / weeksWithData)
-    : 0;
+  const avgPercentage = weeksWithData > 0 ? Math.round(weeklyPercentagesSum / weeksWithData) : 0;
 
-  return {
-    totalOpenedSessions,
-    totalPresent,
-    avgPercentage
-  };
+  return { totalOpenedSessions, totalPresent, avgPercentage };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// FIRESTORE — LOAD ATTENDANCE (via service) with robust error handling
+// FIRESTORE — LOAD ATTENDANCE (via service)
 // ═════════════════════════════════════════════════════════════════════════════
 async function loadAttendanceFromFirestore() {
   const { session, term } = STATE.academic;
   const { id: classId }   = STATE.class;
 
   if (!STATE.school.id || !classId || !session || !term) {
-    console.warn('[Attendance] Cannot load attendance: missing data', {
-      schoolId: STATE.school.id,
-      classId,
-      session,
-      term
-    });
+    console.warn('[Attendance] Cannot load attendance: missing data');
     return;
   }
 
   try {
-    if (typeof service.getAttendanceByClass !== 'function') {
-      throw new Error('service.getAttendanceByClass is not a function');
-    }
     const records = await service.getAttendanceByClass(STATE.school.id, classId, session, term);
-    
     if (!Array.isArray(records)) {
       console.warn('[Attendance] Expected array from getAttendanceByClass, got', records);
       return;
@@ -294,7 +226,7 @@ async function loadAttendanceFromFirestore() {
     console.log(`[Attendance] Loaded ${Object.keys(STATE.attendance).length} attendance records`);
   } catch (err) {
     console.error('[Attendance] loadAttendanceFromFirestore error:', err);
-    handleError(err, 'Failed to load attendance records.');
+    toast.error('Unable to load attendance records. Please refresh the page.');
   }
 }
 
@@ -303,12 +235,12 @@ async function loadAttendanceFromFirestore() {
 // ═════════════════════════════════════════════════════════════════════════════
 async function saveAttendanceToFirestore() {
   if (STATE.modified.size === 0) {
-    showNotification('No changes to save.', 'success');
+    toast.info('No changes to save.');
     return;
   }
 
   if (!STATE.school.id || !STATE.class.id || !STATE.academic.session || !STATE.academic.term) {
-    showNotification('Cannot save: missing school, class, session or term.', 'error');
+    toast.error('Cannot save: missing school, class, session or term.');
     return;
   }
 
@@ -350,22 +282,18 @@ async function saveAttendanceToFirestore() {
 
     if (operations.length === 0) {
       STATE.modified.clear();
-      showNotification('No valid attendance records to save.', 'info');
+      toast.info('No valid attendance records to save.');
       return;
-    }
-
-    if (typeof service.saveAttendanceBatch !== 'function') {
-      throw new Error('service.saveAttendanceBatch is not defined');
     }
 
     await service.saveAttendanceBatch(operations);
     STATE.modified.clear();
-    showNotification(`Attendance saved successfully!`, 'success');
+    toast.success('Attendance saved successfully!');
     renderWeeklySummary();
     renderTermSummary();
   } catch (err) {
     console.error('[Attendance] Save error:', err);
-    handleError(err, 'Failed to save attendance. Please try again.');
+    toast.error('Failed to save attendance. Please try again.');
   } finally {
     hideLoader();
   }
@@ -416,26 +344,24 @@ function renderAttendanceTable() {
   const thead = document.createElement('thead');
   thead.innerHTML = buildTableHeader();
   table.appendChild(thead);
-
   table.appendChild(buildTableBody());
 
   wrapper.appendChild(table);
   container.innerHTML = '';
   container.appendChild(wrapper);
-
   table.addEventListener('change', onCheckboxChange);
 }
 
 function buildTableHeader() {
   let r1 = '<tr class="week-header-row">'
-    + '<th rowspan="3" class="th-sn  sticky-col sticky-sn">S/N</th>'
+    + '<th rowspan="3" class="th-sn sticky-col sticky-sn">S/N</th>'
     + '<th rowspan="3" class="th-name sticky-col sticky-name">Student Name</th>';
 
   for (let w = 1; w <= WEEKS; w++) {
     const cls = w % 2 === 0 ? 'th-week even' : 'th-week';
     r1 += `<th colspan="10" class="${cls}">Week ${w}</th>`;
   }
-  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></tr>';
+  r1 += '<th rowspan="3" class="th-total sticky-col sticky-total">Total</th></td>';
 
   let r2 = '<tr class="day-header-row">';
   for (let w = 0; w < WEEKS; w++) {
@@ -700,16 +626,16 @@ function printAttendance() {
 // ═════════════════════════════════════════════════════════════════════════════
 function downloadCSV() {
   if (STATE.students.length === 0) {
-    showNotification('No student data to download.', 'error');
+    toast.error('No student data to download.');
     return;
   }
 
   const rows = [];
-  rows.push(['School',  STATE.school.name  || '']);
-  rows.push(['Class',   STATE.class.name   || '']);
+  rows.push(['School', STATE.school.name || '']);
+  rows.push(['Class', STATE.class.name || '']);
   rows.push(['Session', STATE.academic.session || '']);
-  rows.push(['Term',    STATE.academic.term    || '']);
-  rows.push(['Teacher', STATE.teacher.name     || '']);
+  rows.push(['Term', STATE.academic.term || '']);
+  rows.push(['Teacher', STATE.teacher.name || '']);
   rows.push([]);
 
   const header = ['S/N', 'Student Name'];
@@ -738,21 +664,19 @@ function downloadCSV() {
   rows.push(['Total Number of Student Attendance', totalPresent]);
   rows.push(['Average Class Attendance', `${avgPercentage}%`]);
 
-  const csv  = rows.map(r => r.join(',')).join('\n');
+  const csv = rows.map(r => r.join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
   const safeName = (STATE.class.name || 'class').replace(/\s+/g, '_');
   const safeTerm = (STATE.academic.term || 'term').replace(/\s+/g, '_');
-
-  a.href     = url;
+  a.href = url;
   a.download = `attendance_${safeName}_${safeTerm}_${STATE.academic.session || 'session'}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-
-  showNotification('Attendance downloaded as CSV.', 'success');
+  toast.success('Attendance downloaded as CSV.');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -774,7 +698,7 @@ function setupSidebar() {
 function setupLogout() {
   const doLogout = async () => {
     if (STATE.stopSync) { STATE.stopSync(); STATE.stopSync = null; }
-    try { await logoutUser(); } catch (err) { handleError(err, 'Logout failed.'); }
+    try { await logoutUser(); } catch (err) { toast.error('Logout failed. Please try again.'); }
   };
   document.getElementById('logoutBtn')?.addEventListener('click', doLogout);
   document.querySelector('.mobile-logout-btn')?.addEventListener('click', doLogout);
@@ -785,7 +709,7 @@ function setupLogout() {
 // ═════════════════════════════════════════════════════════════════════════════
 function setupCalendarDisplay() {
   subscribeToCalendar(calState => {
-    const termEl    = document.getElementById('currentTermDisplay');
+    const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');
 
     if (termEl) {
@@ -810,14 +734,13 @@ async function loadSchoolInfo() {
   try {
     const school = await service.getSchoolById(STATE.school.id);
     if (school) {
-      STATE.school.name    = school.name    || 'Unknown School';
+      STATE.school.name = school.name || 'Unknown School';
       STATE.school.address = school.address || '';
-      STATE.school.logo    = school.logo    || null;
+      STATE.school.logo = school.logo || null;
     }
     const nameEl = document.getElementById('schoolName');
     const addrEl = document.getElementById('schoolAddress');
     const logoEl = document.getElementById('schoolLogoImg');
-
     if (nameEl) nameEl.textContent = STATE.school.name;
     if (addrEl) addrEl.textContent = STATE.school.address;
     if (logoEl) {
@@ -825,7 +748,7 @@ async function loadSchoolInfo() {
         'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
     }
   } catch (err) {
-    handleError(err, 'Failed to load school information.');
+    toast.error('Unable to load school information.');
   }
 }
 
@@ -837,11 +760,11 @@ async function loadClassInfo(classId) {
   }
   try {
     const classData = await service.getClassById(classId);
-    STATE.class.id   = classId;
+    STATE.class.id = classId;
     STATE.class.name = classData ? classData.name : 'Unknown Class';
   } catch (err) {
-    handleError(err, 'Failed to load class information.');
-    STATE.class.id   = classId;
+    toast.error('Unable to load class information.');
+    STATE.class.id = classId;
     STATE.class.name = 'Class';
   }
 }
@@ -854,12 +777,12 @@ async function loadClassStudents() {
   try {
     const students = await service.getStudentsByClass(STATE.school.id, STATE.class.id);
     const list = students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    STATE.students     = list;
-    STATE.stats.boys   = list.filter(s => (s.gender || '').toLowerCase() === 'male').length;
-    STATE.stats.girls  = list.filter(s => (s.gender || '').toLowerCase() === 'female').length;
-    STATE.stats.total  = list.length;
+    STATE.students = list;
+    STATE.stats.boys = list.filter(s => (s.gender || '').toLowerCase() === 'male').length;
+    STATE.stats.girls = list.filter(s => (s.gender || '').toLowerCase() === 'female').length;
+    STATE.stats.total = list.length;
   } catch (err) {
-    handleError(err, 'Failed to load class students.');
+    toast.error('Unable to load class students.');
     STATE.students = [];
   }
 }
@@ -917,13 +840,13 @@ async function ensureCalendarReady() {
   try {
     await initAcademicCalendar();
     await syncAcademicCalendar();
-    // Try to get the current values – if still not initialized, use client fallback
     let session = getCurrentSession();
     let term = getCurrentTerm();
     if (!session || !term) throw new Error('Calendar returned empty values');
     return { session, term };
   } catch (err) {
     console.warn('[Attendance] Calendar init failed, using client-side fallback:', err);
+    toast.warning('Calendar is still loading. Using client-side date estimation.');
     const now = new Date();
     const fallback = calculateTermAndSessionFromDate(now);
     return { session: fallback.session, term: fallback.term };
@@ -944,88 +867,77 @@ export function getStudentAttendanceSummary(studentId) {
 // MAIN ENTRY POINT (exported — called by attendance.html)
 // ═════════════════════════════════════════════════════════════════════════════
 export async function initAttendancePage() {
-  // ── 1. Authenticate ──
   let authResult;
   try {
     authResult = await authenticateTeacher();
   } catch (err) {
     console.error('[Attendance] Auth failed:', err);
+    toast.error('Unable to log in. Please refresh the page.');
     window.location.href = '/';
     return;
   }
   if (!authResult) return;
 
   const { user, userData, teacherData } = authResult;
-
-  // ── 2. Verify host class assignment ──
   const hostClassId = teacherData?.hostClassId || null;
   if (!hostClassId) {
     showNoClassWarning();
     return;
   }
 
-  // ── 3. Populate state ──
-  STATE.teacher.id         = user.uid;
-  STATE.teacher.schoolId   = userData.schoolId;
-  STATE.teacher.name       = teacherData?.name || userData.email?.split('@')[0] || 'Teacher';
+  STATE.teacher.id = user.uid;
+  STATE.teacher.schoolId = userData.schoolId;
+  STATE.teacher.name = teacherData?.name || userData.email?.split('@')[0] || 'Teacher';
   STATE.teacher.hostClassId = hostClassId;
-  STATE.school.id          = userData.schoolId;
+  STATE.school.id = userData.schoolId;
 
-  // ── 4. Academic calendar — ensure it's ready (with fallback) ──
   showLoader();
   try {
     const calendar = await ensureCalendarReady();
     STATE.academic.session = calendar.session;
-    STATE.academic.term    = calendar.term;
-    // Start periodic sync only if calendar is available (non‑critical)
+    STATE.academic.term = calendar.term;
     try { STATE.stopSync = startPeriodicSync(30); } catch (e) { console.warn(e); }
   } catch (err) {
     console.error('[Attendance] Fatal calendar error:', err);
-    handleError(err, 'Unable to determine current academic term. Please refresh.');
+    toast.error('Unable to determine current academic term. Please refresh.');
     hideLoader();
     return;
   } finally {
     hideLoader();
   }
 
-  // Subscribe to live calendar changes (header display + STATE sync)
   setupCalendarDisplay();
 
-  // ── 5. Load school + class + students ──
   showLoader();
   try {
     await loadSchoolInfo();
     await loadClassInfo(hostClassId);
     await loadClassStudents();
   } catch (err) {
-    handleError(err, 'Failed to load page data.');
+    toast.error('Unable to load page data. Please refresh.');
   } finally {
     hideLoader();
   }
 
-  // ── 6. Update class name display ──
   const classNameEl = document.getElementById('classNameDisplay');
   if (classNameEl) {
     classNameEl.textContent = `${STATE.class.name} — ${STATE.academic.term}, ${STATE.academic.session}`;
   }
 
-  // ── 7. Restore saved attendance from Firestore ──
   showLoader();
   try {
     await loadAttendanceFromFirestore();
   } catch (err) {
-    handleError(err, 'Failed to restore attendance records.');
+    toast.error('Unable to restore attendance records.');
   } finally {
     hideLoader();
   }
 
-  // ── 8. Render all sections ──
   renderClassStats();
   renderAttendanceTable();
   renderWeeklySummary();
   renderTermSummary();
 
-  // ── 9. Wire up UI ──
   setupButtons();
   setupSidebar();
   setupLogout();

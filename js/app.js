@@ -1,6 +1,8 @@
 // app.js - Core application functions (schools, users, academic helpers)
+// All user-facing errors now show clear, friendly messages without technical jargon.
+
 import { auth } from './firebase-config.js';
-import { showNotification, handleError } from './error-handler.js';
+import { toast, handleError } from './error-handler.js';
 import * as service from './service.js';
 
 // Get currently logged-in user (returns user object or null)
@@ -23,7 +25,8 @@ export async function getUserData(userId = null) {
     const userData = await service.getUserById(uid);
     return userData;
   } catch (err) {
-    handleError(err, "Failed to load user data.");
+    console.error('getUserData error:', err);
+    toast.error('Unable to load your profile. Please refresh the page.');
     return null;
   }
 }
@@ -34,7 +37,8 @@ export async function getSchoolById(schoolId) {
   try {
     return await service.getSchoolById(schoolId);
   } catch (err) {
-    handleError(err, "Failed to load school data.");
+    console.error('getSchoolById error:', err);
+    toast.error('Unable to load school information. Please check your internet connection.');
     return null;
   }
 }
@@ -58,7 +62,8 @@ export async function getSchoolBySlug(slug) {
     }
     return null;
   } catch (err) {
-    handleError(err, "Failed to find school by URL.");
+    console.error('getSchoolBySlug error:', err);
+    toast.error('Unable to find school. Please check the link or contact support.');
     return null;
   }
 }
@@ -125,9 +130,10 @@ export async function archiveClassStudents(schoolId, classId, className, session
       students,
       archivedAt: new Date()
     });
-    showNotification(`Archived ${students.length} students for ${className}`, "success");
+    toast.success(`Archived ${students.length} students for ${className}`);
   } catch (err) {
-    handleError(err, "Failed to archive class students.");
+    console.error('archiveClassStudents error:', err);
+    toast.error('Failed to archive students. Please try again.');
   }
 }
 
@@ -147,12 +153,13 @@ export async function archiveCurrentTermIfNeeded(schoolId) {
       for (const classDoc of classes) {
         await archiveClassStudents(schoolId, classDoc.id, classDoc.name, session, term);
       }
-      showNotification("Current term archived successfully.", "success");
+      toast.success('Current term archived successfully.');
       return true;
     }
     return false;
   } catch (err) {
-    handleError(err, "Failed to archive current term.");
+    console.error('archiveCurrentTermIfNeeded error:', err);
+    toast.error('Failed to archive current term. Please try again later.');
     return false;
   }
 }

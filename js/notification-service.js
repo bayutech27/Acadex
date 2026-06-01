@@ -3,6 +3,7 @@
 // TODO: service.js does not yet support notification creation, bulk creation,
 // real‑time listeners, or marking read/unread. These operations remain as direct Firestore
 // calls and should be added to the service layer in the future.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import {
@@ -19,6 +20,7 @@ import {
   getDocs
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
+import { toast } from './error-handler.js';
 
 /**
  * Create a single notification document.
@@ -45,6 +47,7 @@ export async function createNotification({
     });
   } catch (err) {
     console.error('Error creating notification:', err);
+    toast.warning('Unable to send notification. Please try again.');
   }
 }
 
@@ -59,6 +62,7 @@ export async function createBulkNotifications(notifications) {
     );
   } catch (err) {
     console.error('Error creating bulk notifications:', err);
+    toast.warning('Unable to send notifications. Some students may not receive updates.');
   }
 }
 
@@ -87,6 +91,7 @@ export function onStudentNotifications(studentId, callback) {
     },
     err => {
       console.error('Notifications listener error:', err);
+      toast.warning('Unable to load notifications. Please refresh the page.');
       callback([]);
     }
   );
@@ -109,6 +114,7 @@ export function onUnreadCountChange(studentId, callback) {
     snapshot => callback(snapshot.size),
     err => {
       console.error('Unread count listener error:', err);
+      toast.warning('Unable to load notification count. Please refresh the page.');
       callback(0);
     }
   );
@@ -123,6 +129,7 @@ export async function markNotificationAsRead(notificationId) {
     await updateDoc(doc(db, 'notifications', notificationId), { read: true });
   } catch (err) {
     console.error('Error marking notification as read:', err);
+    toast.warning('Unable to mark notification as read. Please try again.');
   }
 }
 
@@ -145,5 +152,6 @@ export async function markAllAsRead(studentId) {
     await Promise.all(batch);
   } catch (err) {
     console.error('Error marking all as read:', err);
+    toast.warning('Unable to mark all notifications as read. Please try again.');
   }
 }

@@ -1,9 +1,11 @@
 // academic-calendar.js - Central Academic Calendar Engine (Robust)
 // Manually read/write Firestore, with client-side fallback.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db } from './firebase-config.js';
 import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as service from './service.js';
+import { toast } from './error-handler.js';
 
 let calendarState = {
   initialized: false,
@@ -90,6 +92,7 @@ async function writeFallbackToFirestore(calculated) {
     return true;
   } catch (err) {
     console.error('[AcademicCalendar] Failed to write fallback to Firestore:', err);
+    toast.warning('Unable to sync calendar with server. Using local date estimates.');
     return false;
   }
 }
@@ -105,6 +108,7 @@ export async function initAcademicCalendar() {
       console.log('[AcademicCalendar] Loaded from Firestore');
     } else {
       console.warn('[AcademicCalendar] Firestore document missing – will create one');
+      toast.info('Calendar is being set up. Using current date estimates.');
     }
 
     // Determine actual calendar values
@@ -138,7 +142,7 @@ export async function initAcademicCalendar() {
     calendarState.termEnd = termEnd;
     calendarState.manualOverride = manualOverride;
     calendarState.lastUpdated = firestoreData?.lastUpdated || null;
-    calendarState.offlineMode = !firestoreData; // if no doc, we are in offline mode
+    calendarState.offlineMode = !firestoreData;
     calendarState.initialized = true;
 
     // Notify subscribers
@@ -146,6 +150,7 @@ export async function initAcademicCalendar() {
     return calendarState;
   } catch (err) {
     console.error('[AcademicCalendar] All Firestore attempts failed. Using client-side fallback only.', err);
+    toast.warning('Unable to connect to calendar server. Using local date estimates.');
     const calculated = calculateTermAndSessionFromDate(new Date());
     calendarState.currentSession = calculated.session;
     calendarState.currentTerm = calculated.term;
@@ -159,7 +164,7 @@ export async function initAcademicCalendar() {
   }
 }
 
-// Public getters (safe – will never throw)
+// Public getters (safe – will never throw, but we keep the error for developers)
 export function getCurrentTerm() {
   if (!calendarState.initialized) throw new Error('Call initAcademicCalendar first');
   return calendarState.currentTerm;
@@ -191,35 +196,54 @@ export function shouldCalendarUpdate(calculated, stored) {
 
 export async function adminOverrideCalendar(overrideData) {
   const { term, session, expiryDate } = overrideData;
-  const docRef = doc(db, 'academicCalendar', 'current');
-  await setDoc(docRef, {
-    manualOverride: true,
-    overrideSession: session,
-    overrideTerm: term,
-    overrideExpiry: expiryDate || null,
-    lastUpdated: serverTimestamp(),
-    forceSyncVersion: (await getDoc(docRef)).data()?.forceSyncVersion + 1 || 1
-  }, { merge: true });
-  await initAcademicCalendar(); // reload
-  return getAcademicCalendar();
+  try {
+    const docRef = doc(db, 'academicCalendar', 'current');
+    const currentDoc = await getDoc(docRef);
+    const currentVersion = currentDoc.exists() ? (currentDoc.data().forceSyncVersion || 0) : 0;
+    await setDoc(docRef, {
+      manualOverride: true,
+      overrideSession: session,
+      overrideTerm: term,
+      overrideExpiry: expiryDate || null,
+      lastUpdated: serverTimestamp(),
+      forceSyncVersion: currentVersion + 1
+    }, { merge: true });
+    await initAcademicCalendar(); // reload
+    toast.success('Calendar override applied successfully.');
+    return getAcademicCalendar();
+  } catch (err) {
+    console.error('[AcademicCalendar] Admin override failed:', err);
+    toast.error('Failed to apply calendar override. Please try again.');
+    throw err;
+  }
 }
 
 export async function adminResetToAuto() {
-  const now = new Date();
-  const calc = calculateTermAndSessionFromDate(now);
-  const docRef = doc(db, 'academicCalendar', 'current');
-  await setDoc(docRef, {
-    manualOverride: false,
-    overrideSession: null,
-    overrideTerm: null,
-    currentSession: calc.session,
-    currentTerm: calc.term,
-    termStart: calc.termStart,
-    termEnd: calc.termEnd,
-    lastUpdated: serverTimestamp()
-  }, { merge: true });
-  await initAcademicCalendar();
-  return getAcademicCalendar();
+  try {
+    const now = new Date();
+    const calc = calculateTermAndSessionFromDate(now);
+    const docRef = doc(db, 'academicCalendar', 'current');
+    const currentDoc = await getDoc(docRef);
+    const currentVersion = currentDoc.exists() ? (currentDoc.data().forceSyncVersion || 0) : 0;
+    await setDoc(docRef, {
+      manualOverride: false,
+      overrideSession: null,
+      overrideTerm: null,
+      currentSession: calc.session,
+      currentTerm: calc.term,
+      termStart: calc.termStart,
+      termEnd: calc.termEnd,
+      lastUpdated: serverTimestamp(),
+      forceSyncVersion: currentVersion + 1
+    }, { merge: true });
+    await initAcademicCalendar();
+    toast.success('Calendar reset to automatic mode successfully.');
+    return getAcademicCalendar();
+  } catch (err) {
+    console.error('[AcademicCalendar] Reset to auto failed:', err);
+    toast.error('Failed to reset calendar. Please try again.');
+    throw err;
+  }
 }
 
 export function getCurrentUTCDate() {

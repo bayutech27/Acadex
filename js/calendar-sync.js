@@ -1,7 +1,9 @@
 // Calendar Sync Engine – Automatic Rollover Management
 // All Firestore operations go through service.js (cache + offline queue).
+// User-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
+import { toast } from './error-handler.js';
 import { 
   initAcademicCalendar, 
   getAcademicCalendar, 
@@ -30,6 +32,7 @@ export async function syncAcademicCalendar() {
 
     if (!storedData) {
       console.error('[CalendarSync] Firestore document missing');
+      // Don't show toast here – this is a background process, and the calendar will use fallback
       return false;
     }
 
@@ -71,6 +74,12 @@ export async function syncAcademicCalendar() {
 
   } catch (error) {
     console.error('[CalendarSync] Sync failed:', error);
+    // Only show toast for network/permission errors that might affect the user
+    if (error.message?.includes('permission') || error.code === 'permission-denied') {
+      toast.warning('Calendar sync permission issue. Please refresh the page.');
+    } else if (error.message?.includes('network') || error.message?.includes('offline')) {
+      toast.warning('Network issue – calendar will sync automatically when connection is restored.');
+    }
     return false;
   } finally {
     syncInProgress = false;
@@ -80,6 +89,7 @@ export async function syncAcademicCalendar() {
 // ----------------------------------- Force Sync -----------------------------------
 export async function forceCalendarSync(testDate = null) {
   if (syncInProgress) {
+    toast.error('Calendar sync is already in progress. Please wait.');
     throw new Error('Sync already in progress');
   }
 
@@ -90,10 +100,12 @@ export async function forceCalendarSync(testDate = null) {
     const storedData = await service.getAcademicCalendarDoc();
 
     if (!storedData) {
+      toast.error('Calendar document not found. Please refresh the page.');
       throw new Error('Firestore document missing');
     }
 
     if (storedData.manualOverride === true) {
+      toast.warning('Cannot force sync while calendar is manually overridden.');
       throw new Error('Cannot force sync while manual override is active');
     }
 
@@ -113,8 +125,15 @@ export async function forceCalendarSync(testDate = null) {
     await service.setAcademicCalendarDoc(updatedData);
 
     lastSyncTimestamp = referenceDate;
+    toast.success('Calendar synced successfully.');
     return calculated;
 
+  } catch (error) {
+    console.error('[CalendarSync] Force sync error:', error);
+    if (!error.message?.includes('already in progress')) {
+      toast.error('Failed to sync calendar. Please try again.');
+    }
+    throw error;
   } finally {
     syncInProgress = false;
   }
@@ -123,7 +142,10 @@ export async function forceCalendarSync(testDate = null) {
 // ----------------------------------- Periodic Sync -----------------------------------
 export function startPeriodicSync(intervalMinutes = 60) {
   const intervalId = setInterval(() => {
-    syncAcademicCalendar().catch(console.error);
+    syncAcademicCalendar().catch(err => {
+      console.error('[CalendarSync] Periodic sync error:', err);
+      // Silent failure – don't spam user with toasts every hour
+    });
   }, intervalMinutes * 60 * 1000);
   return () => clearInterval(intervalId);
 }
@@ -138,6 +160,11 @@ export function getSyncStatus() {
 }
 
 async function checkManualOverrideStatus() {
-  const doc = await service.getAcademicCalendarDoc();
-  return doc ? (doc.manualOverride || false) : false;
+  try {
+    const doc = await service.getAcademicCalendarDoc();
+    return doc ? (doc.manualOverride || false) : false;
+  } catch (error) {
+    console.error('[CalendarSync] Failed to check manual override status:', error);
+    return false; // Assume no override if we can't check
+  }
 }

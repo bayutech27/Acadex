@@ -9,12 +9,13 @@
 // TODO: service.js does not yet support teacher doc creation (setDoc) for minimal teacher record,
 // logo upload (updateSchool), some scoring config queries, and direct score addDoc/updateDoc.
 // These remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc, updateDoc, collection, getDocs, query, where, addDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser } from './auth.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import * as service from './service.js';
 
@@ -47,6 +48,7 @@ export async function protectTeacherPage() {
         const userData = await service.getUserById(user.uid);
         if (!userData) {
           console.error("User document missing. Redirecting.");
+          toast.error('Unable to load your profile. Please log in again.');
           window.location.href = '/';
           return;
         }
@@ -54,6 +56,7 @@ export async function protectTeacherPage() {
 
         if (userRoleData.role !== 'teacher') {
           console.error("Access denied – not a teacher.");
+          toast.error('Access denied. Teacher privileges required.');
           window.location.href = '/';
           return;
         }
@@ -61,14 +64,13 @@ export async function protectTeacherPage() {
         currentSchoolId = userRoleData.schoolId;
         if (!currentSchoolId) {
           console.error("School ID missing. Redirecting.");
+          toast.error('School information missing. Please contact your administrator.');
           window.location.href = '/';
           return;
         }
 
-        // Initialise Central Academic Calendar for teacher pages
         await initAcademicCalendar();
 
-        // Try to fetch teacher document, but do NOT redirect if missing
         let teacher = null;
         try {
           teacher = await service.getTeacherById(user.uid);
@@ -80,7 +82,6 @@ export async function protectTeacherPage() {
           teacherData = teacher;
           teacherName = teacher.name || teacher.email?.split('@')[0] || 'Teacher';
         } else {
-          // No teacher document? Create a default one on the fly (no redirect)
           console.warn("Teacher document missing – creating minimal record to avoid redirect.");
           teacherData = {
             email: userRoleData.email,
@@ -92,10 +93,10 @@ export async function protectTeacherPage() {
           };
           teacherName = userRoleData.email?.split('@')[0] || 'Teacher';
           try {
-            // TODO: service.createTeacher does not exist – use direct setDoc
             await setDoc(doc(db, 'teachers', user.uid), teacherData);
           } catch (e) {
             console.warn("Could not create teacher document automatically:", e.message);
+            toast.warning('Unable to save teacher preferences. Some features may be limited.');
           }
         }
 
@@ -116,6 +117,7 @@ export async function protectTeacherPage() {
           currentTeacherId = user.uid;
           resolve({ user, userData: userRoleData, teacherData, teacherName });
         } else {
+          toast.error('Failed to verify your account. Please log in again.');
           window.location.href = '/';
           reject(error);
         }
@@ -124,7 +126,7 @@ export async function protectTeacherPage() {
   });
 }
 
-// MODIFIED: Now uses dynamic time-based greeting (Good morning/afternoon/evening)
+// MODIFIED: Now uses dynamic time-based greeting
 export function displayTeacherName(name) {
   if (!name) name = 'Teacher';
   const greeting = getTimeBasedGreeting();
@@ -157,7 +159,8 @@ export async function loadSchoolInfo() {
     
     await loadAcademicInfo();
   } catch (err) {
-    handleError(err, "Failed to load school information.");
+    console.error('Load school info error:', err);
+    toast.error('Unable to load school information. Please refresh the page.');
   }
 }
 
@@ -181,14 +184,14 @@ export function setupLogoUpload() {
         try {
           const compressed = await compressImage(file);
           if (compressed) {
-            // Use service.updateSchool
             await service.updateSchool(currentSchoolId, { logo: compressed });
             const logoImg = document.getElementById('schoolLogoImg');
             if (logoImg) logoImg.src = compressed;
-            showNotification("Logo updated successfully.", "success");
+            toast.success('Logo updated successfully.');
           }
         } catch (err) {
-          handleError(err, "Failed to upload logo.");
+          console.error('Logo upload error:', err);
+          toast.error('Failed to upload logo. Please try again with a smaller image.');
         } finally {
           hideLoader();
         }
@@ -238,7 +241,10 @@ export function setupLogout() {
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      try { await logoutUser(); } catch (err) { handleError(err, "Logout failed."); }
+      try { await logoutUser(); } catch (err) { 
+        console.error('Logout error:', err);
+        toast.error('Logout failed. Please try again.');
+      }
     });
   }
 }
@@ -263,7 +269,11 @@ let scoresState = {
 };
 
 export async function initScoresPage() {
-  if (!currentSchoolId) { console.error('School ID not loaded'); return; }
+  if (!currentSchoolId) { 
+    console.error('School ID not loaded'); 
+    toast.error('School information not loaded. Please refresh the page.');
+    return; 
+  }
   await loadSessionOptions();
   await loadClassesForTeacher();
   await loadSubjectsForTeacher();
@@ -295,7 +305,10 @@ async function loadClassesForTeacher() {
     const classes = await service.getClassesBySchool(currentSchoolId);
     classSelect.innerHTML = '<option value="">-- Select Class --</option>' +
       classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-  } catch (err) { handleError(err, "Failed to load classes."); }
+  } catch (err) { 
+    console.error('Load classes error:', err);
+    toast.error('Unable to load classes. Please refresh the page.');
+  }
 }
 
 async function loadSubjectsForTeacher() {
@@ -314,7 +327,10 @@ async function loadSubjectsForTeacher() {
       `<option value="${id}">${escapeHtml(allSubjectsMap[id] || id)}</option>`
     ).join('');
     subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' + options;
-  } catch (err) { handleError(err, "Failed to load subjects."); }
+  } catch (err) { 
+    console.error('Load subjects error:', err);
+    toast.error('Unable to load subjects. Please refresh the page.');
+  }
 }
 
 async function loadScoringConfig() {
@@ -332,7 +348,8 @@ async function loadScoringConfig() {
     }
     scoresState.scoringConfig = { caWeight, examWeight };
   } catch (err) {
-    handleError(err, "Failed to load scoring configuration.");
+    console.error('Load scoring config error:', err);
+    toast.warning('Unable to load grading settings. Using default values.');
     scoresState.scoringConfig = { caWeight: 30, examWeight: 70 };
   }
 }
@@ -351,7 +368,8 @@ async function loadStudents() {
   const term      = document.getElementById('termSelect')?.value;
   const session   = document.getElementById('sessionSelect')?.value;
   if (!classId || !subjectId || !term || !session) {
-    showNotification("Please select class, subject, term and session.", "error"); return;
+    toast.error('Please select class, subject, term and session.');
+    return;
   }
   scoresState.currentClassId   = classId;
   scoresState.currentSubjectId = subjectId;
@@ -359,13 +377,12 @@ async function loadStudents() {
   scoresState.currentSession   = session;
   showLoader();
   try {
-    // Use service.getStudentsByClass then filter by subject list
     const allStudents = await service.getStudentsByClass(currentSchoolId, classId);
     const filteredStudents = allStudents.filter(s =>
       s.subjects && Array.isArray(s.subjects) && s.subjects.includes(subjectId)
     );
     if (filteredStudents.length === 0) {
-      showNotification("No students found for this class and subject.", "error");
+      toast.error('No students found for this class and subject.');
       const container = document.getElementById('studentsTableContainer');
       if (container) container.innerHTML = '<p>No students assigned to this subject in this class.</p>';
       const actions = document.getElementById('actionButtons');
@@ -377,21 +394,26 @@ async function loadStudents() {
     renderStudentsTable();
     const actions = document.getElementById('actionButtons');
     if (actions) actions.style.display = 'block';
-    showNotification(`${filteredStudents.length} students loaded.`, "success");
-  } catch (err) { handleError(err, "Failed to load students."); }
+    toast.success(`${filteredStudents.length} students loaded.`);
+  } catch (err) { 
+    console.error('Load students error:', err);
+    toast.error('Failed to load students. Please try again.');
+  }
   finally { hideLoader(); }
 }
 
 async function loadExistingScores() {
   try {
-    // Use service.getScoresByClass? But we need subjectId filter. Use getScoresByClass and filter client-side.
     const allScores = await service.getScoresByClass(scoresState.currentClassId, currentSchoolId, scoresState.currentTerm, scoresState.currentSession);
     const filtered = allScores.filter(s => s.subjectId === scoresState.currentSubjectId);
     scoresState.scoresData = {};
     filtered.forEach(score => {
       scoresState.scoresData[score.studentId] = { ca: score.ca || 0, exam: score.exam || 0, total: (score.ca || 0) + (score.exam || 0), scoreId: score.id };
     });
-  } catch (err) { handleError(err, "Failed to load existing scores."); }
+  } catch (err) { 
+    console.error('Load existing scores error:', err);
+    toast.warning('Unable to load existing scores. Starting with blank scores.');
+  }
 }
 
 function renderStudentsTable() {
@@ -442,7 +464,8 @@ function updateRowTotal(row) {
 
 async function saveAllScores() {
   if (scoresState.students.length === 0) {
-    showNotification("No students to save. Please load students first.", "error"); return;
+    toast.error('No students to save. Please load students first.');
+    return;
   }
   showLoader();
   try {
@@ -454,9 +477,7 @@ async function saveAllScores() {
       const { caWeight, examWeight } = scoresState.scoringConfig;
       if (ca   > caWeight)   ca   = caWeight;
       if (exam > examWeight) exam = examWeight;
-      const total = ca + exam;
       const existing = scoresState.scoresData[studentId];
-      // Use service.saveScore
       await service.saveScore({
         studentId, subjectId: scoresState.currentSubjectId,
         classId: scoresState.currentClassId, schoolId: currentSchoolId,
@@ -464,8 +485,11 @@ async function saveAllScores() {
         ca, exam, teacherId: currentTeacherId
       }, existing?.scoreId);
     }
-    showNotification("All scores saved successfully!", "success");
-  } catch (err) { handleError(err, "Failed to save scores."); }
+    toast.success('All scores saved successfully!');
+  } catch (err) { 
+    console.error('Save scores error:', err);
+    toast.error('Failed to save scores. Please try again.');
+  }
   finally { hideLoader(); }
 }
 

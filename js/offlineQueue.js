@@ -16,6 +16,8 @@
 //   retries   : number,       number of sync attempts
 //   status    : 'pending'|'processing'|'failed'
 // }
+//
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db } from './firebase-config.js';
 import {
@@ -27,6 +29,7 @@ import {
   collection,
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as cache from './cache.js';
+import { toast } from './error-handler.js';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const QUEUE_STORAGE_KEY = 'acadex_offline_queue_v1';
@@ -64,6 +67,7 @@ function _saveToStorage() {
     localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(_queue));
   } catch (e) {
     console.warn('[OfflineQueue] Failed to persist queue:', e.message);
+    toast.warning('Unable to save offline changes. Your browser storage may be full.');
   }
 }
 
@@ -76,6 +80,7 @@ function _loadFromStorage() {
   } catch (e) {
     _queue = [];
     console.warn('[OfflineQueue] Failed to load queue:', e.message);
+    toast.warning('Unable to load saved offline operations. Data may be lost.');
   }
 }
 
@@ -142,6 +147,7 @@ async function _syncOp(op) {
       op.failedAt = Date.now();
       op.lastError = err.message;
       console.error(`[OfflineQueue] Op ${op.id} permanently failed after ${MAX_RETRIES} retries:`, err.message);
+      toast.warning(`Unable to sync "${op.collection}" changes. Please check your internet connection and permissions.`);
     } else {
       op.status = 'pending';
       op.nextRetryAt = Date.now() + _backoffMs(op.retries);

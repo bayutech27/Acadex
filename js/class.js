@@ -1,9 +1,10 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
 // All Firestore operations now go through service.js (cache + offline queue).
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
+import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 
@@ -49,7 +50,8 @@ async function checkSubscription() {
     }
     return isSubscriptionActive;
   } catch (err) {
-    handleError(err, "Failed to verify subscription.");
+    console.error('Subscription check error:', err);
+    toast.error('Unable to verify subscription status. Please refresh the page.');
     isSubscriptionActive = false;
     disableSubscriptionFeatures();
     return false;
@@ -136,7 +138,6 @@ function calculateAge(dobString) {
 
 // ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
-  // Use service method (cached)
   return await service.loadSessionOptions(schoolId);
 }
 
@@ -158,8 +159,6 @@ async function loadGradingSettingByLevel(level, session, term) {
     }
     if (!grading) {
       // Try document ID fallback – service does not have this pattern, so direct read (rare)
-      // We keep direct Firestore for this edge case with a TODO
-      // TODO: Extend service with getScoringConfigById(docId)
       const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db } = await import('./firebase-config.js');
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
@@ -173,7 +172,8 @@ async function loadGradingSettingByLevel(level, session, term) {
       currentGrading = { ca: 40, exam: 60 };
     }
   } catch (err) {
-    handleError(err, "Failed to load grading by level. Using defaults.");
+    console.error('Grading load error:', err);
+    toast.warning('Unable to load grading settings. Using default values (CA=40, Exam=60).');
     currentGrading = { ca: 40, exam: 60 };
   }
 }
@@ -184,7 +184,6 @@ async function loadGradingSetting(session, term, classLevel = null) {
   } else {
     try {
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
-      // Try direct read – service does not have this pattern; we keep direct with TODO
       const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db } = await import('./firebase-config.js');
       const docSnap = await getDoc(doc(db, 'scoring', docId));
@@ -227,7 +226,8 @@ async function loadSubjectsAndClasses() {
       classesMap.set(cls.id, { name: cls.name, level: cls.level });
     });
   } catch (err) {
-    handleError(err, "Failed to load subjects and classes.");
+    console.error('Subjects/classes load error:', err);
+    toast.error('Unable to load subjects and classes. Please refresh the page.');
   }
 }
 
@@ -242,7 +242,8 @@ async function loadStudentsList() {
       parentPhone: s.parentPhone || null
     }));
   } catch (err) {
-    handleError(err, "Failed to load students.");
+    console.error('Students load error:', err);
+    toast.error('Unable to load students. Please refresh the page.');
   }
 }
 
@@ -251,7 +252,8 @@ async function fetchScores(studentId, term, session) {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
     return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
   } catch (err) {
-    handleError(err, "Failed to load student scores.");
+    console.error('Scores fetch error:', err);
+    toast.error('Unable to load student scores. Please refresh the page.');
     return [];
   }
 }
@@ -260,7 +262,6 @@ async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
   try {
-    // Use service.getScoresByClass to get all scores for the class
     const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
     const subjectMap = new Map();
     for (const subjId of subjectsMap.keys()) {
@@ -285,7 +286,8 @@ async function computeSubjectStats(classId, term, session) {
     }
     return subjectMap;
   } catch (err) {
-    handleError(err, "Failed to compute subject statistics.");
+    console.error('Subject stats error:', err);
+    toast.warning('Unable to compute subject statistics. Position and class average will not be shown.');
     return new Map();
   }
 }
@@ -298,12 +300,12 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return levelSubjects;
-  // Fetch all scores for this class to know which subjects have data
   try {
     const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
     const subjectIdsWithScores = new Set(allScores.map(s => s.subjectId));
     return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
   } catch (err) {
+    console.error('Relevant subjects error:', err);
     return levelSubjects;
   }
 }
@@ -386,7 +388,8 @@ async function loadReportCard(studentId, studentName) {
     const actions = document.getElementById('reportActions');
     if (actions) actions.style.display = 'flex';
   } catch (err) {
-    handleError(err, "Failed to load report card.");
+    console.error('Report card load error:', err);
+    toast.error('Unable to load report card. Please refresh the page.');
   } finally {
     hideLoader();
   }
@@ -406,14 +409,15 @@ async function loadExistingReport(studentId) {
       reportState.savedReportId = null;
     }
   } catch (err) {
-    handleError(err, "Failed to load existing report.");
+    console.error('Existing report load error:', err);
+    toast.warning('Could not load saved report data. Starting with fresh report.');
   }
 }
 
 async function saveReportCard() {
   const active = await checkSubscription();
-  if (!active) { showNotification("Cannot save report – subscription inactive.", "error"); return; }
-  if (!reportState.selectedStudent) { showNotification("Select a student first.", "error"); return; }
+  if (!active) { toast.error('Cannot save report – subscription inactive.'); return; }
+  if (!reportState.selectedStudent) { toast.error('Please select a student first.'); return; }
 
   const schoolOpenedInput = document.querySelector('.rc-att-input.school-opened');
   const presentInput      = document.querySelector('.rc-att-input.present');
@@ -440,23 +444,23 @@ async function saveReportCard() {
 
   showLoader();
   try {
-    // Use service.saveReport (handles online/offline)
     const newId = await service.saveReport(reportData, reportState.savedReportId);
     reportState.savedReportId = newId;
     reportState.attendance = attendance;
-    showNotification("Report saved successfully.", "success");
+    toast.success('Report saved successfully.');
   } catch (err) {
-    if (err.code === 'permission-denied') {
-      showNotification("Permission denied. Subscription required to save reports.", "error");
+    console.error('Report save error:', err);
+    if (err.code === 'permission-denied' || err.message?.includes('permission')) {
+      toast.error('Permission denied. Subscription required to save reports.');
     } else {
-      handleError(err, "Failed to save report.");
+      toast.error('Failed to save report. Please try again.');
     }
   } finally {
     hideLoader();
   }
 }
 
-// ========== PRINT HANDLER (UPDATED FOR INLINE COMMENTS) ==========
+// ========== PRINT HANDLER ==========
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -469,13 +473,13 @@ function handlePrint() {
   if (!reportContent || reportContent.children.length === 0 ||
       (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
        reportContent.children[0].textContent.includes('Select a student'))) {
-    showNotification('Report not ready yet. Please select a student and ensure the report is loaded.', 'error');
+    toast.error('Report not ready. Please select a student first.');
     return;
   }
 
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { showNotification('Please allow popups for this site to print the report.', 'error'); return; }
+  if (!printWindow) { toast.error('Please allow pop-ups to print the report.'); return; }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
@@ -539,13 +543,13 @@ function handlePrint() {
 // ========== WHATSAPP SHARE FUNCTION ==========
 function sendToWhatsApp() {
   if (!reportState.selectedStudent) {
-    showNotification('No student selected. Please select a student first.', 'error');
+    toast.error('Please select a student first.');
     return;
   }
 
   let phone = reportState.selectedStudent.parentPhone;
   if (!phone || phone.trim() === '') {
-    showNotification('Parent phone number is not available for this student. Please update the student record with a valid phone number.', 'error');
+    toast.error('Parent phone number not available. Please update the student record.');
     return;
   }
 
@@ -561,15 +565,15 @@ function sendToWhatsApp() {
   } else if (digits.length === 10 && /^[789]/.test(digits)) {
     digits = '234' + digits;
   } else {
-    showNotification(`Phone number could not be normalised. Raw input: ${phone}. Please use a valid Nigerian number.`, 'error');
+    toast.error('Invalid phone number format. Please update the parent phone number.');
     return;
   }
   if (!digits.startsWith('234')) {
-    showNotification(`Phone number does not start with Nigeria country code. Raw: ${phone}`, 'error');
+    toast.error('Phone number must start with Nigeria country code (234).');
     return;
   }
   if (digits.length !== 13) {
-    showNotification(`Phone number normalised to ${digits} (length ${digits.length}) – expected 13 digits. Raw: ${phone}`, 'error');
+    toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).');
     return;
   }
 
@@ -581,11 +585,11 @@ function sendToWhatsApp() {
 // ========== BROADSHEET PRINT ==========
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { showNotification('No broadsheet to download.', 'error'); return; }
+  if (!container || !container.innerHTML.trim()) { toast.error('No broadsheet to print.'); return; }
   const originalContent = container.cloneNode(true);
   const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { showNotification('Please allow popups.', 'error'); return; }
+  if (!printWindow) { toast.error('Please allow pop-ups to print.'); return; }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
   const printCSS = `
@@ -654,7 +658,8 @@ async function fetchClassScores(classId, term, session) {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
     return scores;
   } catch (err) {
-    handleError(err, "Failed to fetch class scores.");
+    console.error('Class scores fetch error:', err);
+    toast.error('Unable to load class scores. Please refresh the page.');
     return [];
   }
 }
@@ -684,12 +689,12 @@ async function generateBroadsheet() {
   }
 
   const container = document.getElementById('broadsheetContainer');
-  if (!container) { showNotification("Broadsheet container not found.", "error"); return; }
+  if (!container) { toast.error('Broadsheet container not found.'); return; }
 
   const classIdSel = document.getElementById('broadsheetClassSelect')?.value;
   const session    = document.getElementById('broadsheetSessionSelect')?.value;
   const term       = document.getElementById('broadsheetTermSelect')?.value;
-  if (!classIdSel || !session || !term) { showNotification("Please select Class, Session and Term", "error"); return; }
+  if (!classIdSel || !session || !term) { toast.error('Please select Class, Session and Term.'); return; }
 
   const classInfo  = classesMap.get(classIdSel);
   const className  = classInfo?.name || 'Class';
@@ -765,10 +770,10 @@ async function generateBroadsheet() {
     html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
     html += `<tr><th></th><th></th>`;
     for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
-    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
+    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></table></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td>${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td class="sn-cell">${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
       html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
@@ -779,7 +784,8 @@ async function generateBroadsheet() {
     if (actions) actions.style.display = 'flex';
     window.currentBroadsheetData = { classId: classIdSel, session, term, studentResults, subjects: relevantSubjects };
   } catch (err) {
-    handleError(err, "Failed to generate broadsheet.");
+    console.error('Broadsheet generation error:', err);
+    toast.error('Failed to generate broadsheet. Please try again.');
   } finally {
     hideLoader();
   }
@@ -787,8 +793,8 @@ async function generateBroadsheet() {
 
 async function saveBroadsheetToFirestore() {
   const active = await checkSubscription();
-  if (!active) { showNotification("Cannot save broadsheet – subscription inactive.", "error"); return; }
-  if (!window.currentBroadsheetData) { showNotification("No broadsheet data to save. Generate first.", "error"); return; }
+  if (!active) { toast.error('Cannot save broadsheet – subscription inactive.'); return; }
+  if (!window.currentBroadsheetData) { toast.error('No broadsheet data to save. Generate first.'); return; }
   const { classId: classIdSel, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classIdSel}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
@@ -805,12 +811,13 @@ async function saveBroadsheetToFirestore() {
   showLoader();
   try {
     await service.saveBroadsheet(docId, broadsheetData);
-    showNotification("Broadsheet saved successfully.", "success");
+    toast.success('Broadsheet saved successfully.');
   } catch (err) {
-    if (err.code === 'permission-denied') {
-      showNotification("Permission denied. Subscription required to save broadsheets.", "error");
+    console.error('Broadsheet save error:', err);
+    if (err.code === 'permission-denied' || err.message?.includes('permission')) {
+      toast.error('Permission denied. Subscription required to save broadsheets.');
     } else {
-      handleError(err, "Failed to save broadsheet.");
+      toast.error('Failed to save broadsheet. Please try again.');
     }
   } finally {
     hideLoader();
@@ -823,12 +830,12 @@ export async function initClassReportPage() {
   if (!teacherData) return;
   classId = teacherData.hostClassId || teacherData.classTeacherId;
   if (!classId) {
-    showNotification("Not a class teacher.", "error");
+    toast.error('You are not assigned as a class teacher.');
     window.location.href = 'teacher-dashboard.html';
     return;
   }
   currentSchoolId = teacherData.schoolId || localStorage.getItem('userSchoolId');
-  if (!currentSchoolId) { showNotification("School ID missing.", "error"); return; }
+  if (!currentSchoolId) { toast.error('School ID missing. Please log in again.'); return; }
 
   await initAcademicCalendar();
   await checkSubscription();
