@@ -15,6 +15,7 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support test_results queries, real-time scores/cbt listeners,
 // attachment of custom listeners for notifications – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -37,6 +38,7 @@ import {
 import { subscribeToCalendar } from '../js/academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from '../js/calendar-sync.js';
 import * as service from '../js/service.js';
+import { toast } from '../js/error-handler.js';
 
 // ─────────────────────────────────── Global state ────────────────────────────
 let currentStudentData = null;
@@ -50,10 +52,10 @@ let assignmentsList    = [];
 // Notification state
 let unsubscribeCBT = null;
 let unsubscribeScores = null;
-let mergedNotifications = [];        // { id, type:'score'|'cbt', message, timestampMillis, details }
+let mergedNotifications = [];
 
 // Teacher name cache
-const teacherNameCache = new Map();   // teacherId -> promise<string>
+const teacherNameCache = new Map();
 
 // Calendar state
 let globalCurrentTerm    = '';
@@ -76,10 +78,6 @@ function greeting() {
   if (h < 12) return 'Good Morning';
   if (h < 17) return 'Good Afternoon';
   return 'Good Evening';
-}
-
-function showNotification(message, type = 'error') {
-  alert(message);   // simple fallback
 }
 
 // ─────────────────────────────────── Calendar ────────────────────────────────
@@ -150,6 +148,7 @@ async function loadSchoolHeader(schoolId) {
     }
   } catch (err) {
     console.warn('[StudentPortal] School header failed:', err);
+    toast.warning('Unable to load school information. Please refresh the page.');
   }
 }
 
@@ -159,7 +158,10 @@ async function resolveClassName(schoolId, classId) {
   try {
     const classData = await service.getClassById(classId);
     if (classData) return safeVal(classData.name || classData.className);
-  } catch (err) { console.warn('[StudentPortal] Class name fail:', err); }
+  } catch (err) { 
+    console.warn('[StudentPortal] Class name fail:', err); 
+    toast.warning('Unable to load class name. Please refresh.');
+  }
   return '';
 }
 
@@ -218,7 +220,7 @@ async function handlePassportFile(file) {
     renderHero(currentStudentData);
   } catch (err) {
     console.error('Passport update failed:', err);
-    showNotification('Failed to update photo.', 'error');
+    toast.error('Failed to update photo. Please try again with a smaller image.');
   }
 }
 
@@ -298,7 +300,10 @@ function renderHero(student) {
 function renderProfile(student) {
   const container = document.getElementById('profileTab');
   if (!container) return;
-  if (!student) { container.innerHTML = '<div class="card">No profile data available.</div>'; return; }
+  if (!student) { 
+    container.innerHTML = '<div class="card">No profile data available.</div>'; 
+    return; 
+  }
   const item = (label, value) => `
     <div class="info-item">
       <div class="info-label">${label}</div>
@@ -370,7 +375,10 @@ function renderAttendance(records) {
 function renderSubjects(subjects) {
   const container = document.getElementById('subjectsTab');
   if (!container) return;
-  if (!subjects.length) { container.innerHTML = '<div class="card" style="padding:1.2rem">No subjects assigned for this term.</div>'; return; }
+  if (!subjects.length) { 
+    container.innerHTML = '<div class="card" style="padding:1.2rem">No subjects assigned for this term.</div>'; 
+    return; 
+  }
   const names = subjects.map(s => safeVal(s.name || s.subjectName) || '—');
   container.innerHTML = `<div class="card" style="padding:1.2rem"><h3>📚 Subjects</h3><ul style="margin-top:0.75rem; list-style-type: disc; padding-left: 1.5rem;">${names.map(n => `<li>${n}</li>`).join('')}</ul></div>`;
 }
@@ -379,7 +387,10 @@ function renderSubjects(subjects) {
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
   if (!container) return;
-  if (!assignments.length) { container.innerHTML = '<div class="card">📭 No assignments available at the moment.</div>'; return; }
+  if (!assignments.length) { 
+    container.innerHTML = '<div class="card">📭 No assignments available at the moment.</div>'; 
+    return; 
+  }
   const cards = assignments.map(a => `
     <div class="stat-card" style="margin-bottom:1rem;text-align:left">
       <h4>${safeVal(a.title) || 'Untitled'}</h4>
@@ -416,6 +427,7 @@ async function fetchCbtScores() {
     return results;
   } catch (err) {
     console.error('[StudentPortal] Failed to fetch CBT scores:', err);
+    toast.warning('Unable to load CBT scores. Please refresh the page.');
     return [];
   }
 }
@@ -476,6 +488,7 @@ async function renderResultsSection() {
     tableEl.innerHTML = html;
   } catch (err) {
     console.error('[StudentPortal] Error rendering CBT results:', err);
+    toast.error('Failed to load results. Please try again later.');
     tableEl.innerHTML = '<div class="card" style="color:red; text-align:center;">Failed to load results. Please try again later.</div>';
   }
 }
@@ -494,7 +507,10 @@ async function fetchTeacherName(teacherId) {
     try {
       const teacher = await service.getTeacherById(teacherId);
       return teacher?.name || teacher?.fullName || 'Teacher';
-    } catch (err) { console.warn('Teacher fetch error:', err); return 'Teacher'; }
+    } catch (err) { 
+      console.warn('Teacher fetch error:', err); 
+      return 'Teacher'; 
+    }
   })();
   teacherNameCache.set(teacherId, promise);
   return promise;
@@ -657,12 +673,18 @@ function setupNotificationListeners(classId, studentId) {
   unsubscribeCBT = onSnapshot(cbtQuery, snap => {
     cbtDocs = snap.docs;
     mergeAndRender(cbtDocs, scoreDocs);
-  }, err => console.warn('CBT listener error:', err));
+  }, err => {
+    console.warn('CBT listener error:', err);
+    toast.warning('Unable to load test notifications. Please refresh.');
+  });
 
   unsubscribeScores = onSnapshot(scoresQuery, snap => {
     scoreDocs = snap.docs;
     mergeAndRender(cbtDocs, scoreDocs);
-  }, err => console.warn('Scores listener error:', err));
+  }, err => {
+    console.warn('Scores listener error:', err);
+    toast.warning('Unable to load score notifications. Please refresh.');
+  });
 }
 
 // ─────────────────────────────────── Bell click handler ──────────────────────
@@ -698,7 +720,9 @@ async function resolveSubjects(rawSubjects) {
         const snap = await getDoc(doc(db, 'subjects', id));
         const d = snap.exists() ? snap.data() : {};
         return { id, name: safeVal(d.name || d.subjectName) || id, ca: null, exam: null, total: null, grade: null };
-      } catch { return { id, name: id, ca: null, exam: null, total: null, grade: null }; }
+      } catch { 
+        return { id, name: id, ca: null, exam: null, total: null, grade: null }; 
+      }
     });
     resolved = await Promise.all(promises);
   } else if (typeof first === 'object' && first !== null) {
@@ -729,7 +753,10 @@ async function resolveSubjects(rawSubjects) {
           };
         });
       }
-    } catch (err) { console.warn('Scores supplement failed:', err); }
+    } catch (err) { 
+      console.warn('Scores supplement failed:', err); 
+      toast.warning('Unable to load score details. Please refresh.');
+    }
   }
   return resolved;
 }
@@ -756,13 +783,13 @@ function attachCbtClickHandlers() {
     newLink.addEventListener('click', e => {
       e.preventDefault();
       if (!isSchoolSubscriptionActive) {
-        showNotification('School subscription is inactive/expired. Please contact administrator.', 'error');
+        toast.error('School subscription is inactive. Please contact your administrator.');
         return;
       }
       const schoolId = localStorage.getItem('userSchoolId');
       const studentId = localStorage.getItem('studentId');
       if (!schoolId || !studentId) {
-        showNotification('Unable to access CBT. Please log out and log in again.', 'error');
+        toast.error('Unable to access CBT. Please log out and log in again.');
         return;
       }
       window.location.href = '../cbt/html/cbt.html';
@@ -778,10 +805,19 @@ async function loadStudentDashboard() {
 
   try {
     const userData = await service.getUserById(user.uid);
-    if (!userData) throw new Error('User document not found');
-    if (userData.role !== 'student') throw new Error('Not a student account');
+    if (!userData) {
+      toast.error('User profile not found. Please log out and log in again.');
+      throw new Error('User document not found');
+    }
+    if (userData.role !== 'student') {
+      toast.error('Access denied. Student privileges required.');
+      throw new Error('Not a student account');
+    }
     currentSchoolId = userData.schoolId;
-    if (!currentSchoolId) throw new Error('No schoolId linked');
+    if (!currentSchoolId) {
+      toast.error('School information missing. Please contact your administrator.');
+      throw new Error('No schoolId linked');
+    }
     localStorage.setItem('userSchoolId', currentSchoolId);
     initSubscriptionListener(currentSchoolId);
   } catch (err) {
@@ -792,7 +828,10 @@ async function loadStudentDashboard() {
 
   try {
     const student = await service.getStudentById(currentStudentId);
-    if (!student) throw new Error('Student profile not found');
+    if (!student) {
+      toast.error('Student profile not found. Please contact your administrator.');
+      throw new Error('Student profile not found');
+    }
     currentStudentData = student;
   } catch (err) {
     console.warn('[StudentPortal] Student profile:', err);
@@ -803,11 +842,13 @@ async function loadStudentDashboard() {
   try {
     const classId = safeVal(currentStudentData?.classId);
     if (classId) resolvedClassName = await resolveClassName(currentSchoolId, classId);
-  } catch (err) { console.warn('Class resolve:', err); resolvedClassName = ''; }
+  } catch (err) { 
+    console.warn('Class resolve:', err); 
+    resolvedClassName = ''; 
+  }
 
   loadSchoolHeader(currentSchoolId).catch(err => console.warn('School header failed:', err));
 
-  // Attendance using service.getAttendanceByStudent
   attendanceRecords = [];
   try {
     const classId = safeVal(currentStudentData?.classId);
@@ -826,19 +867,29 @@ async function loadStudentDashboard() {
         }
       });
     }
-  } catch (err) { console.warn('Attendance load fail:', err); attendanceRecords = []; }
+  } catch (err) { 
+    console.warn('Attendance load fail:', err); 
+    toast.warning('Unable to load attendance data. Please refresh.');
+    attendanceRecords = []; 
+  }
 
   try {
     const rawSubjects = currentStudentData?.subjects;
     subjectsList = await resolveSubjects(rawSubjects);
-  } catch (err) { console.warn('Subjects fail:', err); subjectsList = []; }
+  } catch (err) { 
+    console.warn('Subjects fail:', err); 
+    subjectsList = []; 
+  }
 
   try {
     const classId = safeVal(currentStudentData?.classId);
     if (currentSchoolId && classId) {
       assignmentsList = await service.getAssignmentsByClass(currentSchoolId, classId);
     } else assignmentsList = [];
-  } catch (err) { console.warn('Assignments fail:', err); assignmentsList = []; }
+  } catch (err) { 
+    console.warn('Assignments fail:', err); 
+    assignmentsList = []; 
+  }
 
   setupNotificationListeners(safeVal(currentStudentData?.classId), currentStudentId);
 
@@ -892,17 +943,25 @@ function cleanupListeners() {
 
 async function logout() {
   cleanupListeners();
-  try { await signOut(auth); } catch {}
+  try { await signOut(auth); } catch(err) {
+    console.error('Logout error:', err);
+    toast.error('Logout failed. Please try again.');
+  }
   window.location.href = '/';
 }
 
 function initDownload() {
-  document.getElementById('downloadResultBtn')?.addEventListener('click', () => alert('Result PDF generation will be available soon.'));
+  document.getElementById('downloadResultBtn')?.addEventListener('click', () => {
+    toast.info('Result PDF generation will be available soon.');
+  });
 }
 
 // ─────────────────────────────────── App entry ───────────────────────────────
 onAuthStateChanged(auth, async user => {
-  if (!user) { window.location.href = '/'; return; }
+  if (!user) { 
+    window.location.href = '/'; 
+    return; 
+  }
   try {
     const userData = await service.getUserById(user.uid);
     if (!userData || userData.role !== 'student') {
@@ -930,6 +989,6 @@ onAuthStateChanged(auth, async user => {
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
   } catch (err) {
     console.error('[StudentPortal] Init error:', err);
-    alert('Unable to load dashboard. Please refresh.');
+    toast.error('Unable to load dashboard. Please refresh the page.');
   }
 });

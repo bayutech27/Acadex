@@ -7,6 +7,7 @@
 // TODO: service.js does not yet support real-time listeners for test_results,
 // real-time listeners for assigned CBT tests (array-contains-any), or getCbtById
 // for starting a test – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from '../../js/firebase-config.js';
 import { 
@@ -31,6 +32,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 
 import * as service from '../../js/service.js';
+import { toast } from '../../js/error-handler.js';
 
 // ========== CONSTANTS (all existing) ==========
 const WAEC_NECO_QUESTIONS = 50;
@@ -154,6 +156,7 @@ async function loadStudentProfile(userId) {
         if (classElem) classElem.innerHTML = `<i class="fas fa-graduation-cap"></i> Class: ${className}`;
     } catch (err) {
         console.error('Error loading student profile:', err);
+        toast.error('Unable to load your profile. Please refresh the page.');
         userName.textContent = 'Student';
         const classElem = document.getElementById('studentClassDisplay');
         if (classElem) classElem.innerHTML = `<i class="fas fa-graduation-cap"></i> Class: Not assigned`;
@@ -212,6 +215,7 @@ function setupRecentTests(userId) {
         if (loadMoreBtn) loadMoreBtn.onclick = async () => await loadMoreRecentTests(userId);
     }, (error) => {
         console.error("Error loading recent tests:", error);
+        toast.error('Unable to load recent tests. Please refresh the page.');
         recentTestsList.innerHTML = '<p class="error">Error loading recent tests. Please refresh.</p>';
     });
 }
@@ -247,7 +251,7 @@ async function loadMoreRecentTests(userId) {
         else if (loadMoreContainer) loadMoreContainer.style.display = 'block';
     } catch (error) {
         console.error("Error loading more tests:", error);
-        alert("Failed to load more tests. Please try again.");
+        toast.error('Failed to load more tests. Please try again.');
     } finally {
         if (loadMoreBtn) { loadMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More'; loadMoreBtn.disabled = false; }
     }
@@ -377,6 +381,7 @@ async function updateBasicStats(userId) {
         if (performanceMessage) performanceMessage.textContent = msg;
     } catch (err) {
         console.error('Error updating stats:', err);
+        toast.warning('Unable to update statistics. Please refresh the page.');
     }
 }
 
@@ -401,6 +406,7 @@ function subscribeToAssignedTests() {
         renderAssignedTestsTable(tests);
     }, (err) => {
         console.error('Error listening to assigned tests:', err);
+        toast.warning('Unable to load assigned tests. Please refresh the page.');
         if (assignedTestsWrapper) assignedTestsWrapper.innerHTML = '<p class="error">Error loading assigned tests. Please refresh.</p>';
     });
 }
@@ -443,7 +449,7 @@ function renderAssignedTestsTable(tests) {
                 <thead>
                     <tr>
                         <th>Type</th><th>Subject</th><th>Questions</th><th>Duration</th><th>Scheduled Date</th><th>Status</th><th>Action</th>
-                    </tr>
+                    </table>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
@@ -460,12 +466,14 @@ function renderAssignedTestsTable(tests) {
 
 async function startAssignedTest(cbtId) {
     try {
-        // TODO: service.getCbtById does not exist – direct Firestore call
         const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
-        if (!cbtDoc.exists()) throw new Error('Test not found');
+        if (!cbtDoc.exists()) {
+            toast.error('Test not found. Please refresh the page.');
+            throw new Error('Test not found');
+        }
         const cbtData = cbtDoc.data();
         if (cbtData.status !== 'started') {
-            alert('This test is not available for taking.');
+            toast.error('This test is not available for taking.');
             return;
         }
 
@@ -477,7 +485,7 @@ async function startAssignedTest(cbtId) {
                 const elapsed = Math.floor((now - startTime) / 1000);
                 remainingSeconds = Math.max(0, cbtData.durationMinutes * 60 - elapsed);
                 if (remainingSeconds <= 0) {
-                    alert('This test has already expired.');
+                    toast.error('This test has already expired.');
                     return;
                 }
             }
@@ -485,7 +493,7 @@ async function startAssignedTest(cbtId) {
 
         const questions = cbtData.questions || [];
         if (!questions.length) {
-            alert('No questions found for this test.');
+            toast.error('No questions found for this test.');
             return;
         }
 
@@ -509,7 +517,7 @@ async function startAssignedTest(cbtId) {
         window.location.href = 'test.html';
     } catch (err) {
         console.error('Error starting assigned test:', err);
-        alert('Failed to start test. Please try again.');
+        toast.error('Failed to start test. Please try again.');
     }
 }
 
@@ -518,7 +526,7 @@ async function startQuickTest() {
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
     if (!selectedExam || !selectedSubject) {
-        alert('❌ Please select exam and subject');
+        toast.error('Please select exam and subject.');
         return;
     }
     try {
@@ -527,7 +535,7 @@ async function startQuickTest() {
         const allQuestions = await fetchQuestions(firestoreExamType, selectedSubject);
         if (allQuestions.length < QUESTIONS_TO_FETCH) {
             showLoadingState(false, startQuickTestBtn);
-            alert(`Only ${allQuestions.length} questions available for "${selectedSubject}".`);
+            toast.error(`Only ${allQuestions.length} questions available for "${selectedSubject}". Please add more questions.`);
             return;
         }
         const shuffledQuestions = shuffleArray([...allQuestions]);
@@ -551,14 +559,14 @@ async function startQuickTest() {
     } catch (error) {
         console.error('Error starting test:', error);
         showLoadingState(false, startQuickTestBtn);
-        alert(`❌ Error starting test: ${error.message || 'Please try again.'}`);
+        toast.error(`Failed to start test: ${error.message || 'Please try again.'}`);
     }
 }
 
 async function startJambDrill() {
     const selectedCheckboxes = document.querySelectorAll('.jamb-subject-checkbox:checked');
     if (selectedCheckboxes.length !== 3) {
-        alert('❌ Please select exactly 3 additional subjects.');
+        toast.error('Please select exactly 3 additional subjects.');
         return;
     }
     const subjects = [
@@ -575,7 +583,7 @@ async function startJambDrill() {
             const questions = await fetchQuestions('JAMB', subj.value);
             if (questions.length < subj.count) {
                 showLoadingState(false, startJambDrillBtn);
-                alert(`Not enough questions for ${subj.name}. Available: ${questions.length}, needed: ${subj.count}.`);
+                toast.error(`Not enough questions for ${subj.name}. Available: ${questions.length}, needed: ${subj.count}.`);
                 return;
             }
             const shuffled = shuffleArray(questions);
@@ -602,14 +610,14 @@ async function startJambDrill() {
     } catch (error) {
         console.error('Error starting JAMB Drill:', error);
         showLoadingState(false, startJambDrillBtn);
-        alert(`❌ Error starting JAMB Drill: ${error.message || 'Please try again.'}`);
+        toast.error(`Failed to start JAMB Drill: ${error.message || 'Please try again.'}`);
     }
 }
 
 async function startWaecNecoDrill() {
     const selectedSubject = waecNecoSubjectSelect.value;
     if (!selectedSubject) {
-        alert('❌ Please select a subject');
+        toast.error('Please select a subject.');
         return;
     }
     try {
@@ -617,7 +625,7 @@ async function startWaecNecoDrill() {
         const allQuestions = await fetchQuestions('WAEC/NECO', selectedSubject);
         if (allQuestions.length < WAEC_NECO_QUESTIONS) {
             showLoadingState(false, startWaecNecoDrillBtn);
-            alert(`Only ${allQuestions.length} WAEC/NECO questions available for "${selectedSubject}". Please add more.`);
+            toast.error(`Only ${allQuestions.length} WAEC/NECO questions available for "${selectedSubject}". Please add more questions.`);
             return;
         }
         const shuffled = shuffleArray([...allQuestions]);
@@ -640,15 +648,13 @@ async function startWaecNecoDrill() {
     } catch (error) {
         console.error('Error starting WAEC/NECO Drill:', error);
         showLoadingState(false, startWaecNecoDrillBtn);
-        alert(`❌ Error starting test: ${error.message || 'Please try again.'}`);
+        toast.error(`Failed to start test: ${error.message || 'Please try again.'}`);
     }
 }
 
 async function fetchQuestions(examType, subject) {
     try {
-        // Use service.getQuestions (cached)
         const questions = await service.getQuestions(examType, subject);
-        // Ensure each question has an options object (service might return raw data)
         const processed = questions.map(q => ({
             id: q.id,
             ...q,
@@ -662,6 +668,7 @@ async function fetchQuestions(examType, subject) {
         return processed;
     } catch (error) {
         console.error('Error in fetchQuestions:', error);
+        toast.error('Failed to load questions. Please check your internet connection.');
         throw error;
     }
 }
@@ -687,8 +694,13 @@ function setupJambDrillSubjects() {
 function validateJambSubjectSelection() {
     const checkboxes = document.querySelectorAll('.jamb-subject-checkbox:checked');
     const hint = document.getElementById('subjectSelectionHint');
-    if (checkboxes.length === 3) { hint.innerHTML = '✅ 3 subjects selected. Ready to start.'; hint.style.color = '#28a745'; }
-    else { hint.innerHTML = `Select exactly 3 subjects (currently ${checkboxes.length} selected)`; hint.style.color = '#dc3545'; }
+    if (checkboxes.length === 3) { 
+        hint.innerHTML = '✅ 3 subjects selected. Ready to start.'; 
+        hint.style.color = '#28a745'; 
+    } else { 
+        hint.innerHTML = `Select exactly 3 subjects (currently ${checkboxes.length} selected)`; 
+        hint.style.color = '#dc3545'; 
+    }
 }
 
 // ========== TAB SYSTEM (existing, but load assigned tests on first show) ==========
@@ -759,7 +771,6 @@ function createTabs() {
         practiceTab.classList.remove('active');
         practiceTab.style.color = '#666';
         practiceTab.style.borderBottom = 'none';
-        // Start real-time listener if not already active
         if (currentSchoolId && currentStudentId && currentStudentData && !unsubscribeAssignedTests) {
             subscribeToAssignedTests();
         }
@@ -767,7 +778,7 @@ function createTabs() {
 
     practiceTab.addEventListener('click', showPractice);
     assignedTab.addEventListener('click', showAssigned);
-    showPractice(); // default
+    showPractice();
 }
 
 // ========== INITIALIZATION ==========
@@ -788,6 +799,7 @@ async function initCBTDashboard() {
             createTabs();
         } else {
             console.error('Missing school or student ID');
+            toast.error('Unable to load dashboard. School or student information missing.');
         }
     });
 

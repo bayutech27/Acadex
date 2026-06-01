@@ -1,6 +1,7 @@
 // cbt/js/cbt-admin.js - Super Admin CBT Question Management (no leaderboard)
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support question CRUD, bulk upload, bulk delete – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db, auth } from '../../js/firebase-config.js';
 import {
@@ -10,6 +11,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import * as service from '../../js/service.js';
+import { toast } from '../../js/error-handler.js';
 
 // ========== DOM REFERENCES ==========
 let tabButtons, tabContents;
@@ -275,7 +277,6 @@ async function handleFormSubmit(e) {
     };
     if (questionImageBase64) qData.questionImage = questionImageBase64;
     if (solutionImageBase64) qData.solutionImage = solutionImageBase64;
-    // TODO: service.createQuestion / service.updateQuestion do not exist – direct Firestore calls
     if (questionIdField.value) {
       await updateDoc(doc(db, "questions", questionIdField.value), qData);
       showFeedback("✅ Question updated successfully");
@@ -289,7 +290,7 @@ async function handleFormSubmit(e) {
     loadQuestions(false);
   } catch (error) {
     console.error("Error saving question:", error);
-    showFeedback("❌ Failed to save question", "error");
+    toast.error("Failed to save question. Please try again.");
   }
 }
 
@@ -299,10 +300,9 @@ cancelEditBtn?.addEventListener("click", resetQuestionForm);
 // ========== LOAD QUESTION FOR EDIT ==========
 async function loadQuestionForEdit(questionId) {
   try {
-    // TODO: service.getQuestionById does not exist – direct Firestore call
     const qSnap = await getDoc(doc(db, "questions", questionId));
     if (!qSnap.exists()) {
-      showFeedback("❌ Question not found", "error");
+      toast.error("Question not found. Please refresh the page.");
       return;
     }
     const qData = qSnap.data();
@@ -330,7 +330,6 @@ async function loadQuestionForEdit(questionId) {
     }
     submitQuestionBtn.innerHTML = '<i class="fas fa-save"></i> Update Question';
     cancelEditBtn.style.display = "inline-flex";
-    // Switch to question manager tab
     if (tabButtons) tabButtons.forEach(btn => btn.classList.remove("active"));
     if (tabContents) tabContents.forEach(c => c.classList.remove("active"));
     document.querySelector('[data-tab="question-manager"]')?.classList.add("active");
@@ -342,20 +341,19 @@ async function loadQuestionForEdit(questionId) {
     document.getElementById("question-manager")?.scrollIntoView({ behavior: "smooth" });
   } catch (error) {
     console.error("Error loading question for edit:", error);
-    showFeedback("❌ Error loading question", "error");
+    toast.error("Failed to load question. Please try again.");
   }
 }
 
 async function deleteQuestion(questionId) {
-  if (!confirm("Are you sure you want to delete this question permanently?")) return;
+  if (!confirm("Delete this question permanently? This action cannot be undone.")) return;
   try {
-    // TODO: service.deleteQuestion does not exist – direct Firestore call
     await deleteDoc(doc(db, "questions", questionId));
-    showFeedback("✅ Question deleted successfully");
+    toast.success("Question deleted successfully.");
     loadQuestions(false, currentSearchTerm);
   } catch (error) {
     console.error("Error deleting question:", error);
-    showFeedback("❌ Failed to delete question", "error");
+    toast.error("Failed to delete question. Please try again.");
   }
 }
 
@@ -365,7 +363,6 @@ window.deleteQuestion = deleteQuestion;
 // ========== LOAD QUESTIONS ==========
 async function loadQuestions(loadMore = false, searchTerm = "") {
   try {
-    // TODO: service.getQuestions does not exist – direct Firestore queries
     let q;
     if (searchTerm) {
       q = query(collection(db, "questions"), orderBy("createdAt", "desc"));
@@ -425,6 +422,7 @@ async function loadQuestions(loadMore = false, searchTerm = "") {
     });
   } catch (error) {
     console.error("Error loading questions:", error);
+    toast.error("Failed to load questions. Please refresh the page.");
     if (questionTableBody) questionTableBody.innerHTML = `<tr><td colspan="8" class="text-center">Error loading questions</td><tr>`;
   }
 }
@@ -478,7 +476,7 @@ function initBulkUploadHandlers() {
       if (files.length > 0) {
         const file = files[0];
         if (file.type === "text/csv" || file.name.endsWith(".csv")) handleCSVFile(file);
-        else showBulkUploadFeedback("Please upload a CSV file", "error");
+        else toast.error("Please upload a CSV file.");
       }
     });
   }
@@ -500,28 +498,28 @@ function initBulkUploadHandlers() {
 
 function handleCSVFile(file) {
   if (file.size > 5*1024*1024) {
-    showBulkUploadFeedback("File size exceeds 5MB limit", "error");
+    toast.error("File size exceeds 5MB limit. Please choose a smaller file.");
     return;
   }
   const reader = new FileReader();
   reader.onload = (e) => {
     try { parseCSVData(e.target.result); }
-    catch (err) { showBulkUploadFeedback("Error parsing CSV: "+err.message, "error"); }
+    catch (err) { toast.error("Error parsing CSV: " + err.message); }
   };
-  reader.onerror = () => showBulkUploadFeedback("Error reading file", "error");
+  reader.onerror = () => toast.error("Error reading file. Please try again.");
   reader.readAsText(file);
 }
 
 function parseCSVData(csvText) {
   const lines = csvText.split("\n").filter(l => l.trim() !== "");
   if (lines.length < 2) {
-    showBulkUploadFeedback("CSV must have header row and data rows", "error");
+    toast.error("CSV must have a header row and at least one data row.");
     return;
   }
   const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
   const required = ["questiontext","optiona","optionb","optionc","optiond","correctanswer","subject"];
   for (const r of required) if (!headers.includes(r)) {
-    showBulkUploadFeedback(`Missing required header: ${r}`, "error");
+    toast.error(`Missing required column: "${r}". Please use the template format.`);
     return;
   }
   csvData = [];
@@ -539,11 +537,11 @@ function parseCSVData(csvText) {
     else csvData.push(row);
   }
   if (errors.length) {
-    showBulkUploadFeedback(`Found ${errors.length} errors. First: ${errors[0]}`, "error");
+    toast.error(`Found ${errors.length} errors. First: ${errors[0]}`);
     csvData = null;
     if (startUploadBtn) startUploadBtn.disabled = true;
   } else {
-    showBulkUploadFeedback(`Parsed ${csvData.length} questions`, "success");
+    toast.success(`Parsed ${csvData.length} questions. Ready to upload.`);
     updateCSVPreview();
     if (startUploadBtn) startUploadBtn.disabled = false;
   }
@@ -569,7 +567,7 @@ function validateQuestionRow(row, rowNum) {
   const ca = row.correctanswer?.toUpperCase();
   if (!["A","B","C","D"].includes(ca)) return `Row ${rowNum}: Correct answer must be A,B,C,D`;
   if (!row.subject) return `Row ${rowNum}: Subject required`;
-  if (row.timelimit && isNaN(parseInt(row.timelimit))) return `Row ${rowNum}: Time limit must be number`;
+  if (row.timelimit && isNaN(parseInt(row.timelimit))) return `Row ${rowNum}: Time limit must be a number`;
   return null;
 }
 
@@ -580,20 +578,20 @@ function updateCSVPreview() {
   for (let i = 0; i < showCount; i++) {
     const r = csvData[i];
     const preview = r.questiontext.length > 50 ? r.questiontext.substring(0,50)+"..." : r.questiontext;
-    html += `<tr><td>${i+1}</td><td>${formatTextForDisplay(preview)}</td><td>${r.subject}</td><td>${r.topic||"-"}</td><td>${r.examtype||"WAEC/NECO"}</td><td>${(r.correctanswer||"A").toUpperCase()}</td></tr>`;
+    html += `<tr><td class="row-num">${i+1}</td><td class="question-preview">${formatTextForDisplay(preview)}</td><td class="subject-name">${r.subject}</td><td class="topic-name">${r.topic||"-"}</td><td class="exam-type">${r.examtype||"WAEC/NECO"}</td><td class="correct-answer">${(r.correctanswer||"A").toUpperCase()}</td></tr>`;
   }
-  if (csvData.length > 10) html += `<tr><td colspan="6">... and ${csvData.length-10} more</tr>`;
+  if (csvData.length > 10) html += `<tr><td colspan="6">... and ${csvData.length-10} more</td></tr>`;
   html += `</tbody></table><p>Total: ${csvData.length} questions</p>`;
   if (csvPreview) csvPreview.innerHTML = html;
 }
 
 async function startCSVUpload() {
-  if (!csvData || !csvData.length) { showBulkUploadFeedback("No data to upload", "error"); return; }
-  if (uploadInProgress) { showBulkUploadFeedback("Upload already in progress", "error"); return; }
+  if (!csvData || !csvData.length) { toast.error("No data to upload. Please load a CSV file first."); return; }
+  if (uploadInProgress) { toast.error("Upload already in progress. Please wait."); return; }
 
   if (!startUploadBtn || !cancelUploadBtn || !uploadProgress || !progressFill || !processedCount || !totalCount || !progressPercent) {
     console.error("CSV upload DOM elements missing");
-    showBulkUploadFeedback("UI error: missing progress elements. Please refresh.", "error");
+    toast.error("UI error: missing progress elements. Please refresh the page.");
     return;
   }
 
@@ -608,7 +606,7 @@ async function startCSVUpload() {
   processedCount.textContent = "0";
   progressPercent.textContent = "0%";
   progressFill.style.width = "0%";
-  showBulkUploadFeedback(`Uploading ${total} questions...`, "info");
+  toast.info(`Uploading ${total} questions...`);
 
   try {
     const BATCH_SIZE = 500;
@@ -649,9 +647,9 @@ async function startCSVUpload() {
       await new Promise(r => setTimeout(r, 100));
     }
     if (cancelUpload) {
-      showBulkUploadFeedback("Upload cancelled", "error");
+      toast.error("Upload cancelled.");
     } else {
-      showBulkUploadFeedback(`✅ Uploaded ${success} questions!`, "success");
+      toast.success(`✅ Uploaded ${success} questions successfully!`);
       csvData = null;
       if (csvPreview) csvPreview.innerHTML = "<p>No file selected</p>";
       startUploadBtn.disabled = true;
@@ -659,7 +657,7 @@ async function startCSVUpload() {
     }
   } catch (err) {
     console.error("CSV upload error:", err);
-    showBulkUploadFeedback(`Error: ${err.message}`, "error");
+    toast.error(`Upload failed: ${err.message}. Please try again.`);
   } finally {
     uploadInProgress = false;
     startUploadBtn.disabled = false;
@@ -671,14 +669,14 @@ async function startCSVUpload() {
 // ========== TEXT FORMAT UPLOAD ==========
 function parseTextFormatHandler() {
   const text = bulkTextInput.value.trim();
-  if (!text) { showBulkUploadFeedback("Please enter questions", "error"); return; }
+  if (!text) { toast.error("Please enter questions in the text format."); return; }
   try {
     const qs = parseTextFormat(text);
     textPreview.innerHTML = `<div class="feedback-message success">Found ${qs.length} valid questions</div><p>Ready to upload. Click "Upload Text Questions".</p>`;
     uploadTextBtn.disabled = false;
     uploadTextBtn.dataset.questions = JSON.stringify(qs);
   } catch (err) {
-    showBulkUploadFeedback(`Parse error: ${err.message}`, "error");
+    toast.error(`Parse error: ${err.message}`);
     uploadTextBtn.disabled = true;
   }
 }
@@ -728,17 +726,17 @@ function parseTextFormat(text) {
 
 async function startTextUpload() {
   const qsJson = uploadTextBtn.dataset.questions;
-  if (!qsJson) { showBulkUploadFeedback("Please validate text format first", "error"); return; }
+  if (!qsJson) { toast.error("Please validate text format first."); return; }
   const questions = JSON.parse(qsJson);
   await uploadQuestionsBatch(questions);
 }
 
 async function uploadQuestionsBatch(questions) {
-  if (uploadInProgress) { showBulkUploadFeedback("Upload already in progress", "error"); return; }
+  if (uploadInProgress) { toast.error("Upload already in progress. Please wait."); return; }
 
   if (!uploadTextBtn || !textUploadProgress || !textProgressFill || !textProcessedCount || !textTotalCount || !textProgressPercent) {
     console.error("Text upload DOM elements missing");
-    showBulkUploadFeedback("UI error: missing progress elements. Please refresh.", "error");
+    toast.error("UI error: missing progress elements. Please refresh the page.");
     return;
   }
 
@@ -751,7 +749,7 @@ async function uploadQuestionsBatch(questions) {
   textProcessedCount.textContent = "0";
   textProgressPercent.textContent = "0%";
   textProgressFill.style.width = "0%";
-  showBulkUploadFeedback(`Uploading ${total} questions...`, "info");
+  toast.info(`Uploading ${total} questions...`);
 
   try {
     const BATCH_SIZE = 500;
@@ -787,9 +785,9 @@ async function uploadQuestionsBatch(questions) {
       await new Promise(r => setTimeout(r, 100));
     }
     if (cancelUpload) {
-      showBulkUploadFeedback("Upload cancelled", "error");
+      toast.error("Upload cancelled.");
     } else {
-      showBulkUploadFeedback(`✅ Uploaded ${success} questions!`, "success");
+      toast.success(`✅ Uploaded ${success} questions successfully!`);
       bulkTextInput.value = "";
       textPreview.innerHTML = "";
       uploadTextBtn.disabled = true;
@@ -797,7 +795,7 @@ async function uploadQuestionsBatch(questions) {
     }
   } catch (err) {
     console.error("Text upload error:", err);
-    showBulkUploadFeedback(`Error: ${err.message}`, "error");
+    toast.error(`Upload failed: ${err.message}. Please try again.`);
   } finally {
     uploadInProgress = false;
     uploadTextBtn.disabled = false;
@@ -810,7 +808,7 @@ function initBulkDelete() {
   if (bulkDeleteBtn) {
     bulkDeleteBtn.addEventListener("click", async () => {
       const subj = bulkDeleteSubject.value;
-      if (!subj) { alert("Select subject"); return; }
+      if (!subj) { toast.error("Please select a subject."); return; }
       const subjName = bulkDeleteSubject.options[bulkDeleteSubject.selectedIndex].text;
       if (!confirm(`Delete ALL questions under "${subjName}"? This cannot be undone.`)) return;
       if (!confirm(`LAST WARNING: Type "DELETE" to confirm.`)) return;
@@ -819,11 +817,15 @@ function initBulkDelete() {
       if (bulkDeleteProgressFill) bulkDeleteProgressFill.style.width = "0%";
       if (bulkDeleteStatus) bulkDeleteStatus.textContent = "Fetching...";
       try {
-        // TODO: service.bulkDeleteQuestions does not exist – direct Firestore call
         const q = query(collection(db, "questions"), where("subject", "==", subj));
         const snap = await getDocs(q);
         const total = snap.size;
-        if (total === 0) { if (bulkDeleteStatus) bulkDeleteStatus.textContent = `No questions for ${subjName}`; bulkDeleteBtn.disabled = false; return; }
+        if (total === 0) { 
+          if (bulkDeleteStatus) bulkDeleteStatus.textContent = `No questions found for ${subjName}`; 
+          bulkDeleteBtn.disabled = false; 
+          toast.info(`No questions found for ${subjName}.`);
+          return; 
+        }
         if (bulkDeleteStatus) bulkDeleteStatus.textContent = `Deleting ${total} questions...`;
         const refs = snap.docs.map(d => d.ref);
         const BATCH = 500;
@@ -839,6 +841,7 @@ function initBulkDelete() {
         }
         if (bulkDeleteStatus) bulkDeleteStatus.textContent = `✅ Deleted ${total} questions from ${subjName}`;
         if (bulkDeleteProgressFill) bulkDeleteProgressFill.style.width = "100%";
+        toast.success(`Deleted ${total} questions from ${subjName}.`);
         loadQuestions(false, currentSearchTerm);
         setTimeout(() => {
           bulkDeleteBtn.disabled = false;
@@ -847,7 +850,7 @@ function initBulkDelete() {
         }, 3000);
       } catch (err) {
         console.error(err);
-        if (bulkDeleteStatus) bulkDeleteStatus.textContent = `❌ Error: ${err.message}`;
+        toast.error(`Error: ${err.message}`);
         bulkDeleteBtn.disabled = false;
       }
     });
@@ -958,17 +961,16 @@ document.addEventListener("DOMContentLoaded", () => {
   onAuthStateChanged(auth, async (user) => {
     if (!user) { window.location.href = "../../index.html"; return; }
     try {
-      // Use service.getUserById for role check
       const userData = await service.getUserById(user.uid);
       if (!userData || userData.role !== "super-admin") {
-        alert("Access denied. Super Admin privileges required.");
+        toast.error("Access denied. Super Admin privileges required.");
         window.location.href = "../../index.html";
         return;
       }
       loadQuestions(false);
     } catch (err) {
       console.error(err);
-      alert("Authentication error. Please log in again.");
+      toast.error("Authentication error. Please log in again.");
     }
   });
 });

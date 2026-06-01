@@ -6,6 +6,7 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support cumulative topic stats with increment (updateCumulativeTopicStats)
 // – those remain as direct Firestore calls.
+// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -15,6 +16,7 @@ import {
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from '../../js/academic-calendar.js';
 import * as service from '../../js/service.js';
+import { toast } from '../../js/error-handler.js';
 
 // =============================================
 // WEAKNESS DETECTION & RECOMMENDATION ENGINE
@@ -68,7 +70,6 @@ function generateWeaknessReport(userAnswers, questions) {
 async function saveTopicStats(userId, topicStats) {
   if (!userId || !topicStats || topicStats.length === 0) return;
   try {
-    // Use service.saveTopicStats
     for (const subjectData of topicStats) {
       for (const topic of subjectData.topics) {
         await service.saveTopicStats(userId, {
@@ -90,7 +91,6 @@ async function saveTopicStats(userId, topicStats) {
 
 async function updateCumulativeTopicStats(userId, topicStats) {
     if (!userId || !topicStats || topicStats.length === 0) return;
-    // TODO: service.upsertTopicCumulative does not support increment – keep direct Firestore for now
     try {
         for (const subjectData of topicStats) {
             for (const topic of subjectData.topics) {
@@ -129,7 +129,6 @@ async function updateCumulativeTopicStats(userId, topicStats) {
 async function fetchCumulativeTopicStats(userId) {
     if (!userId) return [];
     try {
-        // Use service.getTopicCumulative
         const stats = await service.getTopicCumulative(userId);
         return stats;
     } catch (error) {
@@ -321,12 +320,9 @@ function showAntiCheatModal(message, autoCloseMs = 5000) {
  * Fires once per tab-switch because we only listen to this single event.
  */
 function handleVisibilityLoss() {
-    /* Only act when the tab is actually hidden */
     if (!document.hidden) return;
-    /* Safety guard — if submission already in progress, ignore */
     if (isSubmitting) return;
 
-    /* Debounce: some browsers fire the event twice in quick succession */
     const now = Date.now();
     if (now - lastViolationTs < 800) return;
     lastViolationTs = now;
@@ -340,21 +336,15 @@ function handleVisibilityLoss() {
             7000
         );
     } else {
-        /* Second (or later) violation — auto-submit and redirect */
         if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         showAntiCheatModal(
             '❌ Test auto-submitted: repeated tab switching detected. Redirecting to dashboard…',
             4000
         );
-        /* Give the modal 1.5 s to display before navigating away */
         setTimeout(() => { forceSubmitAndRedirect(); }, 1500);
     }
 }
 
-/**
- * Block F5 / Ctrl+R / Cmd+R keyboard shortcuts.
- * The beforeunload handler covers the browser-button refresh.
- */
 function preventRefresh(e) {
     const key = e.key;
     const isRefreshKey =
@@ -374,46 +364,26 @@ function preventRefresh(e) {
     }
 }
 
-/**
- * Block browser-button / address-bar navigations that would refresh the page.
- * Removed automatically just before a legitimate redirect so it doesn't
- * interfere with the post-submit navigation.
- */
 function preventBeforeUnload(e) {
     e.preventDefault();
-    /* Modern browsers require returnValue to be set */
     e.returnValue = 'Your test is in progress. Leaving this page will discard your answers.';
     return e.returnValue;
 }
 
 function initAntiCheat() {
-    /* Single listener — visibilitychange is the authoritative tab-switch event.
-       We do NOT add a 'blur' listener; blur fires on any focus loss (devtools,
-       address bar click, etc.) and would cause false double-counts. */
     document.addEventListener('visibilitychange', handleVisibilityLoss);
-
-    /* Block keyboard-shortcut refreshes */
     window.addEventListener('keydown', preventRefresh, true);
-
-    /* Block browser-button / address-bar refreshes */
     window.addEventListener('beforeunload', preventBeforeUnload);
 }
 
-/**
- * Called when auto-submit is triggered by the anti-cheat system.
- * Removes the beforeunload guard first so the redirect can proceed cleanly.
- */
 async function forceSubmitAndRedirect() {
-    /* Prevent double invocation */
     if (isSubmitting) {
         window.removeEventListener('beforeunload', preventBeforeUnload);
         window.location.href = DASHBOARD_URL;
         return;
     }
-    /* Remove the refresh block before we intentionally navigate */
     window.removeEventListener('beforeunload', preventBeforeUnload);
-    /* submitTest manages the isSubmitting flag internally */
-    await submitTest(/* redirectAfter = */ true);
+    await submitTest(true);
 }
 
 // =============================================
@@ -425,7 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const schoolId = localStorage.getItem('userSchoolId');
     const studentId = localStorage.getItem('studentId');
     if (!schoolId || !studentId) {
-        alert('Invalid session. Please log in again.');
+        toast.error('Invalid session. Please log in again.');
         window.location.href = '../../index.html';
         return;
     }
@@ -490,7 +460,7 @@ function processSolutionText(text) {
 async function loadTestData() {
     const savedTest = sessionStorage.getItem('currentTest');
     if (!savedTest) {
-        alert('No test found. Please start a test from the dashboard.');
+        toast.error('No test found. Please start a test from the dashboard.');
         window.location.href = DASHBOARD_URL;
         return;
     }
@@ -500,14 +470,14 @@ async function loadTestData() {
         initializeTest();
     } catch (error) {
         console.error('Error loading test data:', error);
-        alert('Error loading test. Please try again.');
+        toast.error('Error loading test. Please try again.');
         window.location.href = DASHBOARD_URL;
     }
 }
 
 function initializeTest() {
     if (!testData || !testData.questions) {
-        alert('Error: Test questions not loaded properly.');
+        toast.error('Error: Test questions not loaded properly.');
         window.location.href = DASHBOARD_URL;
         return;
     }
@@ -716,7 +686,6 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) throw new Error("School ID missing");
 
-        // Use service.getStudentById instead of direct getDoc
         let classId = null;
         let className = null;
         try {
@@ -800,46 +769,24 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         }
 
         console.log("Saving test result to Firestore via service:", resultData);
-        // Use service.saveTestResult
         const docRef = await service.saveTestResult(resultData);
         console.log('✅ Test result saved to Firestore with ID:', docRef);
-        showToast('✅ Test result saved successfully!', 'success');
+        toast.success('Test result saved successfully!');
         return docRef;
     } catch (error) {
         console.error('❌ ERROR SAVING TO FIRESTORE:', error);
-        showToast(`❌ Failed to save test result: ${error.message}`, 'error');
+        toast.error(`Failed to save test result: ${error.message || 'Please try again.'}`);
         throw error;
     }
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    let bgColor = '#4CAF50';
-    if (type === 'error') bgColor = '#f44336';
-    if (type === 'warning') bgColor = '#ff9800';
-    toast.style.cssText = `position: fixed; top: 20px; right: 20px; background: ${bgColor}; color: white; padding: 15px 20px; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-size: 14px; animation: slideIn 0.3s ease-out; max-width: 300px;`;
-    let icon = '✅';
-    if (type === 'error') icon = '❌';
-    if (type === 'warning') icon = '⚠️';
-    toast.innerHTML = `${icon} ${message}`;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transition = 'opacity 0.5s';
-        setTimeout(() => { if (toast.parentNode) document.body.removeChild(toast); }, 500);
-    }, 5000);
 }
 
 // =============================================
 // SUBMIT TEST
 // =============================================
 async function submitTest(redirectAfter = false) {
-    /* Prevent re-entry */
     if (isSubmitting) return;
     isSubmitting = true;
 
-    /* Always remove the beforeunload guard before any navigation or
-       long async work — prevents the browser blocking our redirect */
     window.removeEventListener('beforeunload', preventBeforeUnload);
 
     hideSubmitModal();
@@ -922,7 +869,6 @@ async function submitTest(redirectAfter = false) {
 
         if (!saveSuccess) throw new Error("Failed to save test result after retry.");
 
-        /* ── Auto-submit path: redirect straight to dashboard ── */
         if (redirectAfter) {
             window.location.href = DASHBOARD_URL;
             return;
@@ -947,9 +893,8 @@ async function submitTest(redirectAfter = false) {
         console.error('Error in submitTest:', error);
         getResultBtn.classList.remove('btn-loading');
         getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
-        alert(`❌ Error submitting test: ${error.message || 'Please try again.'}`);
+        toast.error(`Error submitting test: ${error.message || 'Please try again.'}`);
         isSubmitting = false;
-        /* Re-attach the beforeunload guard since we're still on the page */
         window.addEventListener('beforeunload', preventBeforeUnload);
     }
 }

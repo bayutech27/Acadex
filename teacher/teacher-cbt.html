@@ -323,5 +323,21 @@
 </div>
 
 <script type="module" src="../js/teacher-cbt.js"></script>
+<script>
+  // Register Service Worker for offline navigation
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('Service Worker registered with scope:', registration.scope);
+          // Optional: check for updates every hour
+          setInterval(() => registration.update(), 60 * 60 * 1000);
+        })
+        .catch(err => {
+          console.error('Service Worker registration failed:', err);
+        });
+    });
+  }
+</script>
 </body>
 </html>
