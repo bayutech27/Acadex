@@ -1,6 +1,7 @@
 // classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet provide createClass/deleteClass – direct Firestore writes kept temporarily.
+// ADDED: Guaranteed horizontal and vertical scrolling using inline styles.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
@@ -8,6 +9,10 @@ import { showNotification, handleError, showLoader, hideLoader } from './error-h
 
 let currentSchoolId = null;
 let unsubscribeSub = null;
+
+function createScrollableWrapper(innerHtml) {
+  return `<div class="table-responsive-wrapper" style="overflow-x: auto !important; overflow-y: auto !important; max-height: 60vh; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; margin: 1rem 0; background: #fff; -webkit-overflow-scrolling: touch;">${innerHtml}</div>`;
+}
 
 export async function initClasses() {
   try {
@@ -48,9 +53,7 @@ async function loadClasses() {
   const container = document.getElementById('classesList');
   if (!container) return;
   try {
-    // Use service.getClassesBySchool (cached)
     let classes = await service.getClassesBySchool(currentSchoolId);
-    // Sort alphabetically by name
     classes.sort((a, b) => a.name.localeCompare(b.name));
 
     if (classes.length === 0) {
@@ -58,28 +61,30 @@ async function loadClasses() {
       return;
     }
 
-    container.innerHTML = `
-      <div class="table-responsive-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr><th>Name</th><th>Level</th><th>Actions</th> </thead>
-          <tbody>
-            ${classes.map(cls => `
-              <tr>
-                <td>${escapeHtml(cls.name)}</td>
-                <td>${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
-                <td><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
+    let tableHtml = `<table class="data-table" style="min-width: 400px; width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Name</th>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Level</th>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    for (const cls of classes) {
+      tableHtml += `<tr>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(cls.name)}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;"><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
+      </tr>`;
+    }
+    tableHtml += `</tbody>${'赶'}`;
+    
+    container.innerHTML = createScrollableWrapper(tableHtml);
+    
     window.deleteClass = async (id) => {
       if (confirm('Delete this class?')) {
         showLoader();
         try {
-          // TODO: service.deleteClass does not exist yet – use direct Firestore
           const { deleteDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
           const { db } = await import('./firebase-config.js');
           await deleteDoc(doc(db, 'classes', id));
@@ -113,7 +118,6 @@ function setupClassForm() {
     return;
   }
 
-  // Mutual exclusivity: dropdown selection clears manual inputs
   classSelect.addEventListener('change', () => {
     if (classSelect.value !== '') {
       manualClassName.value = '';
@@ -121,7 +125,6 @@ function setupClassForm() {
     }
   });
 
-  // Manual input or level change clears dropdown
   manualClassName.addEventListener('input', () => {
     if (manualClassName.value.trim() !== '') {
       classSelect.value = '';
@@ -140,7 +143,6 @@ function setupClassForm() {
     const manualValue = manualClassName.value.trim();
     const manualLevel = manualLevelSelect.value;
 
-    // Validate that exactly one method is used
     const isDropdownUsed = dropdownValue && dropdownValue !== '';
     const isManualUsed = manualValue !== '';
 
@@ -159,9 +161,8 @@ function setupClassForm() {
 
     if (isDropdownUsed) {
       className = dropdownValue;
-      classLevel = getClassLevel(className); // auto-detect from name
+      classLevel = getClassLevel(className);
     } else {
-      // Manual entry
       if (manualValue === '') {
         showNotification("Please enter a class name.", "error");
         return;
@@ -176,14 +177,12 @@ function setupClassForm() {
 
     showLoader();
     try {
-      // Check for duplicate class name under the same school using service
       const existingClasses = await service.getClassesBySchool(currentSchoolId);
       if (existingClasses.some(c => c.name === className)) {
         showNotification(`Class "${className}" already exists. Duplicate classes are not allowed.`, "error");
         return;
       }
 
-      // TODO: service.createClass does not exist – use direct Firestore addDoc
       const { addDoc, collection } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db } = await import('./firebase-config.js');
       await addDoc(collection(db, 'classes'), {
@@ -272,7 +271,6 @@ async function setupSubscriptionUI() {
 async function initSubscriptionListener() {
   if (!currentSchoolId) return;
   if (unsubscribeSub) unsubscribeSub();
-  // Use service.subscribeToSubscription for real-time updates
   unsubscribeSub = service.subscribeToSubscription(currentSchoolId, (subData) => {
     const isActive = subData ? (subData.status === 'active' && subData.locked === false) : false;
     if (isActive) {

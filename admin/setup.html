@@ -6,7 +6,32 @@
   <title>Acadex - Subjects & Classes</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ========== PAGE-SPECIFIC STYLES (kept exactly as original) ========== */
+    /* ========== GLOBAL RESET TO PREVENT OVERFLOW ========== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .dashboard-container {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .main-content {
+      max-width: 100%;
+      overflow-x: hidden;
+      padding: 0 16px;
+    }
+    /* Ensure all content containers respect parent width */
+    .content, .two-columns, .form-card, .welcome-card, .academic-badge-row {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    /* ========== PAGE-SPECIFIC STYLES (original, with responsive additions) ========== */
     .two-columns {
       display: flex;
       gap: 32px;
@@ -22,6 +47,7 @@
       border: 1px solid #e2e8f0;
       border-radius: 8px;
       font-size: 1rem;
+      max-width: 100%;
     }
     optgroup {
       font-weight: bold;
@@ -46,6 +72,7 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      white-space: nowrap;
     }
     .subscription-badge.active {
       background: #dcfce7;
@@ -77,6 +104,15 @@
       align-items: center;
       gap: 8px;
       margin-left: 16px;
+      white-space: nowrap;
+    }
+    @media (max-width: 600px) {
+      .academic-badge {
+        font-size: 0.7rem;
+        padding: 4px 8px;
+        margin-left: 8px;
+        white-space: normal;
+      }
     }
     .academic-badge .override-badge {
       background: #f59e0b;
@@ -93,7 +129,7 @@
       }
     }
 
-    /* ========== RESPONSIVE TABLE SCROLLBARS (copied from students page) ========== */
+    /* ========== RESPONSIVE TABLE SCROLLBARS (updated) ========== */
     .table-responsive-wrapper {
       overflow-x: auto;
       overflow-y: auto;
@@ -103,6 +139,7 @@
       border-radius: 12px;
       margin: 1rem 0;
       background: #fff;
+      -webkit-overflow-scrolling: touch;
     }
     @media (max-width: 768px) {
       .table-responsive-wrapper {
@@ -129,6 +166,80 @@
     /* Ensure action buttons don't wrap */
     .table-responsive-wrapper td:last-child button {
       white-space: nowrap;
+    }
+
+    /* ========== MOBILE RESPONSIVE ADDITIONS ========== */
+    @media (max-width: 768px) {
+      .main-content {
+        padding: 0 12px;
+      }
+      .two-columns {
+        gap: 20px;
+      }
+      .two-columns > div {
+        min-width: 100%;
+        width: 100%;
+      }
+      .form-card {
+        padding: 16px;
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      button.btn-primary, button.btn-secondary, button.btn-danger {
+        width: 100%;
+        margin-top: 8px;
+      }
+      .header-right {
+        gap: 8px;
+      }
+      .logout-btn {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+      }
+      .subscription-badge {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        margin-right: 8px;
+      }
+      .school-name h1 {
+        font-size: 1.2rem;
+      }
+      .school-address {
+        font-size: 0.7rem;
+      }
+      .manual-input-group {
+        margin-top: 12px;
+        padding-top: 12px;
+      }
+    }
+
+    /* Extra small devices (phones, 480px and down) */
+    @media (max-width: 480px) {
+      .main-content {
+        padding: 0 8px;
+      }
+      .logout-btn {
+        padding: 4px 8px;
+        font-size: 0.7rem;
+      }
+      .subscription-badge {
+        display: none; /* hide on very small screens to avoid clutter */
+      }
+      .academic-badge {
+        margin-left: 4px;
+      }
+      .table-responsive-wrapper th,
+      .table-responsive-wrapper td {
+        padding: 6px 8px;
+        font-size: 0.8rem;
+      }
+      .table-responsive-wrapper table {
+        min-width: 450px; /* slightly smaller but still force scroll */
+      }
+      .table-responsive-wrapper table.data-table {
+        min-width: 350px;
+      }
     }
   </style>
 </head>

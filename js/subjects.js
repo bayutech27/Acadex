@@ -1,15 +1,20 @@
 // subjects.js - Manage subjects with Primary/Secondary levels, manual entry, and formatting
-// MODIFIED: Subjects table now wrapped in .table-responsive-wrapper for horizontal scrolling on mobile
+// MODIFIED: Guaranteed horizontal and vertical scrolling using inline styles.
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support deleteSubject or addSubject – those remain as direct Firestore calls.
 
 import * as service from './service.js';
 import { db } from './firebase-config.js';
-import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { collection, addDoc, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
 
 let currentSchoolId = null;
+
+// Helper to create a scrollable wrapper with inline styles
+function createScrollableWrapper(innerHtml) {
+  return `<div class="table-responsive-wrapper" style="overflow-x: auto !important; overflow-y: auto !important; max-height: 60vh; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; margin: 1rem 0; background: #fff; -webkit-overflow-scrolling: touch;">${innerHtml}</div>`;
+}
 
 export async function initSubjects() {
   try {
@@ -37,9 +42,7 @@ async function loadSubjects() {
   if (!container) return;
   
   try {
-    // Use service.getSubjectsBySchool (cached)
     let subjects = await service.getSubjectsBySchool(currentSchoolId);
-    // Sort alphabetically by name
     subjects.sort((a, b) => a.name.localeCompare(b.name));
     
     if (subjects.length === 0) {
@@ -47,29 +50,34 @@ async function loadSubjects() {
       return;
     }
     
-    let tableHtml = `<table class="data-table">
+    // Build table with inline styles to force horizontal scroll
+    let tableHtml = `<table class="data-table" style="min-width: 500px; width: 100%; border-collapse: collapse;">
       <thead>
-        <tr><th>Name</th><th>Code</th><th>Level</th><th>Actions</th> </thead>
+        <tr>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Name</th>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Code</th>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Level</th>
+          <th style="padding: 8px 12px; text-align: left; white-space: nowrap;">Actions</th>
+        </tr>
+      </thead>
       <tbody>`;
     for (const sub of subjects) {
       const levelDisplay = sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—');
       tableHtml += `<tr>
-        <td>${escapeHtml(sub.name)}</td>
-        <td>${escapeHtml(sub.code || '-')}</td>
-        <td>${levelDisplay}</td>
-        <td><button class="btn-danger" onclick="window.deleteSubject('${sub.id}')">Delete</button></td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(sub.name)}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(sub.code || '-')}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${levelDisplay}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;"><button class="btn-danger" onclick="window.deleteSubject('${sub.id}')">Delete</button></td>
       </tr>`;
     }
     tableHtml += `</tbody>${'赶'}`;
     
-    const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
-    container.innerHTML = wrapperHtml;
+    container.innerHTML = createScrollableWrapper(tableHtml);
     
     window.deleteSubject = async (id) => {
       if (confirm('Delete this subject?')) {
         showLoader();
         try {
-          // TODO: service.deleteSubject does not exist – use direct Firestore
           await deleteDoc(doc(db, 'subjects', id));
           showNotification("Subject deleted.", "success");
           await loadSubjects();
@@ -93,7 +101,6 @@ function formatSubjectName(rawName) {
 
 async function isDuplicateSubject(name, level) {
   const normalizedName = formatSubjectName(name);
-  // Use service.getSubjectsByLevel to check duplicates
   const existing = await service.getSubjectsByLevel(currentSchoolId, level);
   return existing.some(sub => sub.name === normalizedName);
 }
@@ -104,7 +111,6 @@ async function addSubjectToFirestore(name, code, level) {
   if (duplicate) {
     throw new Error(`Subject "${formattedName}" already exists for ${level} level.`);
   }
-  // TODO: service.createSubject does not exist – use direct Firestore addDoc
   await addDoc(collection(db, 'subjects'), {
     name: formattedName,
     code: code || '',

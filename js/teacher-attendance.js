@@ -26,7 +26,7 @@ import {
   doc, updateDoc, addDoc, serverTimestamp, orderBy
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentUser, getCurrentUserData, getCurrentSchoolId } from './admin.js';
-import { handleError, showNotification } from './error-handler.js';
+import { handleError, showNotification, showLoader, hideLoader } from './error-handler.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HAVERSINE – distance between two GPS points in metres (unchanged)
@@ -290,7 +290,8 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       else if (status === 'late') countLate++;
       else countAbsent++;
 
-      rows.push({ teacher, rec, status });
+      // *** FIX: store uid in the row object ***
+      rows.push({ teacher, rec, status, uid });
     }
 
     document.getElementById('countPresent').textContent = countPresent;
@@ -299,7 +300,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
     if (rows.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
-        No teachers found for this school.</td></tr>`;
+        No teachers found for this school. </tr>`;
       return;
     }
 
@@ -317,6 +318,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       const overrideMark = r.rec?.adminOverride
         ? ' <i class="fa-solid fa-pen-ruler" style="color:#0369a1;font-size:.7rem;" title="Admin override"></i>'
         : '';
+      // *** FIX: use r.uid (stored earlier) ***
       return `
         <tr>
           <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
@@ -328,7 +330,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${statusPill(r.status)}</td>
           <td>
             <button class="btn-secondary" style="padding:.3rem .7rem;font-size:.73rem;"
-              onclick="window.__openOverride('${uid}','${name}')">
+              onclick="window.__openOverride('${r.uid}','${name}')">
               <i class="fa-solid fa-pen"></i> Override
             </button>
           </td>
@@ -359,7 +361,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   } catch (err) {
     handleError(err, 'Failed to load attendance records.');
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#ef4444;padding:2rem;">
-      Error loading records. Please try again.</td></tr>`;
+      Error loading records. Please try again. </tr>`;
   }
 }
 
