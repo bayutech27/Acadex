@@ -7,6 +7,7 @@
 // TODO: service.js does not yet support cumulative topic stats with increment (updateCumulativeTopicStats)
 // – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -384,6 +385,18 @@ async function forceSubmitAndRedirect() {
     }
     window.removeEventListener('beforeunload', preventBeforeUnload);
     await submitTest(true);
+}
+
+// =============================================
+// HELPER: Shuffle array for assigned test randomisation
+// =============================================
+function shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
 }
 
 // =============================================
@@ -1115,5 +1128,67 @@ function handleKeyboardNavigation(e) {
             else showSubmitModal();
             break;
         case 'Escape': showSubmitModal(); break;
+    }
+}
+
+// =============================================================================
+// MODIFIED: startAssignedTest - questions are now randomised (shuffled)
+// =============================================================================
+async function startAssignedTest(cbtId) {
+    try {
+        const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
+        if (!cbtDoc.exists()) {
+            toast.error('Test not found. Please refresh the page.');
+            throw new Error('Test not found');
+        }
+        const cbtData = cbtDoc.data();
+        if (cbtData.status !== 'started') {
+            toast.error('This test is not available for taking.');
+            return;
+        }
+
+        let remainingSeconds = cbtData.durationMinutes * 60;
+        if (cbtData.startedAt) {
+            const startTime = convertTimestamp(cbtData.startedAt);
+            if (startTime) {
+                const now = new Date();
+                const elapsed = Math.floor((now - startTime) / 1000);
+                remainingSeconds = Math.max(0, cbtData.durationMinutes * 60 - elapsed);
+                if (remainingSeconds <= 0) {
+                    toast.error('This test has already expired.');
+                    return;
+                }
+            }
+        }
+
+        // MODIFIED: Shuffle questions for assigned test
+        const originalQuestions = cbtData.questions || [];
+        if (!originalQuestions.length) {
+            toast.error('No questions found for this test.');
+            return;
+        }
+        const shuffledQuestions = shuffleArray(originalQuestions);
+
+        const testData = {
+            testId: `cbt_${cbtId}_${Date.now()}`,
+            mode: 'cbt',
+            examType: cbtData.examType || 'CBT',
+            subject: cbtData.subjectName || cbtData.subjectId,
+            title: cbtData.title,
+            cbtId: cbtId,
+            questions: shuffledQuestions,
+            totalQuestions: shuffledQuestions.length,
+            totalTime: remainingSeconds,
+            startTime: new Date().toISOString(),
+            userId: currentStudentId,
+            schoolId: currentSchoolId,
+            userAnswers: Array(shuffledQuestions.length).fill(null),
+            plan: 'full_access'
+        };
+        sessionStorage.setItem('currentTest', JSON.stringify(testData));
+        window.location.href = 'test.html';
+    } catch (err) {
+        console.error('Error starting assigned test:', err);
+        toast.error('Failed to start test. Please try again.');
     }
 }
