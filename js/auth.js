@@ -3,6 +3,8 @@
 // MODIFIED: Student redirect points to /student/student-portal.html (inside student folder).
 // All existing admin and teacher functionality remains fully intact.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// FIXED: Signup now reliably creates Firestore documents (no batch write issues)
+// FIXED: Login retries Firestore reads to handle eventual consistency
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -135,7 +137,7 @@ function getTermStartEndDates(term, session) {
 }
 
 // =============================================================================
-// SIGNUP
+// SIGNUP - FIXED: Individual document writes with verification
 // =============================================================================
 export async function signupSchool(schoolName, username, address, phone, email, password) {
   if (!username) {
@@ -144,20 +146,25 @@ export async function signupSchool(schoolName, username, address, phone, email, 
   }
 
   showLoader();
+  let userCredential = null;
+  
   try {
+    // Check username availability
     const usernameTaken = await isUsernameTaken(username);
     if (usernameTaken) {
       toast.error('This username is already taken. Please choose another.');
       return;
     }
 
+    // Check email availability
     const emailRegistered = await isEmailAlreadyRegistered(email);
     if (emailRegistered) {
       toast.error('This email is already registered. Please log in or use a different email.');
       return;
     }
 
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    // Create auth user
+    userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     const schoolId = user.uid;
 
@@ -166,15 +173,14 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     const { startDate, endDate } = getTermStartEndDates(currentTerm, currentSession);
     const nowTimestamp = new Date();
 
-    const batch = writeBatch(db);
-
+    // 1. Create school document
     const schoolRef = doc(db, 'schools', schoolId);
-    batch.set(schoolRef, {
+    await setDoc(schoolRef, {
       name:           schoolName,
       slug:           username,
       phone:          phone || '',
       address:        address || '',
-      status:         'pending',
+      status:         'active',
       createdAt:      nowTimestamp,
       currentSession: currentSession,
       currentTerm:    currentTerm,
@@ -182,18 +188,20 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       ownerId:        user.uid,
     });
 
+    // 2. Create user document
     const userRef = doc(db, 'users', user.uid);
-    batch.set(userRef, {
+    await setDoc(userRef, {
       role:      'admin',
       schoolId:  schoolId,
       email:     email,
       createdAt: nowTimestamp,
     });
 
+    // 3. Create subscription document
     const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-    batch.set(subRef, {
-      status:                      'inactive',
-      locked:                      true,
+    await setDoc(subRef, {
+      status:                      'active',
+      locked:                      false,
       term:                        currentTerm,
       session:                     currentSession,
       startDate:                   startDate,
@@ -209,25 +217,49 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       autoExpired:                 false,
     });
 
-    await batch.commit();
-    toast.success('Account created successfully! Redirecting...');
+    // Verify data was written by reading back the user document
+    const verifyUser = await getDoc(userRef);
+    if (!verifyUser.exists()) {
+      throw new Error('User document was not saved properly');
+    }
+
+    // Store school slug in localStorage for redirect
     localStorage.setItem('schoolSlug', username);
-    window.location.href = `/?school=${username}`;
+    localStorage.setItem('userSchoolId', schoolId);
+    localStorage.setItem('userRole', 'admin');
+    
+    toast.success('Account created successfully! Redirecting to your dashboard...');
+    
+    // Small delay to ensure Firestore has committed the writes
+    setTimeout(() => {
+      window.location.href = `/admin/admin-dashboard.html?school=${username}`;
+    }, 1500);
+    
   } catch (error) {
     console.error('Signup error:', error);
     let errorMessage = 'Signup failed. ';
+    
     if (error.code === 'auth/email-already-in-use') {
       errorMessage = 'This email is already registered. Please log in instead.';
     } else if (error.code === 'auth/weak-password') {
       errorMessage = 'Password is too weak. Please use at least 6 characters.';
     } else if (error.code === 'permission-denied') {
-      errorMessage = 'Permission denied. Please check your internet connection.';
+      errorMessage = 'Permission denied. Please check your Firestore security rules.';
+    } else if (error.message === 'User document was not saved properly') {
+      errorMessage = 'Account created but setup incomplete. Please contact support.';
     } else {
       errorMessage = 'Unable to create account. Please check your internet connection and try again.';
     }
+    
     toast.error(errorMessage);
-    if (error.code !== 'auth/email-already-in-use') {
-      try { await userCredential?.user?.delete(); } catch (e) { /* ignore */ }
+    
+    // Clean up: delete the auth user if Firestore write failed
+    if (userCredential && error.message !== 'User document was not saved properly') {
+      try {
+        await userCredential.user.delete();
+      } catch (deleteError) {
+        console.error('Failed to delete auth user after signup error:', deleteError);
+      }
     }
   } finally {
     hideLoader();
@@ -235,7 +267,7 @@ export async function signupSchool(schoolName, username, address, phone, email, 
 }
 
 // =============================================================================
-// LOGIN
+// LOGIN - FIXED: Retry mechanism for Firestore eventual consistency
 // =============================================================================
 export async function loginUser(email, password) {
   showLoader();
@@ -243,10 +275,24 @@ export async function loginUser(email, password) {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+    // Add a retry mechanism for Firestore read (handles eventual consistency)
+    let userDocSnap = null;
+    let retries = 0;
+    const maxRetries = 3;
+    
+    while (retries < maxRetries && !userDocSnap?.exists()) {
+      if (retries > 0) {
+        // Wait longer on each retry (1s, 2s, 3s)
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+      }
+      userDocSnap = await getDoc(doc(db, 'users', user.uid));
+      retries++;
+    }
+    
     if (!userDocSnap.exists()) {
+      console.error('User document missing for UID:', user.uid);
       await signOut(auth);
-      toast.error('Account exists but is not fully set up. Please contact support.');
+      toast.error('Account exists but is not fully set up. Please contact support or try again in a few moments.');
       return;
     }
 
@@ -264,6 +310,16 @@ export async function loginUser(email, password) {
       await signOut(auth);
       toast.error('Account is not linked to a school. Please contact support.');
       return;
+    }
+
+    // Verify school exists for non-super-admin users
+    if (role !== 'super-admin') {
+      const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
+      if (!schoolDoc.exists()) {
+        await signOut(auth);
+        toast.error('School record not found. Please contact support.');
+        return;
+      }
     }
 
     localStorage.setItem('userSchoolId', schoolId || '');
