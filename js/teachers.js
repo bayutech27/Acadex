@@ -2,6 +2,12 @@
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support teacher deletion (cloud function) or conflict checks – those remain direct.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+//
+// MODIFIED: COMPLETELY REMOVED all subject conflict checks - multiple teachers can share the same subject.
+// MODIFIED: "Class Teacher" input now supports multiple class selection (optional).
+// - Multi-select with helper text "Leave empty if not a class teacher".
+// - Teacher data stores hostClassIds (array).
+// - Class teacher conflict check PRESERVED (only one teacher per class).
 
 import { db, auth, functions } from './firebase-config.js';
 import {
@@ -51,6 +57,11 @@ export async function initTeachersPage() {
     return;
   }
 
+  // Ensure multi-select for class teacher
+  if (classTeacherSelect && !classTeacherSelect.multiple) {
+    classTeacherSelect.multiple = true;
+  }
+
   currentSchoolId = await getCurrentSchoolId();
   initSecondaryAuth();
   
@@ -69,7 +80,12 @@ export async function initTeachersPage() {
       subjectsSelect.disabled = true;
       classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
       classesSelect.disabled = true;
-      classTeacherSelect.innerHTML = '<option value="">None</option>';
+      while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
+      const helperOption = document.createElement('option');
+      helperOption.disabled = true;
+      helperOption.selected = true;
+      helperOption.textContent = 'Select level first';
+      classTeacherSelect.appendChild(helperOption);
       classTeacherSelect.disabled = true;
     }
   });
@@ -190,7 +206,12 @@ async function loadClassesByLevel(level) {
 
 async function loadClassTeacherOptions(level) {
   if (!level) {
-    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
+    const helperOption = document.createElement('option');
+    helperOption.disabled = true;
+    helperOption.selected = true;
+    helperOption.textContent = 'Select level first';
+    classTeacherSelect.appendChild(helperOption);
     classTeacherSelect.disabled = true;
     return;
   }
@@ -199,18 +220,24 @@ async function loadClassTeacherOptions(level) {
     const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
     classes.sort((a, b) => a.name.localeCompare(b.name));
     
-    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
+    
     for (const cls of classes) {
       const option = document.createElement('option');
       option.value = cls.id;
       option.textContent = cls.name;
       classTeacherSelect.appendChild(option);
     }
+    
     classTeacherSelect.disabled = false;
   } catch (err) {
     console.error('Load class teacher options error:', err);
     toast.error('Unable to load classes for class teacher selection. Please refresh.');
-    classTeacherSelect.innerHTML = '<option value="">None</option>';
+    while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
+    const errorOption = document.createElement('option');
+    errorOption.disabled = true;
+    errorOption.textContent = 'Error loading classes';
+    classTeacherSelect.appendChild(errorOption);
     classTeacherSelect.disabled = true;
   }
 }
@@ -252,27 +279,28 @@ async function loadTeachers() {
           </thead>
           <tbody>
             ${teachers.map(teacher => {
-              const subjectCount = (teacher.subjectIds || []).length;
-              const subjectDisplay = subjectCount === 0 ? '-' : `${subjectCount} subject${subjectCount !== 1 ? 's' : ''}`;
+              const subjectNames = (teacher.subjectIds || [])
+                .map(subjectId => subjectsMap.get(subjectId)?.name || subjectId)
+                .join(', ') || '-';
               const classNames = (teacher.classIds || [])
                 .map(classId => classesMap.get(classId)?.name || classId)
-                .join(', ');
-              const hostClassName = teacher.isClassTeacher && teacher.hostClassId 
-                ? (classesMap.get(teacher.hostClassId)?.name || 'Unknown')
-                : '-';
+                .join(', ') || '-';
+              const hostClassNames = (teacher.hostClassIds || [])
+                .map(classId => classesMap.get(classId)?.name || classId)
+                .join(', ') || '-';
               const levelDisplay = teacher.level === 'primary' ? 'Primary' : (teacher.level === 'secondary' ? 'Secondary' : '—');
               return `
                 <tr>
-                  <td>${escapeHtml(teacher.name)}</td>
-                  <td>${escapeHtml(teacher.email)}</td>
-                  <td>${levelDisplay}</td>
-                  <td>${escapeHtml(subjectDisplay)}</td>
-                  <td>${escapeHtml(classNames || '-')}</td>
-                  <td>${escapeHtml(hostClassName)}</td>
+                  <td>${escapeHtml(teacher.name)}</td
+                  <td>${escapeHtml(teacher.email)}</td
+                  <td>${levelDisplay}</td
+                  <td>${escapeHtml(subjectNames)}</td
+                  <td>${escapeHtml(classNames)}</td
+                  <td>${escapeHtml(hostClassNames)}</td
                   <td>
                     <button class="btn-secondary" onclick="window.editTeacher('${teacher.id}')">Edit</button>
                     <button class="btn-danger" onclick="window.deleteTeacher('${teacher.id}')">Delete</button>
-                   </td>
+                    </td
                 </tr>
               `;
             }).join('')}
@@ -322,8 +350,14 @@ function openModal(teacherId = null) {
   subjectsSelect.disabled = true;
   classesSelect.innerHTML = '<option value="">-- Select level first --</option>';
   classesSelect.disabled = true;
-  classTeacherSelect.innerHTML = '<option value="">None</option>';
+  while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
+  const helperOption = document.createElement('option');
+  helperOption.disabled = true;
+  helperOption.selected = true;
+  helperOption.textContent = 'Select level first';
+  classTeacherSelect.appendChild(helperOption);
   classTeacherSelect.disabled = true;
+  
   levelSelect.value = '';
   currentTeacherLevel = null;
   
@@ -345,7 +379,7 @@ async function loadTeacherData(teacherId) {
       if (nameInput) nameInput.value = teacher.name;
       if (emailInput) emailInput.value = teacher.email;
       
-      const teacherLevel = teacher.level || (teacher.isClassTeacher ? (classesMap.get(teacher.hostClassId)?.level || 'secondary') : 'secondary');
+      const teacherLevel = teacher.level || 'secondary';
       if (levelSelect) levelSelect.value = teacherLevel;
       currentTeacherLevel = teacherLevel;
       
@@ -365,10 +399,11 @@ async function loadTeacherData(teacherId) {
           opt.selected = classIds.includes(opt.value);
         });
       }
-      if (teacher.isClassTeacher && teacher.hostClassId && classTeacherSelect) {
-        classTeacherSelect.value = teacher.hostClassId;
-      } else if (classTeacherSelect) {
-        classTeacherSelect.value = '';
+      const hostClassIds = teacher.hostClassIds || [];
+      if (classTeacherSelect) {
+        Array.from(classTeacherSelect.options).forEach(opt => {
+          opt.selected = hostClassIds.includes(opt.value);
+        });
       }
     }
   } catch (err) {
@@ -385,52 +420,29 @@ function closeModal() {
   currentTeacherLevel = null;
 }
 
-async function checkSubjectConflicts(subjectIds, level, excludeTeacherId = null) {
-  if (!subjectIds.length) return null;
+// =============================================================================
+// CLASS TEACHER CONFLICT CHECK - PRESERVED (only one teacher per class)
+// =============================================================================
+async function checkClassTeacherConflict(hostClassIds, level, excludeTeacherId = null) {
+  if (!hostClassIds || hostClassIds.length === 0) return null;
   
   try {
     const teachers = await service.getTeachersBySchool(currentSchoolId);
-    const levelTeachers = teachers.filter(t => t.level === level);
-    const conflictingSubjects = [];
-
-    for (const subjectId of subjectIds) {
-      for (const teacher of levelTeachers) {
-        if (excludeTeacherId && teacher.id === excludeTeacherId) continue;
-        if (teacher.subjectIds && teacher.subjectIds.includes(subjectId)) {
-          const subjectName = subjectsMap.get(subjectId)?.name || subjectId;
-          conflictingSubjects.push(subjectName);
-          break;
-        }
+    const conflictingClasses = [];
+    for (const classId of hostClassIds) {
+      const conflicting = teachers.find(t =>
+        t.level === level &&
+        t.isClassTeacher === true &&
+        (t.hostClassIds || []).includes(classId) &&
+        (!excludeTeacherId || t.id !== excludeTeacherId)
+      );
+      if (conflicting) {
+        const className = classesMap.get(classId)?.name || classId;
+        conflictingClasses.push(className);
       }
     }
-    
-    if (conflictingSubjects.length) {
-      const message = `The following subjects are already assigned to another teacher at the same level: ${conflictingSubjects.join(', ')}`;
-      toast.error(message);
-      return message;
-    }
-    return null;
-  } catch (err) {
-    console.error('Check subject conflicts error:', err);
-    toast.error('Unable to verify subject conflicts. Please try again.');
-    return "Unable to verify subject conflicts. Please try again.";
-  }
-}
-
-async function checkClassTeacherConflict(classId, level, excludeTeacherId = null) {
-  if (!classId) return null;
-  
-  try {
-    const teachers = await service.getTeachersBySchool(currentSchoolId);
-    const conflicting = teachers.find(t =>
-      t.level === level &&
-      t.isClassTeacher === true &&
-      t.hostClassId === classId &&
-      (!excludeTeacherId || t.id !== excludeTeacherId)
-    );
-    if (conflicting) {
-      const className = classesMap.get(classId)?.name || classId;
-      const message = `Class "${className}" already has a class teacher. Only one class teacher is allowed per class.`;
+    if (conflictingClasses.length) {
+      const message = `Class(es) already have a class teacher: ${conflictingClasses.join(', ')}. Only one class teacher is allowed per class.`;
       toast.error(message);
       return message;
     }
@@ -449,23 +461,22 @@ async function handleTeacherSubmit(e) {
   const level = levelSelect ? levelSelect.value : '';
   const selectedSubjectIds = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const selectedClassIds = classesSelect ? Array.from(classesSelect.selectedOptions).map(opt => opt.value) : [];
-  const hostClassIdValue = classTeacherSelect ? (classTeacherSelect.value || null) : null;
-  const isClassTeacher = hostClassIdValue !== null && hostClassIdValue !== '';
+  const selectedHostClassIds = classTeacherSelect 
+    ? Array.from(classTeacherSelect.selectedOptions)
+        .filter(opt => opt.value && opt.value !== '' && !opt.disabled)
+        .map(opt => opt.value)
+    : [];
+  const isClassTeacher = selectedHostClassIds.length > 0;
 
   if (!name || !email || !level) {
     toast.error('Please fill in all required fields (Name, Email, Level).');
     return;
   }
 
-  if (level !== 'primary') {
-    const subjectConflictMsg = await checkSubjectConflicts(selectedSubjectIds, level, editingTeacherId);
-    if (subjectConflictMsg) {
-      return;
-    }
-  }
+  // NO SUBJECT CONFLICT CHECK - Teachers can share subjects freely
 
   if (isClassTeacher) {
-    const classTeacherConflictMsg = await checkClassTeacherConflict(hostClassIdValue, level, editingTeacherId);
+    const classTeacherConflictMsg = await checkClassTeacherConflict(selectedHostClassIds, level, editingTeacherId);
     if (classTeacherConflictMsg) {
       return;
     }
@@ -478,7 +489,7 @@ async function handleTeacherSubmit(e) {
     subjectIds: selectedSubjectIds,
     classIds: selectedClassIds,
     isClassTeacher,
-    hostClassId: isClassTeacher ? hostClassIdValue : null,
+    hostClassIds: selectedHostClassIds,
     schoolId: currentSchoolId,
     updatedAt: new Date()
   };

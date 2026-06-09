@@ -2,10 +2,74 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Acadex - Teachers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Manage Teachers</title>
+  tml
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Acadex - Manage Teachers</title>
+  
+  <!-- CACHE CLEARER - TEMPORARY -->
+ <!---- <script>
+    (function() {
+      console.log('🔄 Clearing service workers and caches...');
+      
+      // Unregister all service workers
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+            console.log('✅ Service worker unregistered:', registration);
+          }
+        }).catch(err => {
+          console.log('⚠️ Error unregistering SW:', err);
+        });
+        
+        // Also clear caches
+        if (caches) {
+          caches.keys().then(names => {
+            for (let name of names) {
+              caches.delete(name);
+              console.log('✅ Cache deleted:', name);
+            }
+            if (names.length === 0) {
+              console.log('📭 No caches to delete');
+            }
+          }).catch(err => {
+            console.log('⚠️ Error clearing caches:', err);
+          });
+        }
+      } else {
+        console.log('ℹ️ Service Worker not supported in this browser');
+      }
+    })();
+  </script>  --->
+  <!-- END CACHE CLEARER -->
   <link rel="stylesheet" href="../css/styles.css">
   <style>
+    /* ========== PAGE-SPECIFIC STYLES ========== */
+    .filter-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .filter-btn {
+      background: #e2e8f0;
+      color: #2d3748;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-btn.active {
+      background: #667eea;
+      color: white;
+    }
     .modal {
       display: none;
       position: fixed;
@@ -22,7 +86,7 @@
       background: white;
       border-radius: 12px;
       padding: 24px;
-      max-width: 500px;
+      max-width: 650px;
       width: 90%;
       max-height: 90vh;
       overflow-y: auto;
@@ -59,56 +123,19 @@
     }
     .form-group small {
       display: block;
+      font-size: 11px;
       color: #718096;
-      font-size: 0.75rem;
       margin-top: 4px;
     }
-    .school-address {
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-top: 4px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-    }
-    .school-header {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .subscription-badge {
-      margin-left: auto;
-      margin-right: 20px;
-      font-weight: bold;
-      font-size: 0.9rem;
-      padding: 4px 12px;
-      border-radius: 20px;
+    .readonly-field {
       background: #f1f5f9;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #475569;
     }
-    .subscription-badge.active {
-      background: #dcfce7;
-      color: #15803d;
-    }
-    .subscription-badge.expired {
-      background: #fee2e2;
-      color: #b91c1c;
-    }
-    select:disabled, input:disabled {
-      background-color: #f1f5f9;
-      cursor: not-allowed;
-    }
-    .loading-indicator {
-      font-size: 0.8rem;
-      color: #3b82f6;
-      margin-top: 4px;
-    }
+    
+    /* Academic Calendar Badge */
     .academic-badge {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -128,6 +155,28 @@
       border-radius: 12px;
       font-size: 0.7rem;
     }
+
+    .school-address {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    .subscription-badge {
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .subscription-badge.active { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
     /* Hide hamburger on desktop */
     @media (min-width: 769px) {
       .hamburger-menu {
@@ -138,7 +187,8 @@
 </head>
 <body>
 <div class="dashboard-container">
-  <!-- ===================== DESKTOP SIDEBAR ===================== -->
+
+  <!-- DESKTOP SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -148,7 +198,7 @@
       <a href="admin-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="teachers.html">
+      <a href="teachers.html" class="active">
         <i class="fa-solid fa-chalkboard-user"></i> Teachers
       </a>
       <a href="students.html">
@@ -160,14 +210,14 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
       </a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <!-- MOBILE SIDEBAR -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -179,7 +229,7 @@
       <a href="admin-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="teachers.html">
+      <a href="teachers.html" class="active">
         <i class="fa-solid fa-chalkboard-user"></i> Teachers
       </a>
       <a href="students.html">
@@ -191,7 +241,7 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
       </a>
     </nav>
@@ -203,12 +253,15 @@
   </div>
   <div id="overlay" class="overlay"></div>
 
+  <!-- MAIN CONTENT -->
   <main class="main-content">
     <header class="header">
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo">
+            <i class="fa-solid fa-camera"></i>
+          </div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -217,37 +270,48 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <button class="hamburger-menu" aria-label="Open menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <div id="subscriptionBadge" class="subscription-badge">
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+        </div>
+        <button id="logoutBtn" class="logout-btn">
+          <i class="fa-solid fa-right-from-bracket"></i> Logout
+        </button>
       </div>
     </header>
 
+    <!-- Academic Calendar Badge -->
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span>
+        &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
 
     <div class="content">
       <div class="welcome-card">
-        <h1>Teachers</h1>
-        <p>Manage teacher accounts.</p>
-        <button id="addTeacherBtn" class="btn-primary">Add Teacher</button>
+        <h1><i class="fa-solid fa-chalkboard-user"></i> Manage Teachers</h1>
+        <p>Add, edit, or remove teachers and assign subjects, classes, and class teacher responsibilities.</p>
+        <button id="addTeacherBtn" class="btn-primary"><i class="fa-solid fa-plus"></i> Add Teacher</button>
       </div>
+
+      <!-- Teachers List -->
       <div id="teachersList">
         <p>Loading teachers...</p>
       </div>
     </div>
 
     <footer class="app-footer">
-      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
+      <p><i class="fa-regular fa-copyright"></i> <span id="currentYear"></span> Acadex — All rights reserved.</p>
     </footer>
   </main>
 </div>
 
-<!-- Modal for Add/Edit Teacher -->
+<!-- MODAL for Add/Edit Teacher -->
 <div id="teacherModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -255,12 +319,44 @@
       <button class="close-modal">&times;</button>
     </div>
     <form id="teacherForm">
-      <div class="form-group"><label for="teacherName">Full Name</label><input type="text" id="teacherName" required></div>
-      <div class="form-group"><label for="teacherEmail">Email</label><input type="email" id="teacherEmail" required></div>
-      <div class="form-group"><label for="teacherLevel">Level</label><select id="teacherLevel" required><option value="">-- Select Level --</option><option value="primary">Primary</option><option value="secondary">Secondary</option></select></div>
-      <div class="form-group"><label for="teacherSubjects">Assign Subjects (hold Ctrl to select multiple)</label><select id="teacherSubjects" multiple disabled><option value="">-- Select level first --</option></select><small>Subjects this teacher teaches</small></div>
-      <div class="form-group"><label for="teacherClasses">Assign Classes (hold Ctrl to select multiple)</label><select id="teacherClasses" multiple disabled><option value="">-- Select level first --</option></select><small>Classes this teacher teaches</small></div>
-      <div class="form-group"><label for="teacherClassTeacher">Class Teacher (optional)</label><select id="teacherClassTeacher" disabled><option value="">None</option></select><small>Homeroom class teacher (only classes of selected level)</small></div>
+      <div class="form-group">
+        <label for="teacherName">Full Name *</label>
+        <input type="text" id="teacherName" required>
+      </div>
+      <div class="form-group">
+        <label for="teacherEmail">Email Address *</label>
+        <input type="email" id="teacherEmail" required>
+        <small>This email will be used for login. The teacher will receive a temporary password.</small>
+      </div>
+      <div class="form-group">
+        <label for="teacherLevel">Level *</label>
+        <select id="teacherLevel" required>
+          <option value="">-- Select Level --</option>
+          <option value="primary">Primary</option>
+          <option value="secondary">Secondary</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="teacherSubjects">Assigned Subjects (for this level)</label>
+        <select id="teacherSubjects" multiple disabled>
+          <option value="">-- Select level first --</option>
+        </select>
+        <small>Hold Ctrl (or Cmd) to select multiple subjects</small>
+      </div>
+      <div class="form-group">
+        <label for="teacherClasses">Classes to Teach</label>
+        <select id="teacherClasses" multiple disabled>
+          <option value="">-- Select level first --</option>
+        </select>
+        <small>Hold Ctrl (or Cmd) to select multiple classes</small>
+      </div>
+      <div class="form-group">
+        <label for="teacherClassTeacher">Class Teacher (Optional - select classes)</label>
+        <select id="teacherClassTeacher" multiple>
+          <option value="" disabled selected>-- Select classes to be class teacher for (optional) --</option>
+        </select>
+        <small>Hold Ctrl (or Cmd) to select multiple classes. Leave empty if not a class teacher.</small>
+      </div>
       <div class="form-actions">
         <button type="button" id="cancelModalBtn" class="btn-secondary">Cancel</button>
         <button type="submit" id="saveTeacherBtn" class="btn-primary">Save Teacher</button>
@@ -276,14 +372,15 @@
   import { subscribeToCalendar } from '../js/academic-calendar.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
+  document.getElementById('sidebarYear').innerText = new Date().getFullYear();
 
-  protectAdminPage().then(() => {
-    loadSchoolInfo();
+  protectAdminPage().then(async () => {
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
     initMobileMenu();
-    initTeachersPage();
+    await initTeachersPage();
 
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
@@ -292,7 +389,7 @@
     }
   });
 
-  subscribeToCalendar((state) => {
+  subscribeToCalendar(state => {
     const termEl = document.getElementById('currentTermDisplay');
     const sessionEl = document.getElementById('currentSessionDisplay');
     if (termEl) termEl.textContent = state.currentTerm;
@@ -300,22 +397,6 @@
     if (state.manualOverride) termEl?.classList.add('override-badge');
     else termEl?.classList.remove('override-badge');
   });
-</script>
-<script>
-  // Register Service Worker for offline navigation
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
-          setInterval(() => registration.update(), 60 * 60 * 1000);
-        })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
-    });
-  }
 </script>
 </body>
 </html>
