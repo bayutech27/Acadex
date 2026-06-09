@@ -1,12 +1,9 @@
-// onboard-student.js - Teacher onboards students only for his/her assigned class
-// STRICT: Only teachers with a host classId can use this page.
-// Duplicate name prevention, Firestore students collection, subscription lock.
-// All Firestore reads/writes go through service.js where possible.
-// TODO: service.js does not yet support student status updates, bulk deletion of scores/reports,
-// or auth account creation – these remain as direct Firestore/auth calls.
-// All user-facing errors now show clear, friendly messages without technical jargon.
+// onboard-student.js - Teacher onboards students only for his/her assigned class(es)
+// STRICT: Only teachers with at least one host class can use this page.
+// Supports multiple class teacher assignments (hostClassIds array).
+// Includes a dropdown to select which class to manage.
 
-import { auth } from './firebase-config.js';
+import { auth, db } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -18,18 +15,20 @@ import {
   query,
   where,
   getDocs,
-  serverTimestamp
+  serverTimestamp,
+  getDoc,
+  setDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { db } from './firebase-config.js';
 import * as service from './service.js';
 import { getRawSubscription } from './plan.js';
-import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
+import { toast } from './error-handler.js';
 
 // Global state
 let currentSchoolId = null;
-let teacherClassId = null;
-let className = '';
-let classLevel = '';
+let teacherHostClassIds = [];      // Array of class IDs where teacher is class teacher
+let currentClassId = null;         // Currently selected class ID for onboarding
+let currentClassName = '';
+let currentClassLevel = '';
 let subjectsMap = new Map();
 let editingStudentId = null;
 let schoolName = '';
@@ -42,7 +41,7 @@ let emailInput, levelDisplay, levelHidden, classDisplay, classHidden;
 let subjectsSelect, statusSelect, genderSelect, dobInput, ageDisplay, clubInput;
 let passportInput, passportPreviewContainer, passportErrorSpan;
 let nationalitySelect, stateSelect, religionSelect, parentPhoneInput;
-let addStudentBtn, studentsContainer, classInfoContainer;
+let addStudentBtn, studentsContainer, classInfoContainer, classSelectDropdown, classSelectorRow;
 
 // Secondary Firebase app (for student account creation)
 let secondaryAuth = null;
@@ -117,37 +116,91 @@ function calculateAndDisplayAge() {
 }
 
 /**
- * Verify teacher is a class teacher using service.
- * Looks for classId OR hostClassId field on teacher doc.
+ * Load teacher's host classes and populate dropdown.
+ * Returns true if at least one class is assigned.
  */
-async function verifyAndGetClassTeacherData() {
+async function loadTeacherClassesAndPopulateDropdown() {
   const user = auth.currentUser;
   if (!user) throw new Error('Not authenticated');
 
-  const teacherData = await service.getTeacherById(user.uid);
-  if (!teacherData) throw new Error('Teacher record not found');
+  // Direct read from teachers collection
+  const teacherRef = doc(db, 'teachers', user.uid);
+  const teacherSnap = await getDoc(teacherRef);
+  if (!teacherSnap.exists()) throw new Error('Teacher record not found');
 
+  const teacherData = teacherSnap.data();
   currentSchoolId = teacherData.schoolId;
+  if (!currentSchoolId) throw new Error('School ID missing from teacher record');
 
-  // Try both possible field names
-  teacherClassId = teacherData.classId || teacherData.hostClassId || null;
-
-  if (!teacherClassId) {
-    throw new Error('You are not assigned as a class teacher. Access to onboard students is restricted.');
+  // Determine host class IDs
+  if (teacherData.hostClassIds && Array.isArray(teacherData.hostClassIds) && teacherData.hostClassIds.length > 0) {
+    teacherHostClassIds = teacherData.hostClassIds;
+  } else if (teacherData.hostClassId) {
+    teacherHostClassIds = [teacherData.hostClassId];
+  } else if (teacherData.classId) {
+    teacherHostClassIds = [teacherData.classId];
+  } else {
+    teacherHostClassIds = [];
   }
 
-  // Fetch class details via service
-  const classData = await service.getClassById(teacherClassId);
-  if (!classData) throw new Error('Assigned class not found.');
-  className = classData.name;
-  classLevel = classData.level;
+  if (teacherHostClassIds.length === 0) {
+    throw new Error('You are not assigned as a class teacher for any class.');
+  }
 
-  // Get school name for admission number
-  const schoolData = await service.getSchoolById(currentSchoolId);
-  if (schoolData) schoolName = schoolData.name || '';
+  // Build class options for dropdown
+  const classSelect = document.getElementById('classSelect');
+  if (classSelect) {
+    classSelect.innerHTML = '';
+    for (const cid of teacherHostClassIds) {
+      const classDoc = await getDoc(doc(db, 'classes', cid));
+      if (classDoc.exists()) {
+        const className = classDoc.data().name;
+        const option = document.createElement('option');
+        option.value = cid;
+        option.textContent = className;
+        classSelect.appendChild(option);
+      }
+    }
+    // Show the dropdown row if more than one class
+    const selectorRow = document.getElementById('classSelectorRow');
+    if (selectorRow) {
+      selectorRow.style.display = teacherHostClassIds.length > 1 ? 'flex' : 'none';
+    }
+    // Set first class as current
+    currentClassId = teacherHostClassIds[0];
+    classSelect.value = currentClassId;
+    // Listen for changes
+    classSelect.addEventListener('change', async () => {
+      currentClassId = classSelect.value;
+      await loadCurrentClassInfo();
+      await loadSubjectsByLevel(currentClassLevel);
+      await loadAndDisplayStudents();
+      // Update the fixed class field in modal
+      if (classDisplay) classDisplay.value = currentClassName;
+      if (classHidden) classHidden.value = currentClassId;
+    });
+  }
 
-  isClassTeacher = true;
-  return { classId: teacherClassId, className, classLevel, schoolId: currentSchoolId };
+  // Load class info for the first class
+  await loadCurrentClassInfo();
+  return true;
+}
+
+async function loadCurrentClassInfo() {
+  if (!currentClassId) return;
+  const classDoc = await getDoc(doc(db, 'classes', currentClassId));
+  if (!classDoc.exists()) throw new Error('Assigned class not found.');
+  currentClassName = classDoc.data().name;
+  currentClassLevel = classDoc.data().level;
+
+  // Update class info container
+  if (classInfoContainer) {
+    classInfoContainer.innerHTML = `<i class="fa-solid fa-chalkboard"></i> Current Class: <strong>${escapeHtml(currentClassName)}</strong> (${currentClassLevel.charAt(0).toUpperCase() + currentClassLevel.slice(1)})`;
+  }
+
+  // Update school name for admission number
+  const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
+  if (schoolDoc.exists()) schoolName = schoolDoc.data().name || '';
 }
 
 // Load subjects for the class level via service
@@ -221,14 +274,14 @@ async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   return !duplicate;
 }
 
-// Duplicate name check within the same class using service
+// Duplicate name check within the current class
 async function isDuplicateStudentName(fullName, classId, excludeStudentId = null) {
   const normalizedName = fullName.trim().toLowerCase();
   const classStudents = await service.getStudentsByClass(currentSchoolId, classId);
   return classStudents.some(s => s.id !== excludeStudentId && (s.name || '').toLowerCase() === normalizedName);
 }
 
-// Image compression
+// Image compression (unchanged)
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -297,13 +350,13 @@ async function handlePassportUpload(e) {
   }
 }
 
-// Load and display students for the teacher's class only
+// Load and display students for the currently selected class
 async function loadAndDisplayStudents() {
-  if (!teacherClassId || !isClassTeacher) return;
+  if (!currentClassId) return;
   let students;
   try {
     const allStudents = await service.getStudentsBySchool(currentSchoolId);
-    students = allStudents.filter(s => s.classId === teacherClassId && s.status === 'active');
+    students = allStudents.filter(s => s.classId === currentClassId && s.status === 'active');
     students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     console.error('Load students error:', err);
@@ -312,7 +365,7 @@ async function loadAndDisplayStudents() {
   }
   if (!studentsContainer) return;
   if (students.length === 0) {
-    studentsContainer.innerHTML = '<p>No active students found in your class.</p>';
+    studentsContainer.innerHTML = '<p>No active students found in this class.</p>';
     return;
   }
   studentsContainer.innerHTML = `
@@ -335,17 +388,17 @@ async function loadAndDisplayStudents() {
             <tr>
               <td>${student.passport ? `<img src="${student.passport}" class="student-passport" style="width:40px;height:40px;object-fit:cover;border-radius:50%;">` : '<div class="student-passport" style="width:40px;height:40px;background:#e2e8f0;border-radius:50%;"></div>'}</td>
               <td>${escapeHtml(student.admissionNumber || '—')}</td>
-              <td>${escapeHtml(student.name)}</td>
-              <td>${escapeHtml(student.email)}</td>
-              <td>${escapeHtml(className)}</td>
+              <td>${escapeHtml(student.name)}</td
+              <td>${escapeHtml(student.email)}</td
+              <td>${escapeHtml(currentClassName)}</td
               <td><select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
                 <option value="active" ${(student.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
                 <option value="inactive" ${student.status === 'inactive' ? 'selected' : ''}>Inactive</option>
                 <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
-              </select></td>
-              <td>${student.locked ? 'Yes' : 'No'}</td>
+              </select></td
+              <td>${student.locked ? 'Yes' : 'No'}</td
               <td><button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
-                  <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button></td>
+                  <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button></td
             </tr>
           `).join('')}
         </tbody>
@@ -357,7 +410,6 @@ async function loadAndDisplayStudents() {
     select.addEventListener('change', async () => {
       const studentId = select.getAttribute('data-id');
       const newStatus = select.value;
-      showLoader();
       try {
         await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
         select.setAttribute('data-current', newStatus);
@@ -366,15 +418,12 @@ async function loadAndDisplayStudents() {
       } catch (err) {
         console.error('Status update error:', err);
         toast.error('Failed to update status. Please try again.');
-      } finally {
-        hideLoader();
       }
     });
   });
   window.editStudent = (id) => openModal(id);
   window.deleteStudent = async (id) => {
     if (confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) {
-      showLoader();
       try {
         await service.deleteStudent(id);
         const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
@@ -386,8 +435,6 @@ async function loadAndDisplayStudents() {
       } catch (err) {
         console.error('Deletion error:', err);
         toast.error('Failed to delete student. Please try again.');
-      } finally {
-        hideLoader();
       }
     }
   };
@@ -395,8 +442,8 @@ async function loadAndDisplayStudents() {
 
 // Modal logic
 function openModal(studentId = null) {
-  if (!isClassTeacher) {
-    toast.error('Access denied: You are not a class teacher.');
+  if (!currentClassId) {
+    toast.error('No class selected. Please refresh the page.');
     return;
   }
   editingStudentId = studentId;
@@ -413,11 +460,11 @@ function openModal(studentId = null) {
   if (religionSelect) religionSelect.value = '';
   if (parentPhoneInput) parentPhoneInput.value = '';
   if (clubInput) clubInput.value = '';
-  if (levelDisplay) levelDisplay.value = classLevel ? classLevel.charAt(0).toUpperCase() + classLevel.slice(1) : '';
-  if (levelHidden) levelHidden.value = classLevel;
-  if (classDisplay) classDisplay.value = className;
-  if (classHidden) classHidden.value = teacherClassId;
-  if (classLevel) loadSubjectsByLevel(classLevel);
+  if (levelDisplay) levelDisplay.value = currentClassLevel ? currentClassLevel.charAt(0).toUpperCase() + currentClassLevel.slice(1) : '';
+  if (levelHidden) levelHidden.value = currentClassLevel;
+  if (classDisplay) classDisplay.value = currentClassName;
+  if (classHidden) classHidden.value = currentClassId;
+  if (currentClassLevel) loadSubjectsByLevel(currentClassLevel);
   if (studentId) {
     modalTitle.textContent = 'Edit Student';
     loadStudentData(studentId);
@@ -475,8 +522,8 @@ function closeModal() {
 // Save / Update student
 async function handleStudentSubmit(e) {
   e.preventDefault();
-  if (!isClassTeacher) {
-    toast.error('Access denied: You are not a class teacher.');
+  if (!currentClassId) {
+    toast.error('No class selected. Please refresh the page.');
     return;
   }
   let admissionNumber = admissionNoInput?.value.trim() ?? '';
@@ -485,8 +532,8 @@ async function handleStudentSubmit(e) {
   const otherName = capitalizeWords(otherNameInput?.value ?? '');
   const fullName = formatFullName(surname, firstName, otherName);
   const email = emailInput?.value.trim() ?? '';
-  const classId = teacherClassId;
-  const level = classLevel;
+  const classId = currentClassId;
+  const level = currentClassLevel;
   const selectedSubjects = Array.from(subjectsSelect?.selectedOptions ?? []).map(o => o.value);
   const status = statusSelect?.value ?? 'active';
   const gender = genderSelect?.value ?? '';
@@ -555,7 +602,6 @@ async function handleStudentSubmit(e) {
     studentBaseData.createdAt = timestamp;
   }
 
-  showLoader();
   try {
     if (editingStudentId) {
       delete studentBaseData.locked;
@@ -581,8 +627,7 @@ async function handleStudentSubmit(e) {
     }
     const uid = userCredential.user.uid;
     const studentDocData = { ...studentBaseData, uid: uid };
-    const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
-    await setDoc(fDoc(db, 'students', uid), studentDocData);
+    await setDoc(doc(db, 'students', uid), studentDocData);
     const userDocData = {
       uid: uid,
       email: email,
@@ -594,15 +639,13 @@ async function handleStudentSubmit(e) {
       level: level,
       createdAt: serverTimestamp(),
     };
-    await setDoc(fDoc(db, 'users', uid), userDocData);
+    await setDoc(doc(db, 'users', uid), userDocData);
     showCredentialsModal(fullName, email, defaultPassword);
     closeModal();
     await loadAndDisplayStudents();
   } catch (error) {
     console.error('Save student error:', error);
     toast.error('Failed to save student. Please try again.');
-  } finally {
-    hideLoader();
   }
 }
 
@@ -651,14 +694,10 @@ function showAccessDenied(message) {
   }
 }
 
-// Main initializer with strict class teacher verification
+// Main initializer
 export async function initOnboardStudentPage() {
   try {
-    const teacherData = await verifyAndGetClassTeacherData();
-    if (!teacherClassId) {
-      throw new Error('No class assigned to this teacher.');
-    }
-
+    // Bind DOM elements
     studentForm = document.getElementById('studentForm');
     modal = document.getElementById('studentModal');
     admissionNoInput = document.getElementById('studentAdmissionNo');
@@ -686,7 +725,10 @@ export async function initOnboardStudentPage() {
     addStudentBtn = document.getElementById('addStudentBtn');
     studentsContainer = document.getElementById('studentsList');
     classInfoContainer = document.getElementById('classInfoContainer');
+    classSelectDropdown = document.getElementById('classSelect');
+    classSelectorRow = document.getElementById('classSelectorRow');
 
+    // Populate country & state dropdowns
     if (nationalitySelect) {
       nationalitySelect.innerHTML = '<option value="">-- Select Country --</option>';
       COUNTRIES.forEach(c => { const opt = document.createElement('option'); opt.value = c; opt.textContent = c; nationalitySelect.appendChild(opt); });
@@ -696,19 +738,23 @@ export async function initOnboardStudentPage() {
       NIGERIAN_STATES.forEach(s => { const opt = document.createElement('option'); opt.value = s; opt.textContent = s; stateSelect.appendChild(opt); });
     }
 
-    if (classInfoContainer) {
-      classInfoContainer.innerHTML = `<i class="fa-solid fa-chalkboard"></i> Your Class: <strong>${escapeHtml(className)}</strong> (${classLevel.charAt(0).toUpperCase() + classLevel.slice(1)})`;
-    }
+    // Load teacher classes and populate dropdown (also sets currentClassId, schoolId, class info)
+    await loadTeacherClassesAndPopulateDropdown();
+    if (!currentClassId) throw new Error('No class assigned.');
 
-    await loadSubjectsByLevel(classLevel);
+    // Load subjects for the current class level
+    await loadSubjectsByLevel(currentClassLevel);
+    // Load students for the current class
     await loadAndDisplayStudents();
 
+    // Attach event listeners
     if (addStudentBtn) addStudentBtn.addEventListener('click', () => openModal());
     document.querySelector('#studentModal .close-modal')?.addEventListener('click', closeModal);
     document.getElementById('cancelModalBtn')?.addEventListener('click', closeModal);
     if (studentForm) studentForm.addEventListener('submit', handleStudentSubmit);
     if (dobInput) dobInput.addEventListener('change', calculateAndDisplayAge);
     if (passportInput) passportInput.addEventListener('change', handlePassportUpload);
+
   } catch (err) {
     console.error('Onboard init error:', err);
     showAccessDenied(err.message || 'You must be a class teacher to onboard students.');

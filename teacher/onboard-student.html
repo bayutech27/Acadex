@@ -249,6 +249,31 @@
       color: #854d0e;
     }
 
+    /* New class selector row */
+    .class-selector-row {
+      background: #f8fafc;
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .class-selector-row label {
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 0;
+    }
+    #classSelect {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: white;
+      font-size: 0.9rem;
+      min-width: 200px;
+    }
+
     /* Mobile adjustments */
     @media (max-width: 768px) {
       .modal-content { width: 95%; padding: 16px; }
@@ -270,7 +295,6 @@
     }
 
     /* ========== FIXES FOR VISIBILITY ========== */
-    /* Fix for the Add Student button */
     .btn-primary {
       background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
       color: white !important;
@@ -294,7 +318,6 @@
       color: white !important;
     }
 
-    /* Fix for the welcome card heading and paragraph */
     .welcome-card {
       display: block !important;
       background: #ffffff !important;
@@ -443,7 +466,14 @@
         <button id="addStudentBtn" class="btn-primary"><i class="fa-solid fa-plus"></i> Add Student</button>
       </div>
 
-      <!-- Class badge & info -->
+      <!-- Class selector (multi-class support) -->
+      <div id="classSelectorRow" class="class-selector-row" style="display: none;">
+        <label><i class="fa-solid fa-chalkboard"></i> Select Class:</label>
+        <select id="classSelect"></select>
+        <span id="classSelectorHint" style="font-size: 0.8rem; color: #64748b;"></span>
+      </div>
+
+      <!-- Class badge & info (shows current class details) -->
       <div id="classInfoContainer" class="class-badge">Loading class information...</div>
 
       <!-- Students List Table -->
@@ -555,7 +585,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

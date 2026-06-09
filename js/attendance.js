@@ -1,16 +1,14 @@
 // attendance.js — Acadex Class Attendance Engine
 // ─────────────────────────────────────────────────────────────────────────────
-// Self-contained module: authenticates the teacher, loads their host class,
+// Self-contained module: authenticates the teacher, loads their host class(es),
 // fetches / saves attendance records from Firestore (via service layer),
 // renders the full attendance table, weekly summary, and term summary.
-//
+// Supports teachers assigned as class teacher of multiple classes (hostClassIds array).
 // Academic calendar (session + term) comes exclusively from the Central
 // Academic Calendar Engine (academic-calendar.js + calendar-sync.js).
-// A real-time Firestore listener + periodic sync keeps the display and
-// all Firestore writes always aligned with the current term/session.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { auth } from './firebase-config.js';
+import { auth, db } from './firebase-config.js';  // ← FIXED: added db import
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser } from './auth.js';
@@ -41,7 +39,7 @@ const MAX_BATCH    = 490;
 // CENTRALIZED STATE
 // ═════════════════════════════════════════════════════════════════════════════
 const STATE = {
-  teacher:    { id: null, schoolId: null, hostClassId: null, name: null },
+  teacher:    { id: null, schoolId: null, hostClassIds: [], name: null },
   academic:   { session: null, term: null },
   school:     { id: null, name: null, address: null, logo: null },
   class:      { id: null, name: null },
@@ -788,6 +786,103 @@ async function loadClassStudents() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// MULTI-CLASS SUPPORT: load teacher host classes and populate dropdown
+// ═════════════════════════════════════════════════════════════════════════════
+async function loadTeacherHostClassesAndPopulateDropdown() {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Not authenticated');
+
+  const teacherRef = doc(db, 'teachers', user.uid);
+  const teacherSnap = await getDoc(teacherRef);
+  if (!teacherSnap.exists()) throw new Error('Teacher record not found');
+
+  const teacherData = teacherSnap.data();
+  STATE.teacher.schoolId = teacherData.schoolId;
+  STATE.school.id = teacherData.schoolId;
+
+  // Determine host class IDs
+  let hostIds = [];
+  if (teacherData.hostClassIds && Array.isArray(teacherData.hostClassIds) && teacherData.hostClassIds.length > 0) {
+    hostIds = teacherData.hostClassIds;
+  } else if (teacherData.hostClassId) {
+    hostIds = [teacherData.hostClassId];
+  } else if (teacherData.classId) {
+    hostIds = [teacherData.classId];
+  }
+
+  if (hostIds.length === 0) {
+    throw new Error('You are not assigned as a class teacher for any class.');
+  }
+  STATE.teacher.hostClassIds = hostIds;
+
+  // Populate dropdown
+  const selectorRow = document.getElementById('classSelectorRow');
+  const classSelect = document.getElementById('classSelect');
+  if (selectorRow && classSelect) {
+    classSelect.innerHTML = '';
+    for (const cid of hostIds) {
+      const classDoc = await getDoc(doc(db, 'classes', cid));
+      if (classDoc.exists()) {
+        const option = document.createElement('option');
+        option.value = cid;
+        option.textContent = classDoc.data().name;
+        classSelect.appendChild(option);
+      }
+    }
+    // Show dropdown only if more than one class
+    if (hostIds.length > 1) {
+      selectorRow.style.display = 'flex';
+    } else {
+      selectorRow.style.display = 'none';
+    }
+    // Set initial selected class
+    STATE.class.id = hostIds[0];
+    classSelect.value = STATE.class.id;
+
+    // Listen for changes
+    classSelect.addEventListener('change', async () => {
+      STATE.class.id = classSelect.value;
+      await refreshClassDataAndAttendance();
+    });
+  } else {
+    // Fallback: use first class only
+    STATE.class.id = hostIds[0];
+  }
+
+  // Load class name
+  await loadClassInfo(STATE.class.id);
+  // Set teacher name
+  STATE.teacher.name = teacherData.name || user.email?.split('@')[0] || 'Teacher';
+}
+
+async function refreshClassDataAndAttendance() {
+  showLoader();
+  try {
+    await loadClassInfo(STATE.class.id);
+    await loadClassStudents();
+    // Reset attendance and modified set
+    STATE.attendance = {};
+    STATE.modified.clear();
+    await loadAttendanceFromFirestore();
+    // Re-render UI
+    renderClassStats();
+    renderAttendanceTable();
+    renderWeeklySummary();
+    renderTermSummary();
+    // Update displayed class name in header
+    const classNameEl = document.getElementById('classNameDisplay');
+    if (classNameEl) {
+      classNameEl.textContent = `${STATE.class.name} — ${STATE.academic.term}, ${STATE.academic.session}`;
+    }
+  } catch (err) {
+    console.error('Error refreshing class data:', err);
+    toast.error('Unable to load data for selected class.');
+  } finally {
+    hideLoader();
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // AUTHENTICATION — Promise-based, unsubscribes after first resolution
 // ═════════════════════════════════════════════════════════════════════════════
 function authenticateTeacher() {
@@ -803,9 +898,7 @@ function authenticateTeacher() {
           window.location.href = '/'; resolve(null); return;
         }
         if (!userData.schoolId) { window.location.href = '/'; resolve(null); return; }
-
-        const teacherData = await service.getTeacherById(user.uid);
-        resolve({ user, userData, teacherData });
+        resolve({ user, userData });
       } catch (err) { reject(err); }
     });
   });
@@ -878,17 +971,9 @@ export async function initAttendancePage() {
   }
   if (!authResult) return;
 
-  const { user, userData, teacherData } = authResult;
-  const hostClassId = teacherData?.hostClassId || null;
-  if (!hostClassId) {
-    showNoClassWarning();
-    return;
-  }
-
+  const { user, userData } = authResult;
   STATE.teacher.id = user.uid;
   STATE.teacher.schoolId = userData.schoolId;
-  STATE.teacher.name = teacherData?.name || userData.email?.split('@')[0] || 'Teacher';
-  STATE.teacher.hostClassId = hostClassId;
   STATE.school.id = userData.schoolId;
 
   showLoader();
@@ -902,19 +987,31 @@ export async function initAttendancePage() {
     toast.error('Unable to determine current academic term. Please refresh.');
     hideLoader();
     return;
-  } finally {
-    hideLoader();
   }
 
   setupCalendarDisplay();
 
-  showLoader();
   try {
+    // Load teacher's host classes and populate dropdown (this also sets STATE.class.id)
+    await loadTeacherHostClassesAndPopulateDropdown();
+    if (!STATE.class.id) {
+      showNoClassWarning();
+      hideLoader();
+      return;
+    }
     await loadSchoolInfo();
-    await loadClassInfo(hostClassId);
     await loadClassStudents();
+    await loadAttendanceFromFirestore();
   } catch (err) {
+    console.error('[Attendance] Data loading error:', err);
+    if (err.message.includes('not assigned as a class teacher')) {
+      showNoClassWarning();
+      hideLoader();
+      return;
+    }
     toast.error('Unable to load page data. Please refresh.');
+    hideLoader();
+    return;
   } finally {
     hideLoader();
   }
@@ -922,15 +1019,6 @@ export async function initAttendancePage() {
   const classNameEl = document.getElementById('classNameDisplay');
   if (classNameEl) {
     classNameEl.textContent = `${STATE.class.name} — ${STATE.academic.term}, ${STATE.academic.session}`;
-  }
-
-  showLoader();
-  try {
-    await loadAttendanceFromFirestore();
-  } catch (err) {
-    toast.error('Unable to restore attendance records.');
-  } finally {
-    hideLoader();
   }
 
   renderClassStats();

@@ -47,6 +47,32 @@
     }
     .btn-save:hover, .btn-print:hover, .btn-download:hover { opacity: 0.88; }
 
+    /* ── Class selector row (multi‑class support) ── */
+    .class-selector-row {
+      background: #f8fafc;
+      padding: 10px 16px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+      border: 1px solid #e2e8f0;
+    }
+    .class-selector-row label {
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 0;
+    }
+    #classSelect {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: white;
+      font-size: 0.9rem;
+      min-width: 200px;
+    }
+
     /* ── Class stats cards ────────────────────────── */
     .class-stats-row {
       display: flex;
@@ -328,7 +354,7 @@
       <a href="teacher-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
        <a href="scores.html">
@@ -337,7 +363,7 @@
       <a href="class.html">
         <i class="fa-solid fa-school"></i> Class
       </a>
-      <a href="attendance.html">
+      <a href="attendance.html" class="active">
         <i class="fa-solid fa-clipboard-list"></i> Class Attendance
       </a>
       <a href="teacher-cbt.html">
@@ -362,7 +388,7 @@
       <a href="teacher-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
       <a href="scores.html">
@@ -371,7 +397,7 @@
       <a href="class.html">
         <i class="fa-solid fa-school"></i> Class
       </a>
-      <a href="attendance.html">
+      <a href="attendance.html" class="active">
         <i class="fa-solid fa-clipboard-list"></i> Class Attendance
       </a>
       <a href="teacher-cbt.html">
@@ -431,6 +457,13 @@
     <!-- ══ Main Content Area ══ -->
     <div class="content">
 
+      <!-- MULTI‑CLASS SELECTOR (hidden if only one class) -->
+      <div id="classSelectorRow" class="class-selector-row" style="display: none;">
+        <label><i class="fa-solid fa-chalkboard"></i> Select Class:</label>
+        <select id="classSelect"></select>
+        <span id="classSelectorHint" style="font-size: 0.8rem; color: #64748b;"></span>
+      </div>
+
       <!-- Page title + action buttons -->
       <div class="attendance-page-header">
         <div>
@@ -475,7 +508,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {
