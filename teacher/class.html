@@ -378,13 +378,13 @@
       <a href="teacher-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
        <a href="scores.html">
         <i class="fa-solid fa-chart-bar"></i> Scores
       </a>
-      <a href="class.html">
+      <a href="class.html" class="active">
         <i class="fa-solid fa-school"></i> Class
       </a>
       <a href="attendance.html">
@@ -412,13 +412,13 @@
       <a href="teacher-dashboard.html">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
       <a href="scores.html">
         <i class="fa-solid fa-chart-bar"></i> Scores
       </a>
-      <a href="class.html">
+      <a href="class.html" class="active">
         <i class="fa-solid fa-school"></i> Class
       </a>
       <a href="attendance.html">
@@ -504,6 +504,11 @@
       <div class="class-report-container">
         <div class="student-list-sidebar print-hide">
           <div class="term-session-sidebar">
+            <!-- NEW: Class selector for report card (only appears if teacher has multiple host classes) -->
+            <div id="classSelectorWrapper" style="display: none;">
+              <label>🏫 Class:</label>
+              <select id="reportClassSelect"></select>
+            </div>
             <div><label>📘 Term:</label> <select id="termSelect"><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option></select></div>
             <div><label>📅 Session:</label> <select id="sessionSelect"></select></div>
             <button id="refreshStudentsBtn" class="btn-secondary" style="padding: 4px 12px;">⟳ Refresh</button>
@@ -561,22 +566,6 @@
     if (state.manualOverride) termEl?.classList.add('override-badge');
     else termEl?.classList.remove('override-badge');
   });
-</script>
-<script>
-  // Register Service Worker for offline navigation
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
-          setInterval(() => registration.update(), 60 * 60 * 1000);
-        })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
-    });
-  }
 </script>
 </body>
 </html>

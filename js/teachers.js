@@ -1,23 +1,17 @@
 // teachers.js - Manage teachers (primary exemption + Auth deletion via Cloud Function)
 // All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support teacher deletion (cloud function) or conflict checks – those remain direct.
-// All user-facing errors now show clear, friendly messages without technical jargon.
-//
-// MODIFIED: COMPLETELY REMOVED all subject conflict checks - multiple teachers can share the same subject.
-// MODIFIED: "Class Teacher" input now supports multiple class selection (optional).
-// - Multi-select with helper text "Leave empty if not a class teacher".
-// - Teacher data stores hostClassIds (array).
-// - Class teacher conflict check PRESERVED (only one teacher per class).
+// MODIFIED: Removed Subjects column from teacher list.
+// MODIFIED: Fixed malformed HTML table cells.
+// All other functionality unchanged.
 
 import { db, auth, functions } from './firebase-config.js';
 import {
-  collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp, onSnapshot
+  collection, getDocs, deleteDoc, doc, updateDoc, query, where, getDoc, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-functions.js';
 import { getCurrentSchoolId } from './admin.js';
-import { isSubscriptionActive } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import * as service from './service.js';
 
@@ -57,7 +51,6 @@ export async function initTeachersPage() {
     return;
   }
 
-  // Ensure multi-select for class teacher
   if (classTeacherSelect && !classTeacherSelect.multiple) {
     classTeacherSelect.multiple = true;
   }
@@ -254,24 +247,23 @@ async function loadTeachers() {
       return;
     }
 
+    // Build table HTML – note proper <td> tags with closing angle brackets.
     const html = `
       <div class="table-responsive-wrapper">
         <table class="data-table">
           <colgroup>
-            <col style="width: 18%">
             <col style="width: 20%">
-            <col style="width: 8%">
+            <col style="width: 25%">
             <col style="width: 10%">
-            <col style="width: 18%">
-            <col style="width: 12%">
-            <col style="width: 14%">
+            <col style="width: 20%">
+            <col style="width: 15%">
+            <col style="width: 10%">
           </colgroup>
           <thead>
             <tr>
               <th>Name</th>
               <th>Email</th>
               <th>Level</th>
-              <th>Subjects</th>
               <th>Classes</th>
               <th>Class Teacher</th>
               <th>Actions</th>
@@ -279,9 +271,6 @@ async function loadTeachers() {
           </thead>
           <tbody>
             ${teachers.map(teacher => {
-              const subjectNames = (teacher.subjectIds || [])
-                .map(subjectId => subjectsMap.get(subjectId)?.name || subjectId)
-                .join(', ') || '-';
               const classNames = (teacher.classIds || [])
                 .map(classId => classesMap.get(classId)?.name || classId)
                 .join(', ') || '-';
@@ -289,18 +278,18 @@ async function loadTeachers() {
                 .map(classId => classesMap.get(classId)?.name || classId)
                 .join(', ') || '-';
               const levelDisplay = teacher.level === 'primary' ? 'Primary' : (teacher.level === 'secondary' ? 'Secondary' : '—');
+              // IMPORTANT: Each <td> must be closed properly, and the whole row must be valid.
               return `
                 <tr>
-                  <td>${escapeHtml(teacher.name)}</td
-                  <td>${escapeHtml(teacher.email)}</td
-                  <td>${levelDisplay}</td
-                  <td>${escapeHtml(subjectNames)}</td
-                  <td>${escapeHtml(classNames)}</td
-                  <td>${escapeHtml(hostClassNames)}</td
+                  <td>${escapeHtml(teacher.name)}</td>
+                  <td>${escapeHtml(teacher.email)}</td>
+                  <td>${escapeHtml(levelDisplay)}</td>
+                  <td>${escapeHtml(classNames)}</td>
+                  <td>${escapeHtml(hostClassNames)}</td>
                   <td>
                     <button class="btn-secondary" onclick="window.editTeacher('${teacher.id}')">Edit</button>
                     <button class="btn-danger" onclick="window.deleteTeacher('${teacher.id}')">Delete</button>
-                    </td
+                  </td>
                 </tr>
               `;
             }).join('')}
@@ -420,9 +409,7 @@ function closeModal() {
   currentTeacherLevel = null;
 }
 
-// =============================================================================
-// CLASS TEACHER CONFLICT CHECK - PRESERVED (only one teacher per class)
-// =============================================================================
+// No subject conflict check – teachers can share subjects.
 async function checkClassTeacherConflict(hostClassIds, level, excludeTeacherId = null) {
   if (!hostClassIds || hostClassIds.length === 0) return null;
   
@@ -473,13 +460,9 @@ async function handleTeacherSubmit(e) {
     return;
   }
 
-  // NO SUBJECT CONFLICT CHECK - Teachers can share subjects freely
-
   if (isClassTeacher) {
     const classTeacherConflictMsg = await checkClassTeacherConflict(selectedHostClassIds, level, editingTeacherId);
-    if (classTeacherConflictMsg) {
-      return;
-    }
+    if (classTeacherConflictMsg) return;
   }
 
   const teacherDataObj = {

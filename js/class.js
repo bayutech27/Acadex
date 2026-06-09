@@ -1,16 +1,18 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// All Firestore operations now go through service.js (cache + offline queue).
-// All user-facing errors now show clear, friendly messages without technical jargon.
+// MODIFIED: Supports multiple class teacher assignments (hostClassIds array).
+// FIXED: loadTeacherHostClasses now uses auth.currentUser.uid instead of teacherData.uid.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
+import { auth } from './firebase-config.js';
 
 let currentSchoolId = null;
 let teacherData = null;
-let classId = null;
+let currentClassId = null;          // Currently selected class ID (for report card)
+let hostClassIds = [];              // Array of class IDs where teacher is class teacher
 let classNameCache = '';
 let currentGrading = { ca: 40, exam: 60 };
 let classesMap = new Map();
@@ -122,26 +124,46 @@ function getGradeRemark(grade) {
   return remarks[grade] || '';
 }
 
-function getTermSuffix(t) {
-  return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd';
+// ==================== DATA LOADING ====================
+async function loadTeacherHostClasses() {
+  try {
+    // Use the authenticated user's UID directly
+    const user = auth.currentUser;
+    if (!user || !user.uid) {
+      console.error('No authenticated user');
+      toast.error('You are not logged in. Please refresh the page.');
+      return false;
+    }
+    const teacherUid = user.uid;
+    const teacher = await service.getTeacherById(teacherUid);
+    if (!teacher) {
+      console.error('Teacher document not found for UID:', teacherUid);
+      toast.error('Teacher record not found. Please contact support.');
+      return false;
+    }
+    if (teacher.hostClassIds && teacher.hostClassIds.length > 0) {
+      hostClassIds = teacher.hostClassIds;
+    } else if (teacher.hostClassId) {
+      // Backward compatibility: single hostClassId
+      hostClassIds = [teacher.hostClassId];
+    } else {
+      hostClassIds = [];
+      toast.error('You are not assigned as a class teacher for any class.');
+      window.location.href = 'teacher-dashboard.html';
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Load teacher host classes error:', err);
+    toast.error('Unable to load your assigned classes. Please refresh the page.');
+    return false;
+  }
 }
 
-function calculateAge(dobString) {
-  if (!dobString) return null;
-  const birthDate = new Date(dobString);
-  const today = new Date();
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-  return age;
-}
-
-// ==================== DYNAMIC SESSION OPTIONS ====================
 async function loadSessionOptions(schoolId) {
   return await service.loadSessionOptions(schoolId);
 }
 
-// ------------------- Grading loading via service -------------------
 async function loadGradingSettingByLevel(level, session, term) {
   if (!level) { currentGrading = { ca: 40, exam: 60 }; return; }
   try {
@@ -158,7 +180,6 @@ async function loadGradingSettingByLevel(level, session, term) {
       }
     }
     if (!grading) {
-      // Try document ID fallback – service does not have this pattern, so direct read (rare)
       const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db } = await import('./firebase-config.js');
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
@@ -197,17 +218,16 @@ async function loadGradingSetting(session, term, classLevel = null) {
   }
 }
 
-// ------------------- Data Loading via service -------------------
 async function fetchClassName() {
   try {
-    const classData = await service.getClassById(classId);
-    classNameCache = classData ? classData.name : classId;
+    const classData = await service.getClassById(currentClassId);
+    classNameCache = classData ? classData.name : currentClassId;
     if (classData) {
-      classesMap.set(classId, { name: classData.name, level: classData.level });
+      classesMap.set(currentClassId, { name: classData.name, level: classData.level });
     }
   } catch(e) {
     console.warn(e);
-    classNameCache = classId;
+    classNameCache = currentClassId;
   }
 }
 
@@ -332,7 +352,7 @@ async function loadReportCard(studentId, studentName) {
   reportState.session = document.getElementById('sessionSelect').value;
 
   const student       = studentsList.find(s => s.id === studentId);
-  const studentClassId = student ? student.classId : classId;
+  const studentClassId = student ? student.classId : currentClassId;
   let classLevel = null;
   if (studentClassId && classesMap.has(studentClassId)) {
     classLevel = classesMap.get(studentClassId).level;
@@ -434,7 +454,7 @@ async function saveReportCard() {
   const overallGrade    = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
 
   const reportData = {
-    studentId: reportState.selectedStudent.id, classId, schoolId: currentSchoolId,
+    studentId: reportState.selectedStudent.id, classId: currentClassId, schoolId: currentSchoolId,
     term: reportState.term, session: reportState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: reportState.psychomotor,
@@ -582,77 +602,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ========== BROADSHEET PRINT ==========
-function printBroadsheet() {
-  const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { toast.error('No broadsheet to print.'); return; }
-  const originalContent = container.cloneNode(true);
-  const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) { toast.error('Please allow pop-ups to print.'); return; }
-  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
-  const printCSS = `
-    @page { size: A4 landscape; margin: 1cm; }
-    body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; font-size:10px; }
-    .broadsheet-table { width:100%; border-collapse:collapse; font-size:8px; }
-    .broadsheet-table th, .broadsheet-table td { border:1px solid #000; padding:4px 3px; text-align:center; vertical-align:middle; }
-    .student-name-cell { text-align:left !important; }
-    .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
-    tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
-  `;
-  printWindow.document.write(`
-    <!DOCTYPE html><html><head><title>${title}</title>
-    <link rel="stylesheet" href="${externalCssUrl}">
-    <style>${inlineStyles}${printCSS}</style>
-    </head><body>${originalContent.outerHTML}</body></html>
-  `);
-  printWindow.document.close();
-  printWindow.print();
-}
-
-async function loadClassStudents() {
-  reportState.term    = document.getElementById('termSelect').value;
-  reportState.session = document.getElementById('sessionSelect').value;
-  await loadGradingSetting(reportState.session, reportState.term);
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  const container = document.getElementById('studentListContainer');
-  if (!container) return;
-
-  const titleHtml = `<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px;border-radius:8px 8px 0 0;font-weight:bold;font-size:1.1rem;margin-bottom:5px;text-align:center;">📋 Students in Class</div>`;
-
-  if (!classStudents.length) {
-    container.innerHTML = titleHtml + '<p style="padding:20px;background:#f8f9fa;border-radius:0 0 8px 8px;">No students</p>';
-    return;
-  }
-
-  let html = titleHtml + '<div style="background:#fff;border-radius:0 0 8px 8px;overflow:hidden;">';
-  classStudents.forEach(s => {
-    html += `<div class="student-list-item" data-id="${s.id}" style="padding:12px 15px;border-bottom:1px solid #e0e0e0;background-color:#f8f9fa;cursor:pointer;transition:all 0.2s;font-weight:500;">${escapeHtml(s.name)}</div>`;
-  });
-  html += '</div>';
-  container.innerHTML = html;
-
-  if (!document.querySelector('#student-list-styles')) {
-    const style = document.createElement('style');
-    style.id = 'student-list-styles';
-    style.textContent = `
-      .student-list-item:hover { background-color:#e9ecef !important; transform:translateX(5px); }
-      .student-list-item.active { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%) !important; color:#fff !important; border-left:4px solid gold; }
-    `;
-    document.head.appendChild(style);
-  }
-
-  document.querySelectorAll('.student-list-item').forEach(el => {
-    el.addEventListener('click', async () => {
-      document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
-      el.classList.add('active');
-      await loadReportCard(el.dataset.id, el.textContent.trim());
-    });
-  });
-}
-
-// ==================== BROADSHEET FUNCTIONS ====================
+// ========== BROADSHEET FUNCTIONS ==========
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -770,7 +720,7 @@ async function generateBroadsheet() {
     html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
     html += `<tr><th></th><th></th>`;
     for (let i = 0; i < relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
-    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></table></thead><tbody>`;
+    html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
       html += `<tr><td class="sn-cell">${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
@@ -824,45 +774,158 @@ async function saveBroadsheetToFirestore() {
   }
 }
 
+function printBroadsheet() {
+  const container = document.getElementById('broadsheetContainer');
+  if (!container || !container.innerHTML.trim()) { toast.error('No broadsheet to print.'); return; }
+  const originalContent = container.cloneNode(true);
+  const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) { toast.error('Please allow pop-ups to print.'); return; }
+  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+  const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+  const printCSS = `
+    @page { size: A4 landscape; margin: 1cm; }
+    body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; font-size:10px; }
+    .broadsheet-table { width:100%; border-collapse:collapse; font-size:8px; }
+    .broadsheet-table th, .broadsheet-table td { border:1px solid #000; padding:4px 3px; text-align:center; vertical-align:middle; }
+    .student-name-cell { text-align:left !important; }
+    .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
+    tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
+  `;
+  printWindow.document.write(`
+    <!DOCTYPE html><html><head><title>${title}</title>
+    <link rel="stylesheet" href="${externalCssUrl}">
+    <style>${inlineStyles}${printCSS}</style>
+    </head><body>${originalContent.outerHTML}</body></html>
+  `);
+  printWindow.document.close();
+  printWindow.print();
+}
+
+// ==================== CLASS STUDENTS & SELECTION ====================
+async function loadClassStudents() {
+  if (!currentClassId) return;
+  
+  reportState.term    = document.getElementById('termSelect').value;
+  reportState.session = document.getElementById('sessionSelect').value;
+  await loadGradingSetting(reportState.session, reportState.term);
+  
+  const classStudents = studentsList.filter(s => s.classId === currentClassId);
+  const container = document.getElementById('studentListContainer');
+  if (!container) return;
+
+  const titleHtml = `<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:12px;border-radius:8px 8px 0 0;font-weight:bold;font-size:1.1rem;margin-bottom:5px;text-align:center;">📋 Students in ${escapeHtml(classNameCache)}</div>`;
+
+  if (!classStudents.length) {
+    container.innerHTML = titleHtml + '<p style="padding:20px;background:#f8f9fa;border-radius:0 0 8px 8px;">No students</p>';
+    document.getElementById('reportCardContent').innerHTML = '<p style="text-align:center; padding:2rem;">No students in this class</p>';
+    document.getElementById('reportActions').style.display = 'none';
+    return;
+  }
+
+  let html = titleHtml + '<div style="background:#fff;border-radius:0 0 8px 8px;overflow:hidden;">';
+  classStudents.forEach(s => {
+    html += `<div class="student-list-item" data-id="${s.id}" style="padding:12px 15px;border-bottom:1px solid #e0e0e0;background-color:#f8f9fa;cursor:pointer;transition:all 0.2s;font-weight:500;">${escapeHtml(s.name)}</div>`;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+
+  document.querySelectorAll('.student-list-item').forEach(el => {
+    el.addEventListener('click', async () => {
+      document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
+      el.classList.add('active');
+      await loadReportCard(el.dataset.id, el.textContent.trim());
+    });
+  });
+
+  const firstStudent = classStudents[0];
+  if (firstStudent) {
+    const firstEl = document.querySelector('.student-list-item');
+    if (firstEl) firstEl.classList.add('active');
+    await loadReportCard(firstStudent.id, firstStudent.name);
+  }
+}
+
+async function onClassChange() {
+  const newClassId = document.getElementById('reportClassSelect')?.value || hostClassIds[0];
+  if (!newClassId) return;
+  currentClassId = newClassId;
+  await fetchClassName();
+  await loadClassStudents();
+}
+
+async function populateClassSelectors() {
+  // Populate broadsheet class select
+  const broadsheetSelect = document.getElementById('broadsheetClassSelect');
+  if (broadsheetSelect) {
+    broadsheetSelect.innerHTML = '<option value="">-- Select Class --</option>';
+    for (const cid of hostClassIds) {
+      const classInfo = classesMap.get(cid);
+      if (classInfo) {
+        const option = document.createElement('option');
+        option.value = cid;
+        option.textContent = classInfo.name;
+        broadsheetSelect.appendChild(option);
+      }
+    }
+    if (hostClassIds.length === 1) {
+      broadsheetSelect.value = hostClassIds[0];
+    }
+  }
+
+  // Populate report card class selector (if more than one class)
+  const reportClassWrapper = document.getElementById('classSelectorWrapper');
+  const reportClassSelect = document.getElementById('reportClassSelect');
+  if (reportClassWrapper && reportClassSelect) {
+    if (hostClassIds.length > 1) {
+      reportClassWrapper.style.display = 'flex';
+      reportClassSelect.innerHTML = '';
+      for (const cid of hostClassIds) {
+        const classInfo = classesMap.get(cid);
+        if (classInfo) {
+          const option = document.createElement('option');
+          option.value = cid;
+          option.textContent = classInfo.name;
+          reportClassSelect.appendChild(option);
+        }
+      }
+      reportClassSelect.value = hostClassIds[0];
+      reportClassSelect.addEventListener('change', onClassChange);
+    } else {
+      reportClassWrapper.style.display = 'none';
+    }
+  }
+  
+  currentClassId = hostClassIds[0];
+  await fetchClassName();
+  await loadClassStudents();
+}
+
 // ------------------- Initialisation -------------------
 export async function initClassReportPage() {
   teacherData = getTeacherData();
   if (!teacherData) return;
-  classId = teacherData.hostClassId || teacherData.classTeacherId;
-  if (!classId) {
-    toast.error('You are not assigned as a class teacher.');
-    window.location.href = 'teacher-dashboard.html';
-    return;
-  }
+  
   currentSchoolId = teacherData.schoolId || localStorage.getItem('userSchoolId');
   if (!currentSchoolId) { toast.error('School ID missing. Please log in again.'); return; }
 
   await initAcademicCalendar();
   await checkSubscription();
-  await fetchClassName();
+  
+  const success = await loadTeacherHostClasses();
+  if (!success) return;
+  
   await loadSubjectsAndClasses();
   await loadStudentsList();
-
-  const broadsheetClassSelect = document.getElementById('broadsheetClassSelect');
-  if (broadsheetClassSelect) {
-    broadsheetClassSelect.innerHTML = '';
-    const classInfo = classesMap.get(classId);
-    const option = document.createElement('option');
-    option.value = classId;
-    option.textContent = escapeHtml(classInfo ? classInfo.name : (classNameCache || classId));
-    broadsheetClassSelect.appendChild(option);
-    broadsheetClassSelect.disabled = false;
-    broadsheetClassSelect.value = classId;
-  }
-
+  await populateClassSelectors();
+  
   const distinctSessions = await loadSessionOptions(currentSchoolId);
   const currentSession   = getCurrentSession();
   if (!distinctSessions.includes(currentSession)) distinctSessions.unshift(currentSession);
-
   const currentTermNum = getCurrentTerm();
-  const termMap        = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum = termMap[currentTermNum] || '1';
-
+  
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
     sessionSelect.innerHTML = distinctSessions.map(s =>
@@ -875,15 +938,12 @@ export async function initClassReportPage() {
       `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
     ).join('');
   }
-
+  
   const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
   if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTermNum;
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;
-
-  await loadGradingSetting(currentSession, defaultTermNum);
-  await loadClassStudents();
-
+  
   document.getElementById('termSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('sessionSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('refreshStudentsBtn')?.addEventListener('click', () => loadClassStudents());
@@ -893,4 +953,8 @@ export async function initClassReportPage() {
   document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
+  
+  if (hostClassIds.length === 1) {
+    await loadClassStudents();
+  }
 }
