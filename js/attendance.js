@@ -8,7 +8,7 @@
 // Academic Calendar Engine (academic-calendar.js + calendar-sync.js).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { auth, db } from './firebase-config.js';  // ← FIXED: added db import
+import { auth, db } from './firebase-config.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { logoutUser } from './auth.js';
@@ -87,6 +87,12 @@ function escapeHtml(str) {
   if (!str) return '';
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return String(str).replace(/[&<>"']/g, c => map[c]);
+}
+
+// ===== NEW: Truncate name for display (keeps full name in data) =====
+function truncateName(name, maxLen = 10) {
+  if (!name) return '';
+  return name.length > maxLen ? name.slice(0, maxLen) + '…' : name;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -390,7 +396,10 @@ function buildTableBody() {
 
     const tdName = document.createElement('td');
     tdName.className = 'td-name sticky-col sticky-name';
-    tdName.textContent = student.name;
+    // --- TRUNCATE DISPLAYED NAME, but keep full name in tooltip ---
+    const displayName = truncateName(student.name);
+    tdName.textContent = displayName;
+    tdName.title = student.name; // full name on hover
     tdName.style.paddingTop = '14px';
     tdName.style.paddingBottom = '14px';
     tdName.style.minHeight = '56px';
