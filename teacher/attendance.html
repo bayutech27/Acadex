@@ -277,6 +277,49 @@
       .action-buttons { width: 100%; }
       .btn-save, .btn-print, .btn-download { flex: 1; text-align: center; }
       .term-summary-grid { grid-template-columns: 1fr; }
+
+      /* ---- Reduce name column width to fit more checkboxes ---- */
+      .sticky-name {
+        left: 36px;
+        min-width: 70px !important;
+        width: 70px !important;
+        padding: 2px 4px !important;
+        font-size: 0.75rem !important;
+      }
+      .td-name {
+        padding: 2px 4px !important;
+        font-size: 0.75rem !important;
+        min-height: 40px !important;
+      }
+      .attendance-table {
+        font-size: 0.6rem !important;
+      }
+      .attendance-table th,
+      .attendance-table td {
+        padding: 2px 2px !important;
+      }
+      .att-checkbox {
+        width: 12px !important;
+        height: 12px !important;
+      }
+      .td-check {
+        width: 16px !important;
+        max-width: 16px !important;
+        padding: 1px 0 !important;
+      }
+      .sticky-sn {
+        min-width: 28px !important;
+        width: 28px !important;
+        font-size: 0.65rem !important;
+      }
+      .sticky-total {
+        min-width: 32px !important;
+        width: 32px !important;
+        font-size: 0.65rem !important;
+      }
+      /* Adjust sticky header positions (they stay same) */
+      .attendance-table thead tr:nth-child(2) th { top: 26px; }
+      .attendance-table thead tr:nth-child(3) th { top: 50px; }
     }
 
     /* ══════════════════════════════════════════════
