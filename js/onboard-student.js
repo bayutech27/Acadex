@@ -53,7 +53,7 @@ function getSecondaryAuth() {
   return secondaryAuth;
 }
 
-// Nigerian states & countries (unchanged)
+// Nigerian states & countries
 const NIGERIAN_STATES = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
   "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa",
@@ -118,12 +118,12 @@ function calculateAndDisplayAge() {
 /**
  * Load teacher's host classes and populate dropdown.
  * Returns true if at least one class is assigned.
+ * Enhanced: also queries classes collection for teacherId.
  */
 async function loadTeacherClassesAndPopulateDropdown() {
   const user = auth.currentUser;
   if (!user) throw new Error('Not authenticated');
 
-  // Direct read from teachers collection
   const teacherRef = doc(db, 'teachers', user.uid);
   const teacherSnap = await getDoc(teacherRef);
   if (!teacherSnap.exists()) throw new Error('Teacher record not found');
@@ -132,19 +132,38 @@ async function loadTeacherClassesAndPopulateDropdown() {
   currentSchoolId = teacherData.schoolId;
   if (!currentSchoolId) throw new Error('School ID missing from teacher record');
 
-  // Determine host class IDs
+  // 1. Get host class IDs from teacher document (if any)
+  let hostIds = [];
   if (teacherData.hostClassIds && Array.isArray(teacherData.hostClassIds) && teacherData.hostClassIds.length > 0) {
-    teacherHostClassIds = teacherData.hostClassIds;
+    hostIds = teacherData.hostClassIds;
   } else if (teacherData.hostClassId) {
-    teacherHostClassIds = [teacherData.hostClassId];
+    hostIds = [teacherData.hostClassId];
   } else if (teacherData.classId) {
-    teacherHostClassIds = [teacherData.classId];
-  } else {
-    teacherHostClassIds = [];
+    hostIds = [teacherData.classId];
   }
 
-  if (teacherHostClassIds.length === 0) {
+  // 2. Also query the classes collection for any class where teacherId === user.uid
+  try {
+    const classesQuery = query(collection(db, 'classes'), where('teacherId', '==', user.uid));
+    const classesSnap = await getDocs(classesQuery);
+    const classIdsFromQuery = classesSnap.docs.map(doc => doc.id);
+    // Merge with existing, avoid duplicates
+    hostIds = [...new Set([...hostIds, ...classIdsFromQuery])];
+  } catch (err) {
+    console.warn('Could not query classes for teacherId:', err);
+    // Continue with whatever hostIds we have
+  }
+
+  if (hostIds.length === 0) {
     throw new Error('You are not assigned as a class teacher for any class.');
+  }
+
+  teacherHostClassIds = hostIds;
+
+  // Update teacher document with merged hostClassIds if they differ (optional but helpful)
+  if (hostIds.length > 0 && !teacherData.hostClassIds) {
+    // Only set if not already an array
+    await updateDoc(teacherRef, { hostClassIds: hostIds });
   }
 
   // Build class options for dropdown
@@ -161,7 +180,6 @@ async function loadTeacherClassesAndPopulateDropdown() {
         classSelect.appendChild(option);
       }
     }
-    // Show the dropdown row if more than one class
     const selectorRow = document.getElementById('classSelectorRow');
     if (selectorRow) {
       selectorRow.style.display = teacherHostClassIds.length > 1 ? 'flex' : 'none';
@@ -169,19 +187,16 @@ async function loadTeacherClassesAndPopulateDropdown() {
     // Set first class as current
     currentClassId = teacherHostClassIds[0];
     classSelect.value = currentClassId;
-    // Listen for changes
     classSelect.addEventListener('change', async () => {
       currentClassId = classSelect.value;
       await loadCurrentClassInfo();
       await loadSubjectsByLevel(currentClassLevel);
       await loadAndDisplayStudents();
-      // Update the fixed class field in modal
       if (classDisplay) classDisplay.value = currentClassName;
       if (classHidden) classHidden.value = currentClassId;
     });
   }
 
-  // Load class info for the first class
   await loadCurrentClassInfo();
   return true;
 }
@@ -193,12 +208,10 @@ async function loadCurrentClassInfo() {
   currentClassName = classDoc.data().name;
   currentClassLevel = classDoc.data().level;
 
-  // Update class info container
   if (classInfoContainer) {
     classInfoContainer.innerHTML = `<i class="fa-solid fa-chalkboard"></i> Current Class: <strong>${escapeHtml(currentClassName)}</strong> (${currentClassLevel.charAt(0).toUpperCase() + currentClassLevel.slice(1)})`;
   }
 
-  // Update school name for admission number
   const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
   if (schoolDoc.exists()) schoolName = schoolDoc.data().name || '';
 }
@@ -281,7 +294,7 @@ async function isDuplicateStudentName(fullName, classId, excludeStudentId = null
   return classStudents.some(s => s.id !== excludeStudentId && (s.name || '').toLowerCase() === normalizedName);
 }
 
-// Image compression (unchanged)
+// Image compression
 async function compressAndResizeImage(file, maxSizeKB = 750, targetWidth = 100, targetHeight = 100) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -351,6 +364,7 @@ async function handlePassportUpload(e) {
 }
 
 // Load and display students for the currently selected class
+// FIXED: Uses proper table-container class for scrolling
 async function loadAndDisplayStudents() {
   if (!currentClassId) return;
   let students;
@@ -369,7 +383,7 @@ async function loadAndDisplayStudents() {
     return;
   }
   studentsContainer.innerHTML = `
-    <div class="table-responsive-wrapper">
+    <div class="table-container">
       <table class="data-table">
         <thead>
           <tr>
@@ -388,17 +402,17 @@ async function loadAndDisplayStudents() {
             <tr>
               <td>${student.passport ? `<img src="${student.passport}" class="student-passport" style="width:40px;height:40px;object-fit:cover;border-radius:50%;">` : '<div class="student-passport" style="width:40px;height:40px;background:#e2e8f0;border-radius:50%;"></div>'}</td>
               <td>${escapeHtml(student.admissionNumber || '—')}</td>
-              <td>${escapeHtml(student.name)}</td
-              <td>${escapeHtml(student.email)}</td
-              <td>${escapeHtml(currentClassName)}</td
+              <td>${escapeHtml(student.name)}</td>
+              <td>${escapeHtml(student.email)}</td>
+              <td>${escapeHtml(currentClassName)}</td>
               <td><select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
                 <option value="active" ${(student.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
                 <option value="inactive" ${student.status === 'inactive' ? 'selected' : ''}>Inactive</option>
                 <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
-              </select></td
-              <td>${student.locked ? 'Yes' : 'No'}</td
+              </select></td>
+              <td>${student.locked ? 'Yes' : 'No'}</td>
               <td><button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
-                  <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button></td
+                  <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button></td>
             </tr>
           `).join('')}
         </tbody>
