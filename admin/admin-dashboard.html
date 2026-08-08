@@ -363,7 +363,7 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
+      <a href="admin-dashboard.html" class="active">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
       <a href="teachers.html">
@@ -378,8 +378,14 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
@@ -394,7 +400,7 @@
       </button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
+      <a href="admin-dashboard.html" class="active">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
       <a href="teachers.html">
@@ -409,8 +415,14 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="mobile-logout-wrapper">
@@ -427,7 +439,6 @@
     <!-- ---- TOP HEADER ---- -->
     <header class="header">
       <div class="school-header-left">
-        <!-- Logo (hidden on mobile via CSS) -->
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon" title="Change logo">
@@ -435,24 +446,19 @@
           </div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
-        <!-- School name & address -->
         <div class="school-name">
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
       </div>
 
-      <!-- Right controls -->
       <div class="header-right">
-        <!-- Hamburger (mobile only) -->
         <button class="hamburger-menu" aria-label="Open menu">
           <i class="fa-solid fa-bars"></i>
         </button>
-        <!-- Subscription status -->
         <div id="subscriptionBadge" class="subscription-badge">
           <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading&hellip;
         </div>
-        <!-- Logout (desktop only) -->
         <button id="logoutBtn" class="logout-btn">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -640,7 +646,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

@@ -228,7 +228,7 @@
 <body>
 <div class="dashboard-container">
 
-  <!-- ===================== DESKTOP SIDEBAR ===================== -->
+  <!-- DESKTOP SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -253,11 +253,17 @@
       <a href="teacher-attendance.html" class="active">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
       </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
+      </a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <!-- MOBILE SIDEBAR -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -284,6 +290,12 @@
       <a href="teacher-attendance.html" class="active">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
       </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
+      </a>
     </nav>
     <div class="mobile-logout-wrapper">
       <button class="mobile-logout-btn">
@@ -293,7 +305,7 @@
   </div>
   <div id="overlay" class="overlay"></div>
 
-  <!-- ===================== MAIN CONTENT ===================== -->
+  <!-- MAIN CONTENT -->
   <main class="main-content">
 
     <!-- HEADER -->
@@ -380,7 +392,6 @@
               <option value="500">500 m — Very large campus</option>
             </select>
           </div>
-          <!-- ★ NEW: Official Resumption Time -->
           <div class="form-group">
             <label>Official Resumption Time</label>
             <select id="officialResumeTime">
@@ -391,7 +402,6 @@
               <option value="09:00">9:00 AM</option>
             </select>
           </div>
-          <!-- ★ UPDATED: Late after minutes (grace period) -->
           <div class="form-group">
             <label>Late after (minutes past official time)</label>
             <select id="geofenceLateThreshold">
@@ -603,7 +613,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

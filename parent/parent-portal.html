@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Parent Portal - Acadex</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="../css/card-3d.css" />
+  <link rel="stylesheet" href="../css/styles.css" />
+  <style>
+    /* parent portal specific */
+    .child-card { cursor: pointer; transition: all 0.2s; }
+    .child-card.active { border-color: var(--primary); background: var(--primary-glow); }
+    .detail-section { margin-top: 2rem; }
+    .detail-card { background: white; border-radius: var(--r-lg); padding: 1.5rem; box-shadow: var(--shadow-sm); margin-bottom: 1.5rem; }
+    .fee-status { font-weight: 700; }
+    .fee-status.paid { color: var(--success); }
+    .fee-status.partial { color: var(--warning); }
+    .fee-status.unpaid { color: var(--danger); }
+    .fee-status.not-set { color: var(--text-500); }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+  <!-- sidebar (desktop) with only Dashboard link -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="parent-portal.html" class="active"><i class="fa-solid fa-house"></i> Dashboard</a>
+    </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
+  </aside>
+
+  <!-- mobile sidebar (same) -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="parent-portal.html" class="active"><i class="fa-solid fa-house"></i> Dashboard</a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <main class="main-content">
+    <!-- header (no subscription badge) -->
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo" />
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu"><i class="fa-solid fa-bars"></i></button>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      </div>
+    </header>
+
+    <!-- academic badge -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- greeting -->
+      <div class="welcome-card">
+        <h1 id="greetingText">Good Morning, Parent</h1>
+        <p>Welcome to your child's academic dashboard.</p>
+      </div>
+
+      <!-- children chips -->
+      <div id="childrenContainer" style="display:flex; flex-wrap:wrap; gap:0.75rem; margin-bottom:2rem;">
+        <!-- rendered by JS -->
+      </div>
+
+      <!-- selected child details -->
+      <div id="selectedChildDetail" style="display:none;">
+        <div class="detail-card" id="childProfileCard">
+          <div style="display:flex; align-items:center; gap:1rem;">
+            <img id="childPhoto" src="" alt="Child photo" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid var(--primary);" />
+            <div>
+              <h2 id="childNameDisplay"></h2>
+              <p id="childClassDisplay"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- attendance summary -->
+        <div class="detail-card">
+          <h3>Attendance (This Term)</h3>
+          <div id="attendanceSummary" style="display:flex; gap:2rem; flex-wrap:wrap;">
+            <div><strong>Present:</strong> <span id="attPresent">0</span></div>
+            <div><strong>Absent:</strong> <span id="attAbsent">0</span></div>
+            <div><strong>Percentage:</strong> <span id="attPercent">0%</span></div>
+          </div>
+        </div>
+
+        <!-- fees status -->
+        <div class="detail-card">
+          <h3>School Fees</h3>
+          <div id="feesStatus">
+            <div>Fee Amount: <span id="feeAmount">Not set</span></div>
+            <div>Total Paid: <span id="totalPaid">₦0</span></div>
+            <div>Arrears: <span id="arrears" class="fee-status">₦0</span></div>
+          </div>
+        </div>
+
+        <!-- CBT scores -->
+        <div class="detail-card">
+          <h3>CBT Test Scores</h3>
+          <div id="cbtScoresList"><p class="no-data-msg">No CBT scores available.</p></div>
+        </div>
+
+        <!-- subject scores -->
+        <div class="detail-card">
+          <h3>Subject Scores (This Term)</h3>
+          <div id="subjectScoresList"><p class="no-data-msg">No subject scores recorded.</p></div>
+        </div>
+
+        <!-- report card section -->
+        <div class="detail-card">
+          <h3>Report Card</h3>
+          <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <div class="form-group" style="margin:0;">
+              <label for="reportTermSelect">Term</label>
+              <select id="reportTermSelect"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label for="reportSessionSelect">Session</label>
+              <select id="reportSessionSelect"></select>
+            </div>
+            <button id="loadReportBtn" class="btn-primary">Load Report</button>
+          </div>
+          <div id="reportCardContent"><p class="no-data-msg">Select a term and session to view the report card.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <p><i class="fa-regular fa-copyright"></i> <span id="currentYear"></span> Acadex — All rights reserved.</p>
+    </footer>
+  </main>
+</div>
+
+<!-- scripts -->
+<script src="../js/card-3d-effects.js"></script>
+<script type="module">
+import { initParentPortal } from '../js/parent-portal.js';
+initParentPortal();
+</script>
+</body>
+</html>

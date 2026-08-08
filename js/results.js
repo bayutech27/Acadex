@@ -5,6 +5,8 @@
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 // UPDATED: Print comments now appear inline (same line as label)
+// FIXED: Report term stored as full name ("First Term", etc.) to match feeGateStatus keys.
+//        Backward compatibility: loading reports tries full name first, falls back to numeric.
 //
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
@@ -47,20 +49,22 @@ let editorState = {
 const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
 const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
 
+// ------------------- FIX: Helper to convert numeric term to full name -------------------
+function getFullTermName(termNum) {
+  const map = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
+  return map[termNum] || termNum;
+}
+
 // ------------------- Helper: Check if requested session/term is current -------------------
 function isCurrentSessionTerm(session, term) {
   if (!currentAcademicSession || !currentAcademicTerm) return false;
-  // Convert term number to full name for comparison
-  const termMap = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
-  const termName = termMap[term] || term;
+  const termName = getFullTermName(term);
   return session === currentAcademicSession && termName === currentAcademicTerm;
 }
 
 // ------------------- Helper: Check if user can view this result -------------------
 function canViewResult(session, term) {
-  // If subscription is active, always allow
   if (isSubscriptionActive) return true;
-  // If subscription is inactive, block current session/term only
   return !isCurrentSessionTerm(session, term);
 }
 
@@ -204,6 +208,7 @@ async function loadAllStudents() {
   }
 }
 
+// ── Scores: keep using the numeric term as-is (no conversion) ──
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -340,14 +345,13 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// ------------------- renderReportCard (MODIFIED with subscription restriction) -------------------
+// ------------------- renderReportCard -------------------
 async function renderReportCard(studentId, studentName) {
   const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   const requestedTermNum = editorState.term || document.getElementById('editorTermSelect')?.value || '1';
   const termMap = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
   const requestedTermName = termMap[requestedTermNum] || requestedTermNum;
 
-  // Check if user can view this result
   if (!canViewResult(requestedSession, requestedTermNum)) {
     const container = document.getElementById('reportCardContent');
     if (container) {
@@ -365,7 +369,6 @@ async function renderReportCard(studentId, studentName) {
   }
 
   if (!isSubscriptionActive) {
-    // Allow viewing of previous terms but show a warning banner
     const container = document.getElementById('reportCardContent');
     if (container && !container.querySelector('.subscription-view-warning')) {
       const warningDiv = document.createElement('div');
@@ -432,7 +435,6 @@ async function renderReportCard(studentId, studentName) {
   const actions = document.getElementById('reportActions');
   if (actions) actions.style.display = 'flex';
   
-  // If subscription is inactive, disable save button (view only for historical)
   if (!isSubscriptionActive) {
     const saveBtn = document.getElementById('saveReportBtn');
     if (saveBtn) {
@@ -450,10 +452,21 @@ async function renderReportCard(studentId, studentName) {
   }
 }
 
+// ── FIX: load report with fallback (full name first, then numeric) ──
 async function loadExistingEditorReport(studentId) {
   resetRatingsToDefaults();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
-  const report = await service.getReportByStudent(studentId, currentSchoolId, editorState.term, editorState.session);
+
+  const fullTerm = getFullTermName(editorState.term);
+  const numericTerm = editorState.term; // e.g., '1'
+
+  // Try full name first (new format)
+  let report = await service.getReportByStudent(studentId, currentSchoolId, fullTerm, editorState.session);
+  if (!report) {
+    // Fallback: try numeric term (old format)
+    report = await service.getReportByStudent(studentId, currentSchoolId, numericTerm, editorState.session);
+  }
+
   if (report) {
     if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
     editorState.teacherComment   = report.teacherComment   || '';
@@ -465,6 +478,7 @@ async function loadExistingEditorReport(studentId) {
   }
 }
 
+// ── FIX: always save with full term name ──
 async function saveEditorReport() {
   if (!isSubscriptionActive) { 
     toast.error('Cannot save report – subscription inactive.'); 
@@ -485,7 +499,9 @@ async function saveEditorReport() {
   const reportData = {
     studentId: editorState.selectedStudent.id,
     classId: document.getElementById('editorClassSelect')?.value,
-    schoolId: currentSchoolId, term: editorState.term, session: editorState.session,
+    schoolId: currentSchoolId,
+    term: getFullTermName(editorState.term), // Store full name
+    session: editorState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: editorState.psychomotor,
     teacherComment: editorState.teacherComment, principalComment: editorState.principalComment,
@@ -504,7 +520,8 @@ async function saveEditorReport() {
   }
 }
 
-// ==================== MODIFIED PRINT FUNCTION ====================
+// ==================== PRINT, WHATSAPP, BROADSHEET ETC. (unchanged) ====================
+
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -587,7 +604,6 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ─────────── Send to WhatsApp function ───────────
 function sendToWhatsApp() {
   if (!editorState.selectedStudent) {
     toast.error('Please select a student first.');
@@ -631,7 +647,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ------------------- Broadsheet Functions -------------------
+// ------------------- Broadsheet Functions (unchanged) -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -943,7 +959,6 @@ export async function initResultsPage() {
     return; 
   }
 
-  // Get current academic session and term for comparison
   await initAcademicCalendar();
   currentAcademicSession = getCurrentSession();
   currentAcademicTerm = getCurrentTerm();

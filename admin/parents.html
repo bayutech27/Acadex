@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Acadex - Parents</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <link rel="stylesheet" href="../css/card-3d.css" />
+  <link rel="stylesheet" href="../css/styles.css" />
+
+  <style>
+    .parent-chip { display: inline-block; background: #eef2ff; border-radius: 999px; padding: 0.25rem 0.7rem; margin: 0.2rem; font-size: 0.75rem; }
+    .remove-parent-chip { cursor: pointer; margin-left: 0.3rem; color: var(--danger); }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+  <!-- desktop sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html" class="active"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
+    </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
+  </aside>
+
+  <!-- mobile sidebar -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html" class="active"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <!-- main content -->
+  <main class="main-content">
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo" />
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none" />
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      </div>
+    </header>
+
+    <!-- academic badge -->
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <!-- page content -->
+    <div class="content">
+      <div class="welcome-card">
+        <h1><i class="fa-solid fa-people-roof" style="margin-right:8px;"></i>Parents</h1>
+        <p>Manage parent accounts and link them to students.</p>
+        <button id="addParentBtn" class="btn-primary" style="margin-top:1rem;">
+          <i class="fa-solid fa-plus"></i> Add Parent
+        </button>
+      </div>
+
+      <!-- parent table -->
+      <div class="table-container">
+        <table class="data-table" id="parentsTable">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Children</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="parentsTableBody">
+            <tr><td colspan="6">Loading parents...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <p><i class="fa-regular fa-copyright" style="margin-right:4px;"></i><span id="currentYear"></span> Acadex &mdash; All rights reserved.</p>
+    </footer>
+  </main>
+</div>
+
+<!-- ====== MODAL ====== -->
+<div id="addParentModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2><i class="fa-solid fa-user-plus"></i> Add Parent</h2>
+      <button class="close-modal" data-modal="addParentModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="addParentForm">
+      <input type="hidden" id="editingParentId" value="" />
+      <div class="form-row">
+        <div class="form-group">
+          <label for="parentTitle">Title</label>
+          <select id="parentTitle" required>
+            <option value="Mr">Mr</option>
+            <option value="Mrs">Mrs</option>
+            <option value="Miss">Miss</option>
+            <option value="Dr">Dr</option>
+            <option value="Chief">Chief</option>
+            <option value="Alhaji">Alhaji</option>
+            <option value="Alhaja">Alhaja</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="parentFullName">Full Name *</label>
+          <input type="text" id="parentFullName" required />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="parentPhone">Phone *</label>
+          <input type="tel" id="parentPhone" required />
+        </div>
+        <div class="form-group">
+          <label for="parentEmail">Email *</label>
+          <input type="email" id="parentEmail" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Select Child(ren) *</label>
+        <div id="childSelectorContainer">
+          <select id="classFilterSelect" class="class-filter">
+            <option value="">All Classes</option>
+          </select>
+          <div id="studentCheckboxList" style="max-height:180px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:6px; padding:0.5rem; margin-top:0.5rem;"></div>
+        </div>
+        <div id="selectedChildrenChips" style="margin-top:0.5rem;"></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="addParentModal">Cancel</button>
+        <button type="submit" class="btn-primary" id="createParentBtn">Create Parent</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== SCRIPTS ===================== -->
+<script src="../js/card-3d-effects.js"></script>
+<script type="module">
+import { initParentsPage } from '../js/parent-account-creator.js';
+initParentsPage();
+</script>
+</body>
+</html>

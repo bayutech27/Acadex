@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Acadex - School Finance</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <link rel="stylesheet" href="../css/card-3d.css" />
+  <link rel="stylesheet" href="../css/styles.css" />
+
+  <style>
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+    .stat-number-lg { font-size: 2.5rem; }
+    .stat-card { padding: 1.25rem; text-align: center; }
+    .stat-card .stat-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.06em;
+      margin-top: 0.25rem;
+    }
+
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+      .stat-number-lg { font-size: 2rem; }
+      .stat-card { padding: 1rem; }
+    }
+    @media (max-width: 480px) {
+      .stat-number-lg { font-size: 1.6rem; }
+      .stat-card { padding: 0.75rem; }
+    }
+
+    .student-detail-container {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .student-detail-info { flex: 0 0 auto; min-width: 180px; }
+    .student-detail-history { flex: 1; min-width: 200px; }
+
+    @media (max-width: 600px) {
+      .student-detail-container {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .student-detail-info, .student-detail-history {
+        flex: 1 1 100%;
+      }
+    }
+
+    .finance-controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      background: white;
+      padding: 1rem;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--card-border);
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #f1f5f9;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row .payment-actions {
+      display: flex;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+    .status-badge.partial { background: var(--warning-bg); color: #92400e; }
+    .status-badge.paid { background: var(--success-bg); color: var(--success-text); }
+    .status-badge.unpaid { background: var(--danger-bg); color: var(--danger-text); }
+    .status-badge.not-set { background: #f1f5f9; color: #64748b; }
+    .payment-list { max-height: 200px; overflow-y: auto; }
+    .filter-dropdown { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .filter-dropdown select { padding: 0.4rem 0.8rem; border-radius: var(--r-sm); border: 1px solid #e2e8f0; background: white; }
+    .table-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .btn-sm { padding: 0.2rem 0.6rem; font-size: 0.75rem; }
+    .btn-edit-payment {
+      background: none;
+      border: none;
+      color: var(--primary);
+      cursor: pointer;
+      padding: 0 0.2rem;
+      font-size: 0.9rem;
+    }
+    .btn-edit-payment:hover { color: var(--primary-dark); }
+
+    .bulk-payment-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .bulk-payment-row input, .bulk-payment-row select {
+      flex: 1;
+      min-width: 80px;
+    }
+    .bulk-payment-row .btn-remove-row {
+      background: none;
+      border: none;
+      color: var(--danger);
+      cursor: pointer;
+      font-size: 1.1rem;
+    }
+    .bulk-payment-row .btn-remove-row:hover { color: var(--danger-dark); }
+    .bulk-payment-row input[type="date"] { max-width: 150px; }
+    .bulk-payment-row input[type="number"] { max-width: 130px; }
+
+    .history-section {
+      margin-top: 2.5rem;
+      padding: 1.5rem;
+      background: white;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--card-border);
+    }
+    .history-controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1.5rem;
+    }
+    .history-controls .form-group { margin-bottom: 0; }
+    .history-table-container { overflow-x: auto; }
+
+    /* Migration section */
+    .migration-section {
+      margin-top: 2rem;
+      padding: 1.5rem;
+      background: #f8fafc;
+      border-radius: var(--r-lg);
+      border: 1px solid var(--card-border);
+    }
+
+    /* Print styles */
+    @media print {
+      .no-print { display: none !important; }
+      .history-section { border: none; box-shadow: none; padding: 0; }
+      .history-table-container { overflow: visible; }
+      .history-table { font-size: 10px; }
+      .history-table th, .history-table td { padding: 4px 6px; }
+      .history-table .btn-edit-summary { display: none !important; }
+      .stats-grid { display: flex; justify-content: space-around; }
+      .stat-card { flex: 1; padding: 0.5rem; }
+      .stat-number-lg { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="dashboard-container">
+  <!-- desktop sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html" class="active"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
+    </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
+  </aside>
+
+  <!-- mobile sidebar -->
+  <div id="mobileSidebar" class="mobile-sidebar">
+    <div class="mobile-sidebar-header">
+      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html" class="active"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
+    </nav>
+    <div class="mobile-logout-wrapper">
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+    </div>
+  </div>
+  <div id="overlay" class="overlay"></div>
+
+  <main class="main-content">
+    <header class="header">
+      <div class="school-header-left">
+        <div class="school-logo">
+          <img id="schoolLogoImg" class="logo-circle" alt="School Logo" />
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
+          <input type="file" id="logoUploadInput" accept="image/*" style="display:none" />
+        </div>
+        <div class="school-name">
+          <h1 id="schoolName">Loading...</h1>
+          <div id="schoolAddress" class="school-address"></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      </div>
+    </header>
+
+    <div class="academic-badge-row">
+      <div id="academicCalendarDisplay" class="academic-badge">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
+        <span id="currentSessionDisplay"></span>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Fee Gate Toggle + Recalc All (FIX 7c) -->
+      <div style="margin-bottom:1rem; display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+        <div class="form-group" style="display:flex;align-items:center;gap:0.75rem; margin:0;">
+          <label style="margin:0;">
+            <input type="checkbox" id="feeGateToggle" /> Withhold report cards for students with unpaid fees
+          </label>
+        </div>
+        <button id="recalcAllGatesBtn" class="btn-secondary btn-sm">
+          <i class="fa-solid fa-rotate"></i> Recalculate All Now
+        </button>
+        <span style="font-size:0.7rem; color:var(--text-500);">
+          Fee status updates automatically after payments. Use this if a student's report access looks out of date — for example, right after a new term starts.
+        </span>
+      </div>
+
+      <!-- big totals -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number stat-number-lg" id="totalPaidTerm">₦0</div>
+          <div class="stat-label">Total Paid (This Term)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number stat-number-lg" id="totalPaidSession">₦0</div>
+          <div class="stat-label">Total Paid (This Session)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number stat-number-lg" id="totalArrears">₦0</div>
+          <div class="stat-label">Total Arrears (This Term)</div>
+        </div>
+      </div>
+
+      <!-- controls -->
+      <div class="finance-controls">
+        <div class="form-group"><label>Class</label><select id="financeClassSelect"><option value="">Select Class</option></select></div>
+        <div class="form-group"><label>Term</label><select id="financeTermSelect"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
+        <div class="form-group"><label>Session</label><select id="financeSessionSelect"></select></div>
+        <button id="refreshFinanceBtn" class="btn-primary"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        <div class="filter-dropdown">
+          <label for="statusFilterSelect">Filter:</label>
+          <select id="statusFilterSelect"><option value="all">All</option><option value="paid">Paid</option><option value="unpaid">Not Paid</option></select>
+        </div>
+        <!-- Bulk Set Fee for Class (FIX 6) -->
+        <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
+      </div>
+
+      <!-- class fee table (FIX 4: removed Arrears column, kept Balance) -->
+      <div class="table-container" id="classFeeTableContainer">
+        <table class="data-table" id="classFeeTable">
+          <thead><tr><th>Student</th><th>Fee Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="classFeeTableBody"><tr><td colspan="6">Select a class and term to view.</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- individual student lookup -->
+      <div style="margin-top:2rem; background:white; padding:1.5rem; border-radius:var(--r-lg); border:1px solid var(--card-border);">
+        <h3>Student Fee Detail</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Student</label><select id="studentLookupSelect"><option value="">Select Student</option></select></div>
+          <div class="form-group"><label>Term</label><select id="studentLookupTerm"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
+          <div class="form-group"><label>Session</label><select id="studentLookupSession"></select></div>
+          <button id="lookupStudentBtn" class="btn-primary">Lookup</button>
+        </div>
+        <div id="studentFeeDetail" style="margin-top:1rem;"></div>
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:0.5rem;">
+          <button id="recordPaymentBtn" class="btn-success" style="display:none;"><i class="fa-solid fa-plus"></i> Record Payment</button>
+          <button id="bulkPaymentBtn" class="btn-primary" style="display:none;"><i class="fa-solid fa-list"></i> Bulk Payments</button>
+        </div>
+      </div>
+
+      <!-- ===== FINANCIAL HISTORY ===== -->
+      <div class="history-section">
+        <h3>📊 School Financial History</h3>
+        <div class="history-controls">
+          <div class="form-group">
+            <label>Session</label>
+            <select id="historySessionSelect"><option value="all">All Sessions</option></select>
+          </div>
+          <button id="loadHistoryBtn" class="btn-primary no-print"><i class="fa-solid fa-chart-simple"></i> Load History</button>
+          <button id="downloadHistoryPdfBtn" class="btn-secondary no-print"><i class="fa-solid fa-file-pdf"></i> Download PDF</button>
+        </div>
+        <div class="stats-grid" style="margin-bottom:1.5rem;">
+          <div class="stat-card">
+            <div class="stat-number stat-number-lg" id="historyTotalFees">₦0</div>
+            <div class="stat-label">Total Fees</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number stat-number-lg" id="historyTotalPaid">₦0</div>
+            <div class="stat-label">Total Paid</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number stat-number-lg" id="historyTotalArrears">₦0</div>
+            <div class="stat-label">Total Arrears</div>
+          </div>
+        </div>
+        <div class="history-table-container">
+          <table class="data-table history-table" id="historyTable">
+            <thead><tr><th>Student</th><th>Total Fee</th><th>Total Paid</th><th>Arrears</th></tr></thead>
+            <tbody id="historyTableBody"><tr><td colspan="4">Select a session and click Load.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== MIGRATION TOOLS (FIX 7) ===== -->
+      <div class="migration-section">
+        <h3>📥 Migrate Existing Records</h3>
+        <p style="color:var(--text-500);font-size:0.9rem;">
+          For schools moving from paper records. Choose one method below.
+        </p>
+
+        <div style="margin-bottom:2rem;">
+          <h4>Option A — Opening Balance (fast)</h4>
+          <p style="font-size:0.85rem;color:var(--text-500);">
+            Set what a student owes as of today, without re-entering every past payment.
+            Tracking continues normally from here forward.
+          </p>
+          <div class="form-row">
+            <div class="form-group"><label>Student</label><select id="openingBalanceStudent"><option value="">Select Student</option></select></div>
+            <div class="form-group"><label>Amount Owed (₦)</label><input type="number" id="openingBalanceAmount" min="0" step="100" /></div>
+            <div class="form-group"><label>As Of Date</label><input type="date" id="openingBalanceDate" /></div>
+            <button id="saveOpeningBalanceBtn" class="btn-primary">Set Opening Balance</button>
+          </div>
+        </div>
+
+        <div>
+          <h4>Option B — Bulk CSV Import</h4>
+          <p style="font-size:0.85rem;color:var(--text-500);">
+            For schools with clean digital records. Columns: studentId, term, session, amount, date, method (optional).
+            <a href="#" id="downloadCsvTemplateLink">Download template</a>
+          </p>
+          <input type="file" id="csvImportFile" accept=".csv" />
+          <button id="importCsvBtn" class="btn-primary">Preview &amp; Import</button>
+          <div id="csvImportPreview" style="margin-top:1rem;"></div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <p><i class="fa-regular fa-copyright" style="margin-right:4px;"></i><span id="currentYear"></span> Acadex &mdash; All rights reserved.</p>
+    </footer>
+  </main>
+</div>
+
+<!-- ====== SET FEE MODAL ====== -->
+<div id="setFeeModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2><i class="fa-solid fa-pen-to-square"></i> Set Fee for Student</h2>
+      <button class="close-modal" data-modal="setFeeModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="setFeeForm">
+      <div class="form-group"><label for="setFeeStudentName">Student</label><input type="text" id="setFeeStudentName" disabled /></div>
+      <div class="form-group"><label for="setFeeAmount">Fee Amount (₦)</label><input type="number" id="setFeeAmount" required min="0" step="100" /></div>
+      <div class="form-group"><label for="setFeeNote">Note (optional)</label><input type="text" id="setFeeNote" /></div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="setFeeModal">Cancel</button>
+        <button type="submit" class="btn-primary" id="saveFeeBtn">Save Fee</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ====== PAYMENT MODAL ====== -->
+<div id="paymentModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="paymentModalTitle"><i class="fa-solid fa-money-bill-wave"></i> Record Payment</h2>
+      <button class="close-modal" data-modal="paymentModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="paymentForm">
+      <input type="hidden" id="editPaymentId" value="" />
+      <div class="form-group">
+        <label for="paymentAmount">Amount (₦)</label>
+        <input type="number" id="paymentAmount" required min="0" step="100" />
+      </div>
+      <div class="form-group">
+        <label for="paymentDate">Payment Date</label>
+        <input type="date" id="paymentDate" required />
+        <small style="display:block; margin-top:4px;" id="paymentTermDisplay">Term: — | Session: —</small>
+      </div>
+      <div class="form-group">
+        <label for="paymentMethod">Method</label>
+        <select id="paymentMethod">
+          <option value="cash">Cash</option>
+          <option value="transfer">Transfer</option>
+          <option value="paystack">Paystack</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="paymentNote">Note (optional)</label>
+        <input type="text" id="paymentNote" />
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="paymentModal">Cancel</button>
+        <button type="submit" class="btn-success" id="savePaymentBtn">Save Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ====== BULK PAYMENT MODAL ====== -->
+<div id="bulkPaymentModal" class="modal">
+  <div class="modal-content" style="max-width: 700px;">
+    <div class="modal-header">
+      <h2><i class="fa-solid fa-list"></i> Bulk Payments</h2>
+      <button class="close-modal" data-modal="bulkPaymentModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--text-500);">
+      Enter multiple payments for this student. Each payment's term/session will be auto‑detected from its date.
+    </div>
+    <form id="bulkPaymentForm">
+      <div id="bulkPaymentRows"></div>
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin: 1rem 0;">
+        <button type="button" id="addBulkRowBtn" class="btn-secondary btn-sm"><i class="fa-solid fa-plus"></i> Add Row</button>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="bulkPaymentModal">Cancel</button>
+        <button type="submit" class="btn-success" id="saveBulkPaymentsBtn">Submit All Payments</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ====== BULK SET CLASS FEE MODAL (FIX 6) ====== -->
+<div id="bulkSetClassFeeModal" class="modal">
+  <div class="modal-content" style="max-width: 450px;">
+    <div class="modal-header">
+      <h2><i class="fa-solid fa-layer-group"></i> Set Fee for Entire Class</h2>
+      <button class="close-modal" data-modal="bulkSetClassFeeModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="bulkSetClassFeeForm">
+      <div class="form-group"><label>Class</label><input type="text" id="bulkClassFeeClassName" disabled /></div>
+      <div class="form-group"><label>Fee Amount (₦)</label><input type="number" id="bulkClassFeeAmount" required min="0" step="100" /></div>
+      <small style="display:block;margin-bottom:0.5rem;color:var(--text-500);">
+        This sets the fee for every active student currently in this class for the selected term/session.
+        Students who already have a different fee amount set will be overwritten — check the class table first if you're unsure.
+      </small>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="bulkSetClassFeeModal">Cancel</button>
+        <button type="submit" class="btn-primary" id="saveBulkClassFeeBtn">Apply to Class</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ====== EDIT SUMMARY MODAL (deprecated, kept for compatibility) ====== -->
+<div id="editSummaryModal" class="modal">
+  <div class="modal-content" style="max-width: 450px;">
+    <div class="modal-header">
+      <h2><i class="fa-solid fa-pen-to-square"></i> Edit Session Summary</h2>
+      <button class="close-modal" data-modal="editSummaryModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="editSummaryForm">
+      <input type="hidden" id="editSummaryStudentId" />
+      <input type="hidden" id="editSummarySession" />
+      <div class="form-group">
+        <label>Student</label>
+        <input type="text" id="editSummaryStudentName" disabled />
+      </div>
+      <div class="form-group">
+        <label>Session</label>
+        <input type="text" id="editSummarySessionDisplay" disabled />
+      </div>
+      <div class="form-group">
+        <label for="editSummaryTotalFee">Total Fee (₦)</label>
+        <input type="number" id="editSummaryTotalFee" required min="0" step="100" />
+      </div>
+      <div class="form-group">
+        <label for="editSummaryTotalPaid">Total Paid (₦)</label>
+        <input type="number" id="editSummaryTotalPaid" required min="0" step="100" />
+      </div>
+      <div class="form-group">
+        <label for="editSummaryArrears">Arrears (₦)</label>
+        <input type="number" id="editSummaryArrears" required min="0" step="100" />
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-secondary" data-modal-close="editSummaryModal">Cancel</button>
+        <button type="submit" class="btn-primary" id="saveSummaryBtn">Save Summary</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../js/card-3d-effects.js"></script>
+<script type="module">
+import { initFinancePage } from '../js/finance.js';
+initFinancePage();
+</script>
+</body>
+</html>

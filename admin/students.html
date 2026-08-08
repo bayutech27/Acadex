@@ -254,7 +254,7 @@
 </head>
 <body>
 <div class="dashboard-container">
-  <!-- ===================== DESKTOP SIDEBAR ===================== -->
+  <!-- DESKTOP SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -267,7 +267,7 @@
       <a href="teachers.html">
         <i class="fa-solid fa-chalkboard-user"></i> Teachers
       </a>
-      <a href="students.html">
+      <a href="students.html" class="active">
         <i class="fa-solid fa-users"></i> Students &amp; Pupils
       </a>
       <a href="setup.html">
@@ -276,14 +276,20 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <!-- MOBILE SIDEBAR -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -298,7 +304,7 @@
       <a href="teachers.html">
         <i class="fa-solid fa-chalkboard-user"></i> Teachers
       </a>
-      <a href="students.html">
+      <a href="students.html" class="active">
         <i class="fa-solid fa-users"></i> Students &amp; Pupils
       </a>
       <a href="setup.html">
@@ -307,8 +313,14 @@
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="mobile-logout-wrapper">
@@ -353,8 +365,7 @@
         <button id="addStudentBtn" class="btn-primary">Add Student</button>
       </div>
 
-      <!-- ========== DYNAMIC FILTER BUTTONS ========== -->
-      <!-- The "All Students" button remains static; class-specific buttons will be injected by students.js -->
+      <!-- DYNAMIC FILTER BUTTONS -->
       <div id="classFilterContainer" class="filter-buttons">
         <button class="filter-btn active" data-class="all">All Students</button>
       </div>
@@ -370,7 +381,7 @@
   </main>
 </div>
 
-<!-- Modal for Add/Edit Student (unchanged) -->
+<!-- Modal for Add/Edit Student -->
 <div id="studentModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -399,7 +410,7 @@
       <div class="form-group"><label for="studentSubjects">Subjects</label><select id="studentSubjects" multiple disabled><option value="">-- Select level first --</option></select><small>Hold Ctrl (or Cmd) to select multiple</small></div>
       <div class="form-group"><label for="studentClub">Club / Society</label><input type="text" id="studentClub" placeholder="e.g., Science Club, Debate Team"><small>Optional</small></div>
 
-      <!-- ========== NEW FIELDS ========== -->
+      <!-- NEW FIELDS -->
       <div class="form-row">
         <div class="form-group"><label for="studentNationality">Nationality *</label><select id="studentNationality" required><option value="">-- Select Country --</option></select></div>
         <div class="form-group"><label for="studentState">State (Nigeria) *</label><select id="studentState" required><option value="">-- Select State --</option></select></div>
@@ -408,7 +419,6 @@
         <div class="form-group"><label for="studentReligion">Religion *</label><select id="studentReligion" required><option value="">-- Select Religion --</option><option value="Christianity">Christianity</option><option value="Islam">Islam</option><option value="Others">Others</option></select></div>
         <div class="form-group"><label for="studentParentPhone">Parent Phone (WhatsApp) *</label><input type="tel" id="studentParentPhone" required placeholder="e.g., +234 812 345 6789"></div>
       </div>
-      <!-- =============================== -->
 
       <div class="form-group"><label for="studentPassport">Passport Photograph (max 800KB)</label><input type="file" id="studentPassport" accept="image/jpeg, image/png, image/jpg"><div id="passportPreviewContainer"></div><small id="passportError" style="color:red; display:none;"></small></div>
       <div class="form-group"><label for="studentStatus">Status</label><select id="studentStatus" required><option value="active">Active</option><option value="inactive">Inactive</option><option value="graduated">Graduated</option></select></div>
@@ -459,7 +469,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

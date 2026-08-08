@@ -245,7 +245,7 @@
 </head>
 <body>
 <div class="dashboard-container">
-  <!-- ===================== DESKTOP SIDEBAR ===================== -->
+  <!-- DESKTOP SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -261,20 +261,26 @@
       <a href="students.html">
         <i class="fa-solid fa-users"></i> Students &amp; Pupils
       </a>
-      <a href="setup.html">
+      <a href="setup.html" class="active">
         <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
       </a>
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <!-- MOBILE SIDEBAR -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -292,14 +298,20 @@
       <a href="students.html">
         <i class="fa-solid fa-users"></i> Students &amp; Pupils
       </a>
-      <a href="setup.html">
+      <a href="setup.html" class="active">
         <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
       </a>
       <a href="results.html">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <a href="teacher-attendance.html" class="active">
+      <a href="teacher-attendance.html">
         <i class="fa-solid fa-user-clock"></i> Teachers Attendance
+      </a>
+      <a href="parents.html">
+        <i class="fa-solid fa-user-group"></i> Parents
+      </a>
+      <a href="school-finance.html">
+        <i class="fa-solid fa-sack-dollar"></i> School Finance
       </a>
     </nav>
     <div class="mobile-logout-wrapper">
@@ -309,6 +321,7 @@
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
+
   <main class="main-content">
     <header class="header">
       <div class="school-header-left">
@@ -483,7 +496,6 @@
                 </select>
               </div>
 
-              <!-- Manual entry section (mutually exclusive with dropdown) -->
               <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed #cbd5e1;">
                 <label>Or enter class manually:</label>
                 <input type="text" id="manualClassName" placeholder="e.g., Prep Class, Special Needs">
@@ -555,7 +567,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

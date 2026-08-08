@@ -1,8 +1,6 @@
 // admin.js - Admin dashboard with subscription UI (Paystack + WhatsApp)
 // FULLY INTEGRATED with Central Academic Calendar Engine
-// REMOVED: createStudentAccount(), createParentAccount() and all secondary Firebase auth code.
-// Only Firestore operations remain.
-// All user-facing errors are now shown as toast notifications with plain English messages.
+// ADDED: offline caching, retry logic, fallback for school info, centralised admin page boot.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -18,11 +16,12 @@ import {
   isSubscriptionActive,
   handleNewStudentAddition,
   getSubscriptionStatus,
-  approveExtraStudents,
+  // approveExtraStudents, // ✅ REMOVED – unused import
   getSubscriptionDisplayStatus,
 } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
+import { initMobileMenu } from './menu.js'; // ✅ Added import
 
 // ========== ACADEMIC CALENDAR IMPORTS ==========
 import {
@@ -144,6 +143,9 @@ export async function protectAdminPage() {
   updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
   setupLogout();
+
+  // ========== Load school info with retry and caching ==========
+  await loadSchoolInfoWithRetry();
 
   return { user: currentUser, userData: currentUserData };
 }
@@ -496,8 +498,82 @@ export async function loadAcademicInfo() {
 export { adminOverrideCalendar, adminResetToAuto };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// LOGO UPLOAD
+// LOGO UPLOAD & SCHOOL INFO WITH CACHING AND RETRY
 // ───────────────────────────────────────────────────────────────────────────────
+const CACHE_KEY = 'acadex_school_info';
+
+function getCachedSchoolInfo() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      // Check if cache is less than 24 hours old
+      if (data.timestamp && (Date.now() - data.timestamp) < 24 * 60 * 60 * 1000) {
+        return data.info;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+function setCachedSchoolInfo(info) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ info, timestamp: Date.now() }));
+  } catch (_) {}
+}
+
+async function loadSchoolInfoWithRetry() {
+  // Try to load from Firestore with retry logic
+  const maxAttempts = 3;
+  let attempt = 0;
+  let success = false;
+
+  while (attempt < maxAttempts && !success) {
+    attempt++;
+    try {
+      await loadSchoolInfo();
+      success = true;
+      // Save to cache
+      const userData = currentUserData;
+      if (userData) {
+        const school = await getSchoolById(userData.schoolId);
+        if (school) {
+          setCachedSchoolInfo(school);
+        }
+      }
+    } catch (err) {
+      console.warn(`School info load attempt ${attempt} failed:`, err);
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+
+  // If all attempts failed, try to use cached data
+  if (!success) {
+    const cached = getCachedSchoolInfo();
+    if (cached) {
+      // Apply cached data to UI
+      const schoolNameEl = document.getElementById('schoolName');
+      const schoolAddressEl = document.getElementById('schoolAddress');
+      const logoImg = document.getElementById('schoolLogoImg');
+      if (schoolNameEl) schoolNameEl.textContent = cached.name || 'Unknown School (cached)';
+      if (schoolAddressEl && cached.address) schoolAddressEl.textContent = cached.address;
+      if (logoImg && cached.logo) logoImg.src = cached.logo;
+      toast.warning('Using cached school info. Some data may be outdated.');
+    } else {
+      // Show a fallback error message in the UI
+      const schoolNameEl = document.getElementById('schoolName');
+      if (schoolNameEl) {
+        schoolNameEl.textContent = '⚠️ Unable to load school info';
+        schoolNameEl.style.color = '#ef4444';
+      }
+      toast.error('Could not load school details. Please check your internet connection.');
+    }
+  }
+}
+
 async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -531,6 +607,9 @@ async function uploadSchoolLogo(schoolId, file) {
     const compressed = await compressImage(file, 500, 500);
     await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
     toast.success('Logo uploaded successfully');
+    // Update cache after successful upload
+    const school = await getSchoolById(schoolId);
+    if (school) setCachedSchoolInfo(school);
     return compressed;
   } catch (error) {
     console.error('Logo upload error:', error);
@@ -556,6 +635,7 @@ export async function loadSchoolInfo() {
       logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
     }
 
+    // Update subscription and academic info
     await loadAcademicInfo();
     if (userData.schoolId) {
       updateSubscriptionBadge(userData.schoolId);
@@ -564,6 +644,7 @@ export async function loadSchoolInfo() {
   } catch (err) {
     console.error('School info error:', err);
     toast.warning('Unable to load school information. Please refresh the page.');
+    throw err; // rethrow for retry logic
   }
 }
 
@@ -573,8 +654,7 @@ async function getSchoolById(schoolId) {
     return snap.exists() ? snap.data() : null;
   } catch (err) {
     console.error('School fetch error:', err);
-    toast.error('Unable to load school data. Please check your internet connection.');
-    return null;
+    throw err;
   }
 }
 
@@ -645,3 +725,61 @@ export async function loadDashboardCounts() {
     toast.warning('Unable to load subject count.');
   }
 }
+
+// =========================================================================
+// 🆕 Centralised Admin Page Boot Function
+// =========================================================================
+
+/**
+ * Initialises any admin page with shared setup.
+ * @param {Function} pageInitFn - Optional page‑specific initialisation function (async)
+ * @returns {Promise<Object>} - The result from protectAdminPage
+ */
+export async function initAdminPage(pageInitFn) {
+  // 1. Protect the page (auth, subscription, calendar, school info)
+  const result = await protectAdminPage();
+  if (!result) return null; // redirect already happened
+
+  // 2. Shared UI setup (idempotent – safe to call even if already done)
+  setupSidebar();
+  setupLogout();
+  setupLogoUpload();
+  initMobileMenu();
+
+  // 3. Run page‑specific initialisation
+  if (typeof pageInitFn === 'function') {
+    await pageInitFn();
+  }
+
+  // 4. Set up academic calendar subscription (term/session display)
+  setupAcademicCalendarDisplay();
+
+  return result;
+}
+
+/**
+ * Sets up the academic calendar subscription to update the term/session
+ * elements on any admin page.
+ */
+function setupAcademicCalendarDisplay() {
+  subscribeToCalendar((state) => {
+    const termEl = document.getElementById('currentTermDisplay');
+    const sessionEl = document.getElementById('currentSessionDisplay');
+    if (termEl) termEl.textContent = state.currentTerm || '—';
+    if (sessionEl) sessionEl.textContent = state.currentSession || '—';
+    if (state.manualOverride) {
+      termEl?.classList.add('override-badge');
+    } else {
+      termEl?.classList.remove('override-badge');
+    }
+  });
+}
+
+// =========================================================================
+// 🆕 Re‑export calendar functions so they can be imported from admin.js
+// =========================================================================
+export {
+  getAcademicCalendar,
+  getCurrentSession,
+  getCurrentTerm
+} from './academic-calendar.js';

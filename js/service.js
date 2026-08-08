@@ -1,35 +1,15 @@
-// service.js - Single Source of Truth API Layer for Acadex
-//
-// RULE: This is the ONLY file allowed to touch Firestore.
-// All UI code must call await service.someMethod() — never getDocs/setDoc/etc. directly.
-//
-// READ  flow:  cache hit → return instantly
-//              cache miss → Firestore → cache → return
-//
-// WRITE flow:  online  → Firestore immediately → invalidate cache
-//              offline → offlineQueue (optimistic UI update by caller)
+// service.js – Single Source of Truth API Layer
+// All Firestore access goes through this file.
+// Uses cache.js for reads and offlineQueue.js for writes.
 
 import { db } from './firebase-config.js';
 import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  addDoc,
-  getDocs,
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  startAfter,
-  onSnapshot,
-  serverTimestamp,
-  writeBatch,
-  increment,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc,
+  getDocs, collection, query, where, orderBy, limit, startAfter,
+  onSnapshot, serverTimestamp, writeBatch, increment,
+  arrayUnion, arrayRemove, documentId
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import * as cache       from './cache.js';
+import * as cache from './cache.js';
 import * as offlineQueue from './offlineQueue.js';
 
 // ── TTL constants ─────────────────────────────────────────────────────────────
@@ -132,9 +112,6 @@ export async function updateSubscription(schoolId, data) {
   }
 }
 
-/**
- * Real-time subscription listener (returns unsubscribe fn).
- */
 export function subscribeToSubscription(schoolId, callback) {
   const ref = doc(db, 'schools', schoolId, 'subscription', 'current');
   return onSnapshot(ref, snap => {
@@ -144,6 +121,11 @@ export function subscribeToSubscription(schoolId, callback) {
     }
     callback(data);
   });
+}
+
+export async function getRawSubscription(schoolId) {
+  const snap = await getDoc(doc(db, 'schools', schoolId, 'subscription', 'current'));
+  return snap.exists() ? snap.data() : null;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -193,6 +175,20 @@ export async function getStudentsByClass(schoolId, classId) {
     },
     { ttl: TTL_MED, tags: ['students', _k('students', schoolId)] }
   );
+}
+
+export async function getStudentsByIds(studentIds) {
+  if (!studentIds || studentIds.length === 0) return [];
+  // chunk into 10s because Firestore 'in' limit
+  const chunks = [];
+  for (let i = 0; i < studentIds.length; i += 10) chunks.push(studentIds.slice(i, i+10));
+  const results = [];
+  for (const chunk of chunks) {
+    const q = query(collection(db, 'students'), where(documentId(), 'in', chunk));
+    const snap = await getDocs(q);
+    results.push(..._queryData(snap));
+  }
+  return results;
 }
 
 export async function countStudents(schoolId, statusFilter = null) {
@@ -471,7 +467,6 @@ export async function getScoresByStudent(studentId, schoolId, term, session) {
 }
 
 export async function getScoresByClass(classId, schoolId, term, session) {
-  // Chunked fetch for classes with many students
   const key = _k('scores', 'class', classId, term, session);
   return cache.getFreshOrCached(
     key,
@@ -544,13 +539,6 @@ export async function saveScore(scoreData, existingId = null) {
   }
 }
 
-/**
- * Batch save multiple scores at once.
- * @param {Array}  scoresArray  [{ studentId, subjectId, ca, exam, ... }]
- * @param {string} schoolId
- * @param {string} term
- * @param {string} session
- */
 export async function saveScoresBatch(scoresArray, schoolId, term, session) {
   if (!_online()) {
     for (const score of scoresArray) {
@@ -704,7 +692,6 @@ export async function saveAttendance(docId, data) {
 }
 
 export async function saveAttendanceBatch(operations) {
-  // operations: [{ docId, data }]
   if (!_online()) {
     for (const op of operations) {
       offlineQueue.enqueue({ type: 'SET', collection: 'attendance', docId: op.docId, payload: { ...op.data, updatedAt: new Date() } });
@@ -837,7 +824,6 @@ export async function getCbtById(cbtId) {
 }
 
 export async function getCbtByTeacher(teacherId, schoolId) {
-  // Real-time via subscribeToTeacherCbt; this is for one-shot reads
   const key = _k('cbt', 'teacher', teacherId);
   return cache.getFreshOrCached(
     key,
@@ -1044,16 +1030,202 @@ export async function updateGeofence(schoolId, geofenceData) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// PLAN / SUBSCRIPTION HELPERS
+// PARENTS
 // ════════════════════════════════════════════════════════════════════════════
 
-export async function getRawSubscription(schoolId) {
-  const snap = await getDoc(doc(db, 'schools', schoolId, 'subscription', 'current'));
-  return snap.exists() ? snap.data() : null;
+export async function getParentsBySchool(schoolId) {
+  const key = _k('parents', schoolId);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const q = query(collection(db, 'parents'), where('schoolId', '==', schoolId));
+      const snap = await getDocs(q);
+      const list = _queryData(snap);
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      return list;
+    },
+    { ttl: TTL_MED, tags: ['parents', _k('parents', schoolId)] }
+  );
+}
+
+export async function getParentById(parentId) {
+  return cache.getFreshOrCached(
+    _k('parent', parentId),
+    async () => _docData(await getDoc(doc(db, 'parents', parentId))),
+    { ttl: TTL_MED, tags: ['parents', _k('parent', parentId)] }
+  );
+}
+
+export async function createParent(uid, data) {
+  const parentData = { ...data, createdAt: new Date(), updatedAt: new Date() };
+  if (_online()) {
+    await setDoc(doc(db, 'parents', uid), parentData);
+    cache.invalidateByTag('parents');
+  } else {
+    offlineQueue.enqueue({ type: 'SET', collection: 'parents', docId: uid, payload: parentData });
+    cache.set(_k('parent', uid), { id: uid, ...parentData }, { ttl: TTL_MED, tags: ['parents'] });
+  }
+}
+
+export async function updateParent(parentId, data) {
+  const updateData = { ...data, updatedAt: new Date() };
+  if (_online()) {
+    await updateDoc(doc(db, 'parents', parentId), updateData);
+    cache.del(_k('parent', parentId));
+    cache.invalidateByTag('parents');
+  } else {
+    offlineQueue.enqueue({ type: 'UPDATE', collection: 'parents', docId: parentId, payload: updateData });
+    const cur = cache.get(_k('parent', parentId));
+    if (cur) cache.set(_k('parent', parentId), { ...cur, ...updateData }, { ttl: TTL_MED, tags: ['parents'] });
+  }
+}
+
+export async function addParentToStudents(parentId, studentIds) {
+  if (!studentIds || studentIds.length === 0) return;
+  const batch = writeBatch(db);
+  for (const sid of studentIds) {
+    const ref = doc(db, 'students', sid);
+    batch.update(ref, { parentIds: arrayUnion(parentId) });
+  }
+  if (_online()) {
+    await batch.commit();
+    cache.invalidateByTag('students');
+  } else {
+    for (const sid of studentIds) {
+      offlineQueue.enqueue({
+        type: 'UPDATE',
+        collection: 'students',
+        docId: sid,
+        payload: { parentIds: arrayUnion(parentId) }
+      });
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CACHE UTILITIES (exposed for components that need to invalidate)
+// FEES  (NESTED UNDER schools/{schoolId}/fees/{feeId})
+// ════════════════════════════════════════════════════════════════════════════
+
+export async function getFeeStructure(schoolId, studentId, term, session) {
+  const safeSession = session.replace(/\//g, '_');
+  const docId = `${studentId}_${term}_${safeSession}`;
+  const ref = doc(db, 'schools', schoolId, 'fees', docId);
+  return cache.getFreshOrCached(
+    _k('fee', docId),
+    async () => _docData(await getDoc(ref)),
+    { ttl: TTL_MED, tags: ['fees', _k('fees', schoolId)] }
+  );
+}
+
+export async function setFeeStructure(schoolId, studentId, term, session, amount) {
+  const safeSession = session.replace(/\//g, '_');
+  const docId = `${studentId}_${term}_${safeSession}`;
+  const data = { schoolId, studentId, term, session, amount, updatedAt: new Date() };
+  const ref = doc(db, 'schools', schoolId, 'fees', docId);
+  if (_online()) {
+    await setDoc(ref, data, { merge: true });
+    cache.del(_k('fee', docId));
+    cache.invalidateByTag('fees');
+  } else {
+    offlineQueue.enqueue({ type: 'SET', collection: `schools/${schoolId}/fees`, docId, payload: data });
+  }
+}
+
+export async function getFeesByClass(schoolId, classId, term, session) {
+  // used by finance.js; now resolves student IDs and fetches nested fees
+  const key = _k('fees', schoolId, classId, term, session);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const students = await getStudentsByClass(schoolId, classId);
+      const allFees = [];
+      for (const s of students) {
+        const docId = `${s.id}_${term}_${session.replace(/\//g, '_')}`;
+        const snap = await getDoc(doc(db, 'schools', schoolId, 'fees', docId));
+        if (snap.exists()) allFees.push({ id: snap.id, ...snap.data() });
+      }
+      return allFees;
+    },
+    { ttl: TTL_MED, tags: ['fees', _k('fees', schoolId)] }
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PAYMENTS  (NESTED UNDER schools/{schoolId}/fees/{feeId}/payments)
+// ════════════════════════════════════════════════════════════════════════════
+
+export async function getPaymentsByStudent(schoolId, studentId, term, session) {
+  const safeSession = session.replace(/\//g, '_');
+  const docId = `${studentId}_${term}_${safeSession}`;
+  const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
+  const key = _k('payments', schoolId, studentId, term, session);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const snap = await getDocs(collection(feeRef, 'payments'));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    { ttl: TTL_SHORT, tags: ['payments', _k('payments', studentId)] }
+  );
+}
+
+export async function getPaymentsByClass(schoolId, classId, term, session) {
+  const students = await getStudentsByClass(schoolId, classId);
+  const allPayments = [];
+  for (const s of students) {
+    const docId = `${s.id}_${term}_${session.replace(/\//g, '_')}`;
+    const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
+    const snap = await getDocs(collection(feeRef, 'payments'));
+    snap.forEach(d => allPayments.push({ id: d.id, ...d.data() }));
+  }
+  return allPayments;
+}
+
+export async function recordPayment(paymentData) {
+  const { schoolId, studentId, term, session } = paymentData;
+  const safeSession = session.replace(/\//g, '_');
+  const docId = `${studentId}_${term}_${safeSession}`;
+  const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
+  const data = { ...paymentData, createdAt: new Date(), updatedAt: new Date() };
+  if (_online()) {
+    const ref = await addDoc(collection(feeRef, 'payments'), data);
+    cache.invalidateByTag('payments');
+    return ref.id;
+  } else {
+    const opId = offlineQueue.enqueue({ type: 'CREATE', collection: `schools/${schoolId}/fees/${docId}/payments`, payload: data });
+    return opId;
+  }
+}
+
+export async function getTotalsForSchool(schoolId, term, session) {
+  const classes = await getClassesBySchool(schoolId);
+  let totalOwed = 0, totalPaid = 0;
+  for (const cls of classes) {
+    const students = await getStudentsByClass(schoolId, cls.id);
+    for (const student of students) {
+      const feeDoc = await getFeeStructure(schoolId, student.id, term, session);
+      const feeAmount = feeDoc ? feeDoc.amount : 0;
+      totalOwed += feeAmount;
+      const payments = await getPaymentsByStudent(schoolId, student.id, term, session);
+      totalPaid += payments.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
+    }
+  }
+  const arrears = Math.max(0, totalOwed - totalPaid);
+  return { totalOwed, totalPaid, arrears };
+}
+
+export async function getTotalsForSession(schoolId, session) {
+  const terms = ['First Term', 'Second Term', 'Third Term'];
+  let totalPaidSession = 0;
+  for (const term of terms) {
+    const totals = await getTotalsForSchool(schoolId, term, session);
+    totalPaidSession += totals.totalPaid;
+  }
+  return totalPaidSession;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CACHE UTILITIES (exposed)
 // ════════════════════════════════════════════════════════════════════════════
 
 export function invalidateStudents(schoolId) {
@@ -1091,14 +1263,9 @@ export async function forceSyncNow() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// DIRECT FIRESTORE PASSTHROUGH (for legacy callers during migration)
-// Use only if absolutely needed; prefer the above named methods.
+// DIRECT FIRESTORE PASSTHROUGH (legacy)
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Generic read — single document.
- * Use only for paths not yet covered by a named method.
- */
 export async function readDoc(collectionPath, docId) {
   const key = _k('raw', collectionPath, docId);
   return cache.getFreshOrCached(
@@ -1108,10 +1275,6 @@ export async function readDoc(collectionPath, docId) {
   );
 }
 
-/**
- * Generic realtime listener.
- * Returns unsubscribe function.
- */
 export function listenDoc(collectionPath, docId, callback) {
   return onSnapshot(doc(db, collectionPath, docId), snap => {
     const data = snap.exists() ? { id: snap.id, ...snap.data() } : null;
@@ -1119,54 +1282,3 @@ export function listenDoc(collectionPath, docId, callback) {
     callback(data);
   });
 }
-
-export default {
-  // Users
-  getUserById, updateUser,
-  // Schools
-  getSchoolById, updateSchool,
-  // Subscription
-  getSubscription, updateSubscription, subscribeToSubscription, getRawSubscription,
-  // Students
-  getStudentById, getStudentsBySchool, getStudentsByClass, countStudents, countLockedStudents,
-  createStudent, updateStudent, deleteStudent,
-  // Teachers
-  getTeacherById, getTeachersBySchool, countTeachers, createTeacher, updateTeacher, deleteTeacher,
-  // Classes
-  getClassesBySchool, getClassById, getClassesBySchoolAndLevel,
-  // Subjects
-  getSubjectsBySchool, getSubjectsByLevel, countSubjects, createSubject, deleteSubject,
-  // Scores
-  getScoresByStudent, getScoresByClass, getExistingScore, saveScore, saveScoresBatch, loadSessionOptions,
-  // Reports
-  getReportByStudent, saveReport,
-  // Broadsheets
-  saveBroadsheet,
-  // Attendance
-  getAttendanceByClass, getAttendanceByStudent, saveAttendance, saveAttendanceBatch,
-  // Teacher Attendance
-  getTeacherAttendanceForDate, createTeacherClockIn, updateTeacherAttendance,
-  // Scoring
-  getScoringConfig, saveScoringConfig,
-  // Academic Calendar
-  getAcademicCalendarDoc, setAcademicCalendarDoc, subscribeToAcademicCalendar,
-  // CBT
-  getCbtById, getCbtByTeacher, subscribeToTeacherCbt, createCbt, updateCbt, deleteCbt,
-  // Test Results
-  saveTestResult, getTestResultsByUser,
-  // Questions
-  getQuestions,
-  // Notifications
-  getStudentNotifications,
-  // Assignments
-  getAssignmentsByClass,
-  // Analytics
-  saveTopicStats, upsertTopicCumulative, getTopicCumulative,
-  // Geofence
-  updateGeofence,
-  // Cache & Queue utils
-  invalidateStudents, invalidateTeachers, invalidateScores,
-  clearAllCache, getCacheStats, getPendingCount, getOfflineQueue, forceSyncNow,
-  // Passthrough
-  readDoc, listenDoc,
-};
