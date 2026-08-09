@@ -2,7 +2,7 @@
 // Responsibilities: in-memory cache, localStorage persistence, TTL expiration,
 // tag-based invalidation, offline fallback, multi-tab sync via BroadcastChannel.
 
-const CACHE_STORAGE_KEY = 'acadex_cache_v1';
+const CACHE_STORAGE_KEY = 'acadex_cache_v2';
 const DEFAULT_TTL       = 5 * 60 * 1000;   // 5 minutes
 const PERSIST_DEBOUNCE  = 300;              // ms – avoid hammering localStorage
 
