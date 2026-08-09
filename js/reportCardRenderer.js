@@ -109,6 +109,7 @@ export async function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
   isPrimary = false,
+  skipLiveAttendanceFetch = false,   // <-- NEW: skip class‑wide query for parent flow
   onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
 }) {
   if (!container) {
@@ -117,33 +118,57 @@ export async function renderReportCardUI({
     return;
   }
 
-  // ── Resolve attendance from Firestore ────────────────────────────────────
+  // ── Resolve attendance from Firestore (or use provided) ──────────────
   let attendanceData = { schoolOpened: 0, present: 0, absent: 0 };
 
-  try {
-    const schoolId =
-      school?.id ||
-      student?.schoolId ||
-      localStorage.getItem('userSchoolId') ||
-      null;
+  if (skipLiveAttendanceFetch) {
+    // Use the attendance object passed by the caller (parent portal)
+    attendanceData = {
+      schoolOpened: attendance.schoolOpened || 0,
+      present: attendance.present || 0,
+      absent: attendance.absent || 0,
+    };
+  } else {
+    // Admin flow: fetch from Firestore via class-wide query
+    try {
+      const schoolId =
+        school?.id ||
+        student?.schoolId ||
+        localStorage.getItem('userSchoolId') ||
+        null;
 
-    const classId = student?.classId || null;
+      const classId = student?.classId || null;
 
-    if (schoolId && student?.id && term && session) {
-      const fetched = await _fetchStudentAttendanceData(
-        student.id, schoolId, classId, term, session
-      );
+      if (schoolId && student?.id && term && session) {
+        const fetched = await _fetchStudentAttendanceData(
+          student.id, schoolId, classId, term, session
+        );
 
-      if (fetched.schoolOpened > 0 || fetched.present > 0 || fetched.absent > 0) {
-        attendanceData = fetched;
-      } else if (
-        attendance.schoolOpened > 0 ||
-        attendance.present      > 0 ||
-        attendance.absent       > 0
-      ) {
-        attendanceData = { ...attendance };
+        if (fetched.schoolOpened > 0 || fetched.present > 0 || fetched.absent > 0) {
+          attendanceData = fetched;
+        } else if (
+          attendance.schoolOpened > 0 ||
+          attendance.present      > 0 ||
+          attendance.absent       > 0
+        ) {
+          attendanceData = { ...attendance };
+        }
+      } else {
+        if (
+          attendance.schoolOpened > 0 ||
+          attendance.present      > 0 ||
+          attendance.absent       > 0
+        ) {
+          attendanceData = { ...attendance };
+        }
+        console.warn(
+          '[reportCardRenderer] Attendance query skipped — missing schoolId, studentId, term, or session.',
+          { schoolId: school?.id || student?.schoolId, studentId: student?.id, term, session }
+        );
       }
-    } else {
+    } catch (err) {
+      console.error('[reportCardRenderer] Attendance fetch error:', err);
+      toast.warning('Unable to load attendance data. Using provided values.');
       if (
         attendance.schoolOpened > 0 ||
         attendance.present      > 0 ||
@@ -151,20 +176,6 @@ export async function renderReportCardUI({
       ) {
         attendanceData = { ...attendance };
       }
-      console.warn(
-        '[reportCardRenderer] Attendance query skipped — missing schoolId, studentId, term, or session.',
-        { schoolId: school?.id || student?.schoolId, studentId: student?.id, term, session }
-      );
-    }
-  } catch (err) {
-    console.error('[reportCardRenderer] Attendance fetch error:', err);
-    toast.warning('Unable to load attendance data. Using provided values.');
-    if (
-      attendance.schoolOpened > 0 ||
-      attendance.present      > 0 ||
-      attendance.absent       > 0
-    ) {
-      attendanceData = { ...attendance };
     }
   }
 
@@ -272,7 +283,7 @@ export async function renderReportCardUI({
       } else {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
-          <td>${score.ca}</td><td class="rc-exam">${score.exam}<td><td class="rc-total">${total}</td>
+          <td>${score.ca}</td><td class="rc-exam">${score.exam}</td><td class="rc-total">${total}</td>
           <td>${grade}</td><td class="rc-remark">${remark}</td>
           <td class="rc-position">${positionHtml}</td><td class="rc-class-avg">${classAvg}</td>
         </tr>`;
@@ -280,7 +291,7 @@ export async function renderReportCardUI({
     }
   } else {
     const colSpan = isPrimary ? 6 : 8;
-    tableRows = `<tr><td colspan="${colSpan}">No scores found</td>{'', ''}`;
+    tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
   }
 
   const totalObtainable = subjectCount * 100;

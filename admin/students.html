@@ -6,7 +6,7 @@
   <title>Acadex - Students</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ========== PAGE-SPECIFIC STYLES (kept exactly as original) ========== */
+    /* ========== PAGE-SPECIFIC STYLES ========== */
     .filter-buttons {
       display: flex;
       flex-wrap: wrap;
@@ -175,64 +175,117 @@
       color: #718096;
       margin-top: 4px;
     }
-    .school-address {
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-top: 4px;
-    }
+
+    /* Header subscription badge */
     .subscription-badge {
-      margin-left: auto;
-      margin-right: 20px;
-      font-weight: bold;
-      font-size: 0.9rem;
+      font-weight: 700;
+      font-size: 0.78rem;
       padding: 4px 12px;
-      border-radius: 20px;
+      border-radius: 999px;
       background: #f1f5f9;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
     }
-    .subscription-badge.active {
-      background: #dcfce7;
-      color: #15803d;
-    }
-    .subscription-badge.expired {
-      background: #fee2e2;
-      color: #b91c1c;
-    }
-    select:disabled, input:disabled {
-      background-color: #f1f5f9;
-      cursor: not-allowed;
-    }
-    .loading-indicator {
-      font-size: 0.8rem;
-      color: #3b82f6;
-      margin-top: 4px;
-    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
-    /* Academic Calendar Badge */
+    /* Academic badge */
     .academic-badge {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
       color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 500;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      margin-left: 16px;
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
     }
     .academic-badge .override-badge {
       background: #f59e0b;
       color: #000;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-size: 0.7rem;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
     }
 
-    /* Mobile adjustments */
+    /* Header layout */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+    .school-header-left .school-logo {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #e0e7ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      background: rgba(0,0,0,0.8);
+    }
+
+    /* Mobile responsive header */
     @media (max-width: 768px) {
+      .school-header-left .school-logo .camera-icon {
+        display: none !important;
+      }
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        pointer-events: none;
+      }
+      .header-right .subscription-badge {
+        display: none !important;
+      }
       .modal-content { width: 95%; padding: 16px; }
       .data-table th, .data-table td { padding: 6px 4px; font-size: 0.8rem; }
       .student-passport { width: 35px; height: 35px; }
@@ -243,12 +296,8 @@
       .data-table th:nth-child(8), .data-table td:nth-child(8) { width: 100px; }
       .data-table td:last-child button { padding: 2px 6px; font-size: 0.7rem; }
     }
-
-    /* Hide hamburger on desktop */
     @media (min-width: 769px) {
-      .hamburger-menu {
-        display: none !important;
-      }
+      .hamburger-menu { display: none !important; }
     }
   </style>
 </head>
@@ -261,30 +310,14 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html" class="active">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html" class="active"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -293,40 +326,20 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html" class="active">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html" class="active"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -336,7 +349,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -345,15 +358,16 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
@@ -365,7 +379,6 @@
         <button id="addStudentBtn" class="btn-primary">Add Student</button>
       </div>
 
-      <!-- DYNAMIC FILTER BUTTONS -->
       <div id="classFilterContainer" class="filter-buttons">
         <button class="filter-btn active" data-class="all">All Students</button>
       </div>
@@ -410,7 +423,6 @@
       <div class="form-group"><label for="studentSubjects">Subjects</label><select id="studentSubjects" multiple disabled><option value="">-- Select level first --</option></select><small>Hold Ctrl (or Cmd) to select multiple</small></div>
       <div class="form-group"><label for="studentClub">Club / Society</label><input type="text" id="studentClub" placeholder="e.g., Science Club, Debate Team"><small>Optional</small></div>
 
-      <!-- NEW FIELDS -->
       <div class="form-row">
         <div class="form-group"><label for="studentNationality">Nationality *</label><select id="studentNationality" required><option value="">-- Select Country --</option></select></div>
         <div class="form-group"><label for="studentState">State (Nigeria) *</label><select id="studentState" required><option value="">-- Select State --</option></select></div>
@@ -463,7 +475,6 @@
   });
 </script>
 <script>
-  // Register Service Worker for offline navigation
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
@@ -471,9 +482,7 @@
           console.log('Service Worker registered with scope:', registration.scope);
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
+        .catch(err => console.error('Service Worker registration failed:', err));
     });
   }
 </script>

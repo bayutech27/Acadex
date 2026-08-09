@@ -7,12 +7,137 @@ import { toast } from './error-handler.js';
 import * as service from './service.js';
 import { logoutUser } from './auth.js';
 import { initMobileMenu } from './menu.js';
+import { renderReportCardUI } from './reportCardRenderer.js';
 
 let parentData = null;
 let selectedChildId = null;
 let currentSchoolId = null;
 let currentChild = null;
+let currentChildClassInfo = null;   // for class level (primary/secondary)
+let subjectsMap = new Map();        // subjectId -> {name, level}
 
+// ── CBT pagination state ──────────────────────────────
+let cbtResults = [];
+let cbtShowAll = false;
+
+// ── Helpers ─────────────────────────────────────────────
+function totalOwed(feeData) {
+  if (!feeData) return 0;
+  return (feeData.amount || 0) + (feeData.openingBalance || 0);
+}
+
+function getDefaultRatings() {
+  const defaults = {};
+  const skills = [
+    'Handling of tools','Public Speaking','Speech Fluency','Handwriting',
+    'Sport and Game','Drawing/Painting','Attentiveness','Neatness','Honesty',
+    'Politeness','Punctuality','Self-control/Calmness','Obedience','Reliability',
+    'Relationship with others','Leadership'
+  ];
+  skills.forEach(skill => {
+    const key = skill.toLowerCase().replace(/[^a-z]/g, '');
+    defaults[key] = 3;
+  });
+  return defaults;
+}
+
+function computeAttendanceSummary(records) {
+  let present = 0, absent = 0;
+  records.forEach(rec => {
+    const days = rec.days || {};
+    for (const day of ['mon','tue','wed','thu','fri']) {
+      const sess = days[day];
+      if (sess) {
+        if (sess.M === true) present++;
+        else if (sess.M === false) absent++;
+        if (sess.A === true) present++;
+        else if (sess.A === false) absent++;
+      }
+    }
+  });
+  const total = present + absent;
+  // "schoolOpened" is the total sessions possible (present+absent) for this student
+  // because we only count days where the student has a mark (M or A) – we don't have
+  // a class-wide holiday check, so we treat total sessions as present+absent.
+  return { schoolOpened: total, present, absent };
+}
+
+// ── Helper to get initials from name ──────────────────
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) {
+    // Single name: take first two letters or first letter if too short
+    const first = parts[0];
+    if (first.length >= 2) return first.substring(0, 2).toUpperCase();
+    return first.substring(0, 1).toUpperCase();
+  }
+  // Take first letter of first and last parts
+  const first = parts[0][0] || '';
+  const last = parts[parts.length - 1][0] || '';
+  return (first + last).toUpperCase();
+}
+
+// ── Compute total outstanding for a student ──────────
+async function computeStudentOutstanding(schoolId, studentId, currentTerm, currentSession) {
+  const allFees = await service.getFeesByStudent(schoolId, studentId);
+  if (!allFees || allFees.length === 0) {
+    return { totalOutstanding: 0, totalArrears: 0, currentBalance: 0, currentFeeAmount: 0, currentPayments: 0 };
+  }
+
+  let totalOutstanding = 0;
+  let totalArrears = 0;
+  let currentBalance = 0;
+  let currentFeeAmount = 0;
+  let currentPayments = 0;
+
+  // For each fee doc, get its payments and compute unpaid balance
+  for (const fee of allFees) {
+    const feeAmount = totalOwed(fee);
+    const term = fee.term;
+    const session = fee.session;
+    // Get payments for this fee doc
+    const payments = await service.getPaymentsByStudent(schoolId, studentId, term, session);
+    let paid = 0;
+    payments.forEach(p => { if (!p.voided) paid += p.amount || 0; });
+    const unpaid = Math.max(0, feeAmount - paid);
+
+    // Check if this is the current term/session
+    const isCurrent = (term === currentTerm && session === currentSession);
+    if (isCurrent) {
+      currentFeeAmount = feeAmount;
+      currentPayments = paid;
+      currentBalance = unpaid;
+    } else {
+      totalArrears += unpaid;
+    }
+    totalOutstanding += unpaid;
+  }
+
+  return { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments };
+}
+
+// ── Helper: get CA max from scoring config ─────────────
+async function getCaMax(schoolId, level, term, session) {
+  try {
+    const configs = await service.getScoringConfig(schoolId, level);
+    if (!configs || configs.length === 0) return 40; // default for secondary
+    const match = configs.find(c => c.term === term && c.session === session);
+    if (match && match.grading) {
+      const parts = match.grading.split('/');
+      if (parts.length === 2) {
+        const caMax = parseInt(parts[0], 10);
+        if (!isNaN(caMax)) return caMax;
+      }
+    }
+    return 40; // fallback
+  } catch (err) {
+    console.warn('Failed to fetch scoring config for CA max:', err);
+    return 40;
+  }
+}
+
+// ── Main init ──────────────────────────────────────────
 export async function initParentPortal() {
   const user = await new Promise((resolve) => {
     const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u); });
@@ -41,6 +166,7 @@ export async function initParentPortal() {
   });
 
   await loadSchoolInfo();
+  await loadSubjectsMap(); // for resolving subject names in scores/reports
   await renderChildren();
 
   document.getElementById('logoutBtn').addEventListener('click', logoutUser);
@@ -57,6 +183,9 @@ export async function initParentPortal() {
   else greeting += 'Evening';
   const lastName = parentData.name ? parentData.name.split(' ').pop() : 'Parent';
   document.getElementById('greetingText').textContent = `${greeting}, ${parentData.title || ''} ${lastName}`;
+
+  // Download report button
+  document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
 }
 
 async function loadSchoolInfo() {
@@ -67,6 +196,12 @@ async function loadSchoolInfo() {
     const logo = document.getElementById('schoolLogoImg');
     if (school.logo) logo.src = school.logo;
   }
+}
+
+async function loadSubjectsMap() {
+  const subjects = await service.getSubjectsBySchool(currentSchoolId);
+  subjectsMap.clear();
+  subjects.forEach(s => subjectsMap.set(s.id, { name: s.name, level: s.level }));
 }
 
 async function renderChildren() {
@@ -108,20 +243,44 @@ async function selectChild(studentId) {
   });
   currentChild = await service.getStudentById(studentId);
   if (!currentChild) return;
+  if (currentChild.classId) {
+    currentChildClassInfo = await service.getClassById(currentChild.classId);
+  } else {
+    currentChildClassInfo = null;
+  }
+
   document.getElementById('selectedChildDetail').style.display = 'block';
   document.getElementById('childNameDisplay').textContent = currentChild.name || '';
-  const classInfo = currentChild.classId ? await service.getClassById(currentChild.classId) : null;
+  const classInfo = currentChildClassInfo;
   document.getElementById('childClassDisplay').textContent = `Admission: ${currentChild.admissionNumber || '—'} | Class: ${classInfo?.name || currentChild.classId || ''}`;
+
+  // ── Update photo / initials ──────────────────────────
+  const img = document.getElementById('childPhoto');
+  const initialsEl = document.getElementById('childInitials');
+  const wrapper = document.getElementById('childPhotoWrapper');
+
   if (currentChild.passport) {
-    document.getElementById('childPhoto').src = currentChild.passport;
+    img.src = currentChild.passport;
+    img.style.display = 'block';
+    initialsEl.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    const initials = getInitials(currentChild.name || 'Student');
+    initialsEl.textContent = initials;
+    initialsEl.style.display = 'flex';
   }
+
+  // Reset CBT pagination when switching child
+  cbtResults = [];
+  cbtShowAll = false;
+
   await loadAttendance();
-  await loadFees();
+  await renderFeeDetail(studentId);
   await loadCbtScores();
   await loadSubjectScores();
-  await populateReportSelectors();
 }
 
+// ── Attendance (used both for UI and report) ──────────
 async function loadAttendance() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -135,21 +294,11 @@ async function loadAttendance() {
     const records = await service.getAttendanceByStudent(
       currentSchoolId, selectedChildId, currentChild.classId, session, term
     );
-    let present = 0, totalSessions = 0;
-    records.forEach(rec => {
-      const days = rec.days || {};
-      ['mon','tue','wed','thu','fri'].forEach(day => {
-        if (days[day]) {
-          if (days[day].M === true) present++;
-          if (days[day].A === true) present++;
-          totalSessions += 2;
-        }
-      });
-    });
-    const absent = totalSessions - present;
-    const pct = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 0;
-    document.getElementById('attPresent').textContent = present;
-    document.getElementById('attAbsent').textContent = absent;
+    const summary = computeAttendanceSummary(records);
+    const total = summary.schoolOpened;
+    const pct = total > 0 ? Math.round((summary.present / total) * 100) : 0;
+    document.getElementById('attPresent').textContent = summary.present;
+    document.getElementById('attAbsent').textContent = summary.absent;
     document.getElementById('attPercent').textContent = pct + '%';
   } catch (err) {
     toast.error('Could not load attendance.');
@@ -157,99 +306,408 @@ async function loadAttendance() {
   }
 }
 
-async function loadFees() {
+// ── Fee detail with arrears ────────────────────────────
+async function renderFeeDetail(studentId) {
   const term = getCurrentTerm();
   const session = getCurrentSession();
-  if (!term || !session) return;
-  try {
-    const feeDoc = await service.getFeeStructure(currentSchoolId, selectedChildId, term, session);
-    const amount = feeDoc ? feeDoc.amount : null;
-    const payments = await service.getPaymentsByStudent(currentSchoolId, selectedChildId, term, session);
-    const totalPaid = payments.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
-    const owed = amount !== null ? amount : 0;
-    const arrears = amount !== null ? Math.max(0, owed - totalPaid) : null;
+  const container = document.getElementById('feeDetailContainer');
+  if (!term || !session) {
+    container.innerHTML = '<p>Unable to determine current term/session.</p>';
+    return;
+  }
 
-    document.getElementById('feeAmount').textContent = amount !== null ? `₦${amount.toLocaleString()}` : 'Not set';
-    document.getElementById('totalPaid').textContent = `₦${totalPaid.toLocaleString()}`;
-    const arrearsEl = document.getElementById('arrears');
-    if (amount === null) {
-      arrearsEl.textContent = 'No fee set for this term';
-      arrearsEl.className = 'fee-status not-set';
-    } else if (arrears === 0) {
-      arrearsEl.textContent = 'Fully Paid';
-      arrearsEl.className = 'fee-status paid';
-    } else {
-      arrearsEl.textContent = `₦${arrears.toLocaleString()}`;
-      arrearsEl.className = 'fee-status unpaid';
+  try {
+    // Compute total outstanding and arrears
+    const { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments } =
+      await computeStudentOutstanding(currentSchoolId, studentId, term, session);
+
+    // If no fee structure at all (allFees empty), show a message
+    const allFees = await service.getFeesByStudent(currentSchoolId, studentId);
+    if (!allFees || allFees.length === 0) {
+      container.innerHTML = '<p>No fee records found for this student.</p>';
+      return;
     }
+
+    // We still need the current fee doc to show "Fee Set" and opening balance if any
+    const currentFeeDoc = allFees.find(f => f.term === term && f.session === session);
+    const feeAmountDisplay = currentFeeDoc ? totalOwed(currentFeeDoc) : 0;
+    const openingBalance = currentFeeDoc?.openingBalance || 0;
+
+    const balance = currentBalance; // already computed as unpaid for current term
+    const balanceLabel = balance > 0
+      ? `<span style="color:var(--danger-text);">Owing ₦${balance.toLocaleString()}</span>`
+      : balance < 0
+        ? `<span style="color:var(--success-text);">₦${Math.abs(balance).toLocaleString()} credit</span>`
+        : `<span style="color:var(--success-text);">Settled</span>`;
+
+    const arrearsLabel = totalArrears > 0
+      ? `<span style="color:var(--danger-text);">₦${totalArrears.toLocaleString()}</span>`
+      : `<span style="color:var(--success-text);">None</span>`;
+
+    // Fetch payments for current term to display history
+    const payments = await service.getPaymentsByStudent(currentSchoolId, studentId, term, session);
+    let historyHtml = payments.length === 0 ? '<p style="margin:0.5rem 0;">No payments recorded.</p>' : '';
+    payments.forEach(p => {
+      const isVoided = p.voided === true;
+      historyHtml += `
+        <div class="detail-row" style="display:flex; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid #f1f5f9; ${isVoided ? 'opacity:0.5;' : ''}">
+          <span style="${isVoided ? 'text-decoration:line-through;' : ''}">
+            ${new Date(p.date).toLocaleDateString()} – ₦${p.amount.toLocaleString()} (${p.method || 'n/a'})
+            ${p.term && p.session ? ` <span style="font-size:0.7rem; color:#64748b;">(${p.term}, ${p.session})</span>` : ''}
+          </span>
+          ${isVoided ? '<small style="color:var(--danger-text);">Voided</small>' : ''}
+        </div>
+      `;
+    });
+
+    let html = `
+      <div class="student-detail-container" style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+        <div class="student-detail-info" style="flex:1; min-width:180px;">
+          <div><strong>Fee Set (this term):</strong> ₦${feeAmountDisplay.toLocaleString()}</div>
+          ${openingBalance ? `<div style="font-size:0.8rem;color:var(--text-500);">Includes ₦${openingBalance.toLocaleString()} opening balance (as of ${currentFeeDoc?.openingBalanceAsOf || 'migration'})</div>` : ''}
+          <div><strong>Total Paid (this term):</strong> ₦${currentPayments.toLocaleString()}</div>
+          <div><strong>Arrears from previous terms:</strong> ${arrearsLabel}</div>
+          <div><strong>Balance (this term):</strong> ${balanceLabel}</div>
+          <div><strong>Total Outstanding (all terms):</strong> <span style="font-weight:700;color:${totalOutstanding > 0 ? 'var(--danger-text)' : 'var(--success-text)'};">₦${totalOutstanding.toLocaleString()}</span></div>
+        </div>
+        <div class="student-detail-history" style="flex:2; min-width:200px;">
+          <strong>Payment History (this term)</strong>
+          <div class="payment-list" style="max-height:200px; overflow-y:auto; margin-top:0.5rem;">
+            ${historyHtml}
+          </div>
+        </div>
+      </div>`;
+
+    container.innerHTML = html;
+
+    // Update download button state based on totalOutstanding
+    const downloadBtn = document.getElementById('downloadReportBtn');
+    if (totalOutstanding > 0) {
+      downloadBtn.disabled = true;
+      downloadBtn.title = 'Report unavailable – outstanding fees';
+      downloadBtn.style.opacity = '0.5';
+      downloadBtn.style.cursor = 'not-allowed';
+    } else {
+      downloadBtn.disabled = false;
+      downloadBtn.title = '';
+      downloadBtn.style.opacity = '1';
+      downloadBtn.style.cursor = 'pointer';
+    }
+
   } catch (err) {
-    toast.error('Could not load fees.');
-    console.error(err);
+    console.error('Fee detail error:', err);
+    container.innerHTML = '<p>Error loading fee details.</p>';
   }
 }
 
+// ── CBT scores (Feature 2) with pagination ─────────────
 async function loadCbtScores() {
-  const results = await service.getTestResultsByUser(selectedChildId);
   const container = document.getElementById('cbtScoresList');
-  if (!results || results.length === 0) {
+  if (!selectedChildId) {
+    container.innerHTML = '<p class="no-data-msg">No student selected.</p>';
+    return;
+  }
+  try {
+    const results = await service.getAssignedCbtScoresByStudent(selectedChildId);
+    cbtResults = results || [];
+    // Sort by completedAt descending (already done by query, but we'll ensure)
+    cbtResults.sort((a, b) => {
+      const aTime = a.completedAt?.seconds || 0;
+      const bTime = b.completedAt?.seconds || 0;
+      return bTime - aTime;
+    });
+    renderCbtList();
+  } catch (err) {
+    console.error('CBT scores error:', err);
+    container.innerHTML = '<p class="no-data-msg">Error loading CBT scores.</p>';
+  }
+}
+
+function renderCbtList() {
+  const container = document.getElementById('cbtScoresList');
+  if (!cbtResults.length) {
     container.innerHTML = '<p class="no-data-msg">No CBT scores available.</p>';
     return;
   }
-  let html = '<table class="data-table"><thead><tr><th>Test</th><th>Score</th><th>Date</th></tr></thead><tbody>';
-  results.forEach(r => {
-    html += `<tr><td>${r.testName || 'CBT'}</td><td>${r.score || 0}</td><td>${r.completedAt ? new Date(r.completedAt.seconds*1000).toLocaleDateString() : ''}</td></tr>`;
+
+  const limit = 6;
+  const showAll = cbtShowAll;
+  const itemsToShow = showAll ? cbtResults : cbtResults.slice(0, limit);
+  const hasMore = cbtResults.length > limit;
+
+  let html = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr><th>Subject</th><th>Score</th><th>Date</th></tr></thead><tbody>`;
+  itemsToShow.forEach(r => {
+    const subject = r.subject || 'Unknown Subject';
+    const score = r.rawScore ?? r.correctAnswers ?? 0;
+    const date = r.completedAt ? new Date(r.completedAt.seconds * 1000).toLocaleDateString() : '';
+    html += `<tr><td>${subject}</td><td>${score}</td><td>${date}</td></tr>`;
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
+
+  if (hasMore) {
+    const btnText = showAll ? 'Show less' : `Load more (${cbtResults.length - limit} remaining)`;
+    html += `<button class="load-more-btn" id="cbtLoadMoreBtn">${btnText}</button>`;
+  }
+
   container.innerHTML = html;
+
+  if (hasMore) {
+    document.getElementById('cbtLoadMoreBtn')?.addEventListener('click', () => {
+      cbtShowAll = !cbtShowAll;
+      renderCbtList();
+    });
+  }
 }
 
+// ── Subject scores → C.A This Term (with responsive wrapper) ──
 async function loadSubjectScores() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
-  if (!term || !session) return;
+  const container = document.getElementById('subjectScoresList');
+  const heading = document.getElementById('subjectScoresHeading');
+
+  // Update heading to "C.A This Term"
+  if (heading) {
+    heading.textContent = 'C.A This Term';
+  }
+
+  if (!term || !session) {
+    container.innerHTML = '<p class="no-data-msg">Unable to determine current term/session.</p>';
+    return;
+  }
+
   try {
-    const scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
-    const container = document.getElementById('subjectScoresList');
+    // Fetch CA max from scoring config
+    const level = currentChildClassInfo?.level || 'secondary';
+    const caMax = await getCaMax(currentSchoolId, level, term, session);
+
+    // Try to fetch scores with full term name; fallback to numeric if none
+    let scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
+    const TERM_TO_NUM = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
     if (!scores || scores.length === 0) {
-      container.innerHTML = '<p class="no-data-msg">No subject scores recorded.</p>';
+      const numericTerm = TERM_TO_NUM[term];
+      if (numericTerm) {
+        scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, numericTerm, session);
+      }
+    }
+
+    if (!scores || scores.length === 0) {
+      container.innerHTML = '<p class="no-data-msg">No C.A scores recorded for this term.</p>';
       return;
     }
-    let html = '<table class="data-table"><thead><tr><th>Subject</th><th>CA</th><th>Exam</th><th>Total</th></tr></thead><tbody>';
+
+    // Build table with responsive wrapper
+    let tableHtml = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr><th>Subject</th><th>Score</th></tr></thead><tbody>`;
     scores.forEach(s => {
-      const total = (s.ca || 0) + (s.exam || 0);
-      html += `<tr><td>${s.subjectName || s.subjectId}</td><td>${s.ca || 0}</td><td>${s.exam || 0}</td><td>${total}</td></tr>`;
+      const ca = s.ca || 0;
+      const subjectName = subjectsMap.get(s.subjectId)?.name || s.subjectId;
+      tableHtml += `<tr><td>${subjectName}</td><td>${ca} / ${caMax}</td></tr>`;
     });
-    html += '</tbody></table>';
-    container.innerHTML = html;
+    tableHtml += '</tbody></table></div>';
+    container.innerHTML = tableHtml;
   } catch (err) {
-    toast.error('Could not load subject scores.');
-    console.error(err);
+    console.error('Error loading subject scores:', err);
+    toast.error('Could not load C.A scores.');
+    container.innerHTML = '<p class="no-data-msg">Error loading C.A scores.</p>';
   }
 }
 
-async function populateReportSelectors() {
-  const sessionSelect = document.getElementById('reportSessionSelect');
-  const current = getCurrentSession();
-  const prev = current ? `${parseInt(current.split('/')[0])-1}/${parseInt(current.split('/')[0])}` : '';
-  sessionSelect.innerHTML = `<option value="${current}">${current}</option>`;
-  if (prev) sessionSelect.innerHTML += `<option value="${prev}">${prev}</option>`;
-  document.getElementById('loadReportBtn').addEventListener('click', loadReport);
-}
+// ── Download Report ────────────────────────────────────
+async function downloadReport() {
+  const term = getCurrentTerm();
+  const session = getCurrentSession();
+  if (!term || !session) {
+    toast.error('Current term/session not available.');
+    return;
+  }
 
-async function loadReport() {
-  const term = document.getElementById('reportTermSelect').value;
-  const session = document.getElementById('reportSessionSelect').value;
-  if (!term || !session) return;
-  try {
-    const report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
-    const container = document.getElementById('reportCardContent');
-    if (report) {
-      container.innerHTML = `<pre style="background:#f8fafc;padding:1rem;border-radius:8px;">${JSON.stringify(report, null, 2)}</pre>`;
-    } else {
-      container.innerHTML = '<p class="no-data-msg">No report card available for this term/session.</p>';
+  if (!selectedChildId) {
+    toast.error('No student selected.');
+    return;
+  }
+
+  // Check outstanding – if > 0, button should be disabled; but we also check here as a safeguard.
+  const { totalOutstanding } = await computeStudentOutstanding(currentSchoolId, selectedChildId, term, session);
+  if (totalOutstanding > 0) {
+    toast.warning('Cannot download report – outstanding fees remain.');
+    return;
+  }
+
+  // Gather data
+  const school = await service.getSchoolById(currentSchoolId);
+  const student = currentChild;
+  if (!student) {
+    toast.error('Student data not loaded.');
+    return;
+  }
+
+  // Try to fetch scores with full term name; if none, fallback to numeric term
+  let scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
+  const TERM_TO_NUM = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  if (!scoresRaw || scoresRaw.length === 0) {
+    const numericTerm = TERM_TO_NUM[term];
+    if (numericTerm) {
+      scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, numericTerm, session);
     }
-  } catch (err) {
-    toast.error('Failed to load report.');
-    console.error(err);
   }
+
+  if (!scoresRaw || scoresRaw.length === 0) {
+    toast.warning('No scores found for this term. Cannot generate report.');
+    return;
+  }
+
+  // Build scores with subject names
+  const scoresWithNames = scoresRaw.map(s => ({
+    subjectId: s.subjectId,
+    subjectName: subjectsMap.get(s.subjectId)?.name || s.subjectId,
+    ca: s.ca || 0,
+    exam: s.exam || 0
+  }));
+
+  // Get grading config for the class level
+  const classLevel = currentChildClassInfo?.level || 'secondary';
+  const isPrimary = (classLevel === 'primary');
+  const gradingConfigs = await service.getScoringConfig(currentSchoolId, classLevel);
+  let grading = { ca: 40, exam: 60 };
+  if (gradingConfigs && gradingConfigs.length > 0) {
+    const match = gradingConfigs.find(g => g.term === term && g.session === session);
+    if (match && match.grading) {
+      const [ca, exam] = match.grading.split('/').map(Number);
+      if (!isNaN(ca) && !isNaN(exam)) grading = { ca, exam };
+    }
+  }
+
+  // Get saved report (if any) – with fallback to numeric term
+  let report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
+  if (!report) {
+    const numericTerm = TERM_TO_NUM[term];
+    if (numericTerm) {
+      report = await service.getReportByStudent(selectedChildId, currentSchoolId, numericTerm, session);
+    }
+  }
+  const psychomotor = report?.psychomotor || getDefaultRatings();
+  const teacherComment = report?.teacherComment || '';
+  const principalComment = report?.principalComment || '';
+
+  // Attendance – using the same per-student query
+  const attendanceRecords = await service.getAttendanceByStudent(
+    currentSchoolId, selectedChildId, student.classId, session, term
+  );
+  const attendanceSummary = computeAttendanceSummary(attendanceRecords);
+
+  // Build student data for renderer
+  const studentData = {
+    id: student.id,
+    name: student.name || 'Student',
+    classId: student.classId,
+    schoolId: currentSchoolId,
+    admissionNumber: student.admissionNumber || '—',
+    gender: student.gender || '—',
+    dob: student.dob || '',
+    club: student.club || '—',
+    passport: student.passport || null,
+    parentPhone: student.parentPhone || null
+  };
+
+  const className = currentChildClassInfo?.name || student.classId || 'Class';
+
+  // Create hidden container
+  const hiddenContainer = document.createElement('div');
+  hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; background:white; z-index:9999;';
+  document.body.appendChild(hiddenContainer);
+
+  try {
+    await renderReportCardUI({
+      student: studentData,
+      scores: scoresWithNames,
+      className,
+      school,
+      grading,
+      psychomotor,
+      comments: { teacherComment, principalComment },
+      term,
+      session,
+      subjectStats: undefined, // intentionally omitted
+      container: hiddenContainer,
+      attendance: attendanceSummary,
+      skipLiveAttendanceFetch: true,  // new param
+      isPrimary
+    });
+
+    // Clone rendered HTML and open print window (copied from results.js handlePrint)
+    const clonedReport = hiddenContainer.cloneNode(true);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report.');
+      return;
+    }
+
+    const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+    // Gather all style tags from current document (including the renderer's inline styles)
+    const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
+    const extraPrintCSS = `
+      @page { size: A4; margin: 8mm; }
+      body, .print-container { margin: 0; padding: 0; background: white; }
+      .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
+      .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
+      .rc-school-name { font-size: 22pt !important; }
+      .rc-main-row { display: grid !important; grid-template-columns: 62fr 35fr !important; gap: 14px !important; }
+      .rc-col-left, .rc-col-right { min-width: 0; }
+      .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
+      .rc-print-val     { display: inline !important; }
+      .rc-print-comment { display: inline !important; }
+      .rc-scroll-outer  { overflow: visible !important; }
+      .rc-details-band  { background: #1a3a5c !important; }
+      .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+      .rc-details-cell strong { color: #a8d8f0 !important; }
+      .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale { break-inside: avoid; page-break-inside: avoid; }
+      *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+      .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
+      .rc-grade-scale th { background: #FFD700 !important; }
+      .rc-comments { background: #f9f9f9 !important; }
+      .rc-comment-row, .rc-comment-item {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: baseline !important;
+        gap: 8px !important;
+        flex-wrap: wrap !important;
+      }
+      .rc-comment-label, .rc-comment-item strong {
+        white-space: nowrap !important;
+      }
+    `;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Report Card – ${escapeHtml(studentData.name)}</title>
+        <link rel="stylesheet" href="${externalCssUrl}">
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+          .print-container { width: 210mm; margin: 0 auto; background: white; }
+          ${inlineStyles}
+          ${extraPrintCSS}
+        </style>
+      </head>
+      <body>
+        <div class="print-container">${clonedReport.innerHTML}</div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
+  } catch (err) {
+    console.error('Report generation error:', err);
+    toast.error('Failed to generate report. Please try again.');
+  } finally {
+    hiddenContainer.remove();
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }

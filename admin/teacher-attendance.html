@@ -210,7 +210,22 @@
       50% { opacity: .35; }
     }
 
+    /* Mobile header adjustments */
     @media (max-width: 768px) {
+      .school-header-left .school-logo .camera-icon {
+        display: none !important;
+      }
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        pointer-events: none;
+      }
+      .header-right .subscription-badge {
+        display: none !important;
+      }
       .attendance-summary { grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .summary-number { font-size: 1.8rem; }
       .geofence-form { flex-direction: column; }
@@ -328,7 +343,7 @@
           <i class="fa-solid fa-bars"></i>
         </button>
         <div id="subscriptionBadge" class="subscription-badge">
-          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
+          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…
         </div>
         <button id="logoutBtn" class="logout-btn">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
@@ -340,7 +355,7 @@
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
         <i class="fa-solid fa-calendar-days"></i>
-        <span id="currentTermDisplay">Loading&hellip;</span>
+        <span id="currentTermDisplay">Loading…</span>
         &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
@@ -607,7 +622,6 @@
   });
 </script>
 <script>
-  // Register Service Worker for offline navigation
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')

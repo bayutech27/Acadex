@@ -6,7 +6,6 @@
   <title>Acadex - Subjects & Classes</title>
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ========== GLOBAL RESET TO PREVENT OVERFLOW ========== */
     * {
       box-sizing: border-box;
       margin: 0;
@@ -25,13 +24,12 @@
       overflow-x: hidden;
       padding: 0 16px;
     }
-    /* Ensure all content containers respect parent width */
     .content, .two-columns, .form-card, .welcome-card, .academic-badge-row {
       max-width: 100%;
       overflow-x: hidden;
     }
 
-    /* ========== PAGE-SPECIFIC STYLES (original, with responsive additions) ========== */
+    /* ========== PAGE-SPECIFIC STYLES ========== */
     .two-columns {
       display: flex;
       gap: 32px;
@@ -57,119 +55,121 @@
       height: 150px;
     }
     .school-address {
-      font-size: 0.8rem;
+      font-size: 0.74rem;
       color: #64748b;
-      margin-top: 4px;
+      margin-top: 3px;
     }
+
+    /* Header subscription badge */
     .subscription-badge {
-      margin-left: auto;
-      margin-right: 20px;
-      font-weight: bold;
-      font-size: 0.9rem;
+      font-weight: 700;
+      font-size: 0.78rem;
       padding: 4px 12px;
-      border-radius: 20px;
+      border-radius: 999px;
       background: #f1f5f9;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
       white-space: nowrap;
     }
-    .subscription-badge.active {
-      background: #dcfce7;
-      color: #15803d;
-    }
-    .subscription-badge.expired {
-      background: #fee2e2;
-      color: #b91c1c;
-    }
-    .form-divider {
-      margin: 24px 0 16px;
-      border-top: 1px solid #e2e8f0;
-    }
-    .manual-input-group {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px dashed #cbd5e1;
-    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
-    /* Academic Calendar Badge */
+    /* Academic badge */
     .academic-badge {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
       color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 500;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      margin-left: 16px;
-      white-space: nowrap;
-    }
-    @media (max-width: 600px) {
-      .academic-badge {
-        font-size: 0.7rem;
-        padding: 4px 8px;
-        margin-left: 8px;
-        white-space: normal;
-      }
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
     }
     .academic-badge .override-badge {
       background: #f59e0b;
       color: #000;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-size: 0.7rem;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
     }
 
-    /* Hide hamburger on desktop */
-    @media (min-width: 769px) {
-      .hamburger-menu {
+    /* Header layout */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+    .school-header-left .school-logo {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #e0e7ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      background: rgba(0,0,0,0.8);
+    }
+
+    /* Mobile responsive header */
+    @media (max-width: 768px) {
+      .school-header-left .school-logo .camera-icon {
         display: none !important;
       }
-    }
-
-    /* ========== RESPONSIVE TABLE SCROLLBARS (updated) ========== */
-    .table-responsive-wrapper {
-      overflow-x: auto;
-      overflow-y: auto;
-      max-height: 60vh;
-      width: 100%;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      margin: 1rem 0;
-      background: #fff;
-      -webkit-overflow-scrolling: touch;
-    }
-    @media (max-width: 768px) {
-      .table-responsive-wrapper {
-        max-height: 50vh;
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation;
       }
-    }
-    .table-responsive-wrapper table {
-      min-width: 500px;         /* force horizontal scroll on mobile */
-      width: 100%;
-      border-collapse: collapse;
-    }
-    /* For classes table (fewer columns) we use a smaller min-width, but consistent */
-    .table-responsive-wrapper table.data-table {
-      min-width: 400px;
-    }
-    .table-responsive-wrapper th,
-    .table-responsive-wrapper td {
-      white-space: nowrap;
-      padding: 8px 12px;
-      border-bottom: 1px solid #e2e8f0;
-      text-align: left;
-      vertical-align: middle;
-    }
-    /* Ensure action buttons don't wrap */
-    .table-responsive-wrapper td:last-child button {
-      white-space: nowrap;
-    }
-
-    /* ========== MOBILE RESPONSIVE ADDITIONS ========== */
-    @media (max-width: 768px) {
+      .school-header-left .school-logo img {
+        pointer-events: none;
+      }
+      .header-right .subscription-badge {
+        display: none !important;
+      }
       .main-content {
         padding: 0 12px;
       }
@@ -190,56 +190,49 @@
         width: 100%;
         margin-top: 8px;
       }
-      .header-right {
-        gap: 8px;
-      }
-      .logout-btn {
-        padding: 6px 10px;
-        font-size: 0.8rem;
-      }
-      .subscription-badge {
+      .academic-badge {
         font-size: 0.7rem;
-        padding: 2px 8px;
-        margin-right: 8px;
-      }
-      .school-name h1 {
-        font-size: 1.2rem;
-      }
-      .school-address {
-        font-size: 0.7rem;
-      }
-      .manual-input-group {
-        margin-top: 12px;
-        padding-top: 12px;
+        padding: 4px 8px;
+        margin-left: 8px;
+        white-space: normal;
       }
     }
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
 
-    /* Extra small devices (phones, 480px and down) */
-    @media (max-width: 480px) {
-      .main-content {
-        padding: 0 8px;
+    /* Table responsive */
+    .table-responsive-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 60vh;
+      width: 100%;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      margin: 1rem 0;
+      background: #fff;
+      -webkit-overflow-scrolling: touch;
+    }
+    @media (max-width: 768px) {
+      .table-responsive-wrapper {
+        max-height: 50vh;
       }
-      .logout-btn {
-        padding: 4px 8px;
-        font-size: 0.7rem;
-      }
-      .subscription-badge {
-        display: none; /* hide on very small screens to avoid clutter */
-      }
-      .academic-badge {
-        margin-left: 4px;
-      }
-      .table-responsive-wrapper th,
-      .table-responsive-wrapper td {
-        padding: 6px 8px;
-        font-size: 0.8rem;
-      }
-      .table-responsive-wrapper table {
-        min-width: 450px; /* slightly smaller but still force scroll */
-      }
-      .table-responsive-wrapper table.data-table {
-        min-width: 350px;
-      }
+    }
+    .table-responsive-wrapper table {
+      min-width: 500px;
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .table-responsive-wrapper table.data-table {
+      min-width: 400px;
+    }
+    .table-responsive-wrapper th,
+    .table-responsive-wrapper td {
+      white-space: nowrap;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      vertical-align: middle;
     }
   </style>
 </head>
@@ -252,30 +245,14 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html" class="active">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html" class="active"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -284,40 +261,20 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html" class="active">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html" class="active"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -327,7 +284,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -336,15 +293,16 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
@@ -561,7 +519,6 @@
   });
 </script>
 <script>
-  // Register Service Worker for offline navigation
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
@@ -569,9 +526,7 @@
           console.log('Service Worker registered with scope:', registration.scope);
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
+        .catch(err => console.error('Service Worker registration failed:', err));
     });
   }
 </script>

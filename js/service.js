@@ -33,6 +33,13 @@ function _queryData(snap) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// CANONICAL SESSION SANITIZER (shared across the app)
+// ════════════════════════════════════════════════════════════════════════════
+export function sanitizeSession(session) {
+  return session ? session.replace(/\//g, '-') : '';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // USERS
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -918,6 +925,26 @@ export async function getTestResultsByUser(userId) {
   );
 }
 
+// ── ASSIGNED CBT SCORES (for parent/student view) ──
+export async function getAssignedCbtScoresByStudent(studentId) {
+  const key = _k('assigned-cbt', studentId);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const q = query(
+        collection(db, 'test_results'),
+        where('userId', '==', studentId),
+        where('examType', '==', 'CBT'),
+        where('mode', '==', 'cbt'),
+        orderBy('completedAt', 'desc')
+      );
+      const snap = await getDocs(q);
+      return _queryData(snap);
+    },
+    { ttl: TTL_SHORT, tags: ['assigned-cbt', _k('assigned-cbt', studentId)] }
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // QUESTIONS (CBT Bank)
 // ════════════════════════════════════════════════════════════════════════════
@@ -1107,7 +1134,7 @@ export async function addParentToStudents(parentId, studentIds) {
 // ════════════════════════════════════════════════════════════════════════════
 
 export async function getFeeStructure(schoolId, studentId, term, session) {
-  const safeSession = session.replace(/\//g, '_');
+  const safeSession = sanitizeSession(session);
   const docId = `${studentId}_${term}_${safeSession}`;
   const ref = doc(db, 'schools', schoolId, 'fees', docId);
   return cache.getFreshOrCached(
@@ -1118,7 +1145,7 @@ export async function getFeeStructure(schoolId, studentId, term, session) {
 }
 
 export async function setFeeStructure(schoolId, studentId, term, session, amount) {
-  const safeSession = session.replace(/\//g, '_');
+  const safeSession = sanitizeSession(session);
   const docId = `${studentId}_${term}_${safeSession}`;
   const data = { schoolId, studentId, term, session, amount, updatedAt: new Date() };
   const ref = doc(db, 'schools', schoolId, 'fees', docId);
@@ -1132,7 +1159,6 @@ export async function setFeeStructure(schoolId, studentId, term, session, amount
 }
 
 export async function getFeesByClass(schoolId, classId, term, session) {
-  // used by finance.js; now resolves student IDs and fetches nested fees
   const key = _k('fees', schoolId, classId, term, session);
   return cache.getFreshOrCached(
     key,
@@ -1140,11 +1166,29 @@ export async function getFeesByClass(schoolId, classId, term, session) {
       const students = await getStudentsByClass(schoolId, classId);
       const allFees = [];
       for (const s of students) {
-        const docId = `${s.id}_${term}_${session.replace(/\//g, '_')}`;
+        const docId = `${s.id}_${term}_${sanitizeSession(session)}`;
         const snap = await getDoc(doc(db, 'schools', schoolId, 'fees', docId));
         if (snap.exists()) allFees.push({ id: snap.id, ...snap.data() });
       }
       return allFees;
+    },
+    { ttl: TTL_MED, tags: ['fees', _k('fees', schoolId)] }
+  );
+}
+
+// ── GET ALL FEE STRUCTURES FOR A STUDENT ──
+export async function getFeesByStudent(schoolId, studentId) {
+  if (!schoolId || !studentId) return [];
+  const key = _k('feesByStudent', schoolId, studentId);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const q = query(
+        collection(db, 'schools', schoolId, 'fees'),
+        where('studentId', '==', studentId)
+      );
+      const snap = await getDocs(q);
+      return _queryData(snap);
     },
     { ttl: TTL_MED, tags: ['fees', _k('fees', schoolId)] }
   );
@@ -1155,7 +1199,7 @@ export async function getFeesByClass(schoolId, classId, term, session) {
 // ════════════════════════════════════════════════════════════════════════════
 
 export async function getPaymentsByStudent(schoolId, studentId, term, session) {
-  const safeSession = session.replace(/\//g, '_');
+  const safeSession = sanitizeSession(session);
   const docId = `${studentId}_${term}_${safeSession}`;
   const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
   const key = _k('payments', schoolId, studentId, term, session);
@@ -1173,7 +1217,7 @@ export async function getPaymentsByClass(schoolId, classId, term, session) {
   const students = await getStudentsByClass(schoolId, classId);
   const allPayments = [];
   for (const s of students) {
-    const docId = `${s.id}_${term}_${session.replace(/\//g, '_')}`;
+    const docId = `${s.id}_${term}_${sanitizeSession(session)}`;
     const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
     const snap = await getDocs(collection(feeRef, 'payments'));
     snap.forEach(d => allPayments.push({ id: d.id, ...d.data() }));
@@ -1183,7 +1227,7 @@ export async function getPaymentsByClass(schoolId, classId, term, session) {
 
 export async function recordPayment(paymentData) {
   const { schoolId, studentId, term, session } = paymentData;
-  const safeSession = session.replace(/\//g, '_');
+  const safeSession = sanitizeSession(session);
   const docId = `${studentId}_${term}_${safeSession}`;
   const feeRef = doc(db, 'schools', schoolId, 'fees', docId);
   const data = { ...paymentData, createdAt: new Date(), updatedAt: new Date() };

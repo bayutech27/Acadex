@@ -14,11 +14,7 @@ import {
   arrayUnion, arrayRemove
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { toast } from './error-handler.js';
-
-// ─── Helper ──────────────────────────────────────────────
-function sanitizeSession(session) {
-  return session ? session.replace(/\//g, '-') : '';
-}
+import { sanitizeSession } from './service.js';   // <-- canonical session sanitizer
 
 // ─── FIX 1: total owed helper ───────────────────────────
 function totalOwed(feeData) {

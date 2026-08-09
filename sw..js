@@ -1,7 +1,7 @@
-// sw.js - Acadex Service Worker for Offline Navigation
-const CACHE_NAME = 'acadex-v1';  // Increment this version when you deploy updates
+// sw.js - Acadex Service Worker with 5-minute expiration
+const CACHE_NAME = 'acadex-v2';   // bumped to force a fresh install
+const EXPIRATION_MS = 5 * 60 * 1000;  // 5 minutes
 
-// List of static assets to cache for offline use
 const urlsToCache = [
   '/',
   '/index.html',
@@ -11,11 +11,13 @@ const urlsToCache = [
   '/admin/setup.html',
   '/admin/results.html',
   '/admin/teacher-attendance.html',
+  '/admin/school-finance.html',
   '/teacher/teacher-dashboard.html',
   '/teacher/attendance.html',
   '/teacher/scores.html',
   '/teacher/class.html',
   '/student/student-portal.html',
+  '/parent/parent-portal.html',
   '/cbt/html/cbt.html',
   '/cbt/html/test.html',
   '/cbt/html/cbt-admin.html',
@@ -29,6 +31,8 @@ const urlsToCache = [
   '/js/admin.js',
   '/js/error-handler.js',
   '/js/menu.js',
+  'js/parent-portal.js',
+  'js/finance.js',
   '/js/notification-service.js',
   '/js/plan.js',
   '/js/reportCardRenderer.js',
@@ -47,13 +51,11 @@ const urlsToCache = [
   '/cbt/js/cbt.js',
   '/cbt/js/test.js',
   '/cbt/js/cbt-admin.js',
-  // Add favicon if any
-  // '/favicon.ico',
 ];
 
-// Install event – cache static assets
+// ---------- INSTALL ----------
 self.addEventListener('install', event => {
-  console.log('[SW] Install event');
+  console.log('[SW] Install');
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
@@ -62,13 +64,12 @@ self.addEventListener('install', event => {
       })
       .catch(err => console.error('[SW] Cache addAll failed', err))
   );
-  // Force waiting service worker to become active immediately
   self.skipWaiting();
 });
 
-// Activate event – clean up old caches
+// ---------- ACTIVATE ----------
 self.addEventListener('activate', event => {
-  console.log('[SW] Activate event');
+  console.log('[SW] Activate');
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
@@ -80,11 +81,10 @@ self.addEventListener('activate', event => {
       );
     })
   );
-  // Take control of all clients immediately
   return self.clients.claim();
 });
 
-// Fetch event – network‑first for HTML pages (to get updates), cache‑first for static assets
+// ---------- FETCH ----------
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
@@ -92,19 +92,18 @@ self.addEventListener('fetch', event => {
   // Skip cross-origin requests (like Firebase)
   if (url.origin !== location.origin) return;
 
-  // For HTML pages (including navigation requests), try network first, fallback to cache
+  // --- HTML pages (navigations) – always network first, bypass HTTP cache ---
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-cache' })
         .then(response => {
           // Cache the latest version for offline fallback
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(request, responseClone);
-          });
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
           return response;
         })
         .catch(() => {
+          // Offline: try cached copy
           return caches.match(request)
             .then(cached => cached || caches.match('/index.html'));
         })
@@ -112,28 +111,32 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // For static assets (CSS, JS, images), use cache‑first, then network
+  // --- Static assets (CSS, JS, images, etc.) – cache with 5‑minute expiration ---
   event.respondWith(
-    caches.match(request)
-      .then(cachedResponse => {
-        if (cachedResponse) {
-          return cachedResponse;
+    caches.match(request).then(cachedResponse => {
+      if (cachedResponse) {
+        // Check expiration using the Date header of the cached response
+        const dateHeader = cachedResponse.headers.get('date');
+        if (dateHeader) {
+          const cachedDate = new Date(dateHeader).getTime();
+          if (Date.now() - cachedDate < EXPIRATION_MS) {
+            // Still fresh – serve from cache
+            return cachedResponse;
+          }
         }
-        // Not in cache – fetch from network and cache for next time
-        return fetch(request).then(response => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(request, responseClone);
-          });
-          return response;
-        });
-      })
-      .catch(() => {
-        // If offline and nothing in cache, return a basic offline page
-        if (request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-        return new Response('Offline – resource not cached', { status: 404 });
-      })
+        // Expired (or no date) – fall through to network
+      }
+
+      // Not in cache, or expired → try network
+      return fetch(request).then(networkResponse => {
+        // Cache the fresh response for future use
+        const clone = networkResponse.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+        return networkResponse;
+      }).catch(() => {
+        // Network failed – serve the expired cached version if available
+        return cachedResponse || new Response('Offline', { status: 503 });
+      });
+    })
   );
 });

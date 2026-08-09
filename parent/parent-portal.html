@@ -21,6 +21,132 @@
     .fee-status.partial { color: var(--warning); }
     .fee-status.unpaid { color: var(--danger); }
     .fee-status.not-set { color: var(--text-500); }
+    .table-responsive-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; }
+    .table-responsive-wrapper table { min-width: 300px; }
+    .student-photo-wrapper {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 2px solid var(--primary);
+      overflow: hidden;
+      background: #e0e7ff;
+    }
+    .student-photo-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .student-photo-wrapper .initials {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Outfit', sans-serif;
+      font-size: 2rem;
+      font-weight: 700;
+      color: white;
+      background: #4361ee;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+    .load-more-btn {
+      margin-top: 0.5rem;
+      background: transparent;
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      padding: 0.3rem 1rem;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+    .load-more-btn:hover {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* ========== HEADER STYLES TO MATCH ADMIN DASHBOARD ========== */
+    .academic-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: white;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      box-shadow: 0 2px 10px rgba(79,70,229,.25);
+      letter-spacing: .02em;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 800;
+    }
+    .school-address {
+      font-size: .74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    /* Header layout */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+    .parent-logo-readonly {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 2.5px solid #4361ee;
+      background: #e0e7ff;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 0 4px rgba(67,97,238,.12);
+      cursor: default !important;
+    }
+    .parent-logo-readonly img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 768px) {
+      .parent-logo-readonly {
+        width: 44px !important;
+        height: 44px !important;
+      }
+      .school-name h1 { font-size: 1.1rem !important; max-width: 46vw; }
+      .detail-card { padding: 1rem; }
+      .student-photo-wrapper { width: 60px; height: 60px; }
+      .student-photo-wrapper .initials { font-size: 1.5rem; }
+    }
   </style>
 </head>
 <body>
@@ -37,7 +163,7 @@
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- mobile sidebar (same) -->
+  <!-- mobile sidebar -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -53,11 +179,11 @@
   <div id="overlay" class="overlay"></div>
 
   <main class="main-content">
-    <!-- header (no subscription badge) -->
+    <!-- header with READ-ONLY logo -->
     <header class="header">
       <div class="school-header-left">
-        <div class="school-logo">
-          <img id="schoolLogoImg" class="logo-circle" alt="School Logo" />
+        <div class="parent-logo-readonly">
+          <img id="schoolLogoImg" alt="School Logo" src="https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=S&size=80" />
         </div>
         <div class="school-name">
           <h1 id="schoolName">Loading...</h1>
@@ -95,7 +221,10 @@
       <div id="selectedChildDetail" style="display:none;">
         <div class="detail-card" id="childProfileCard">
           <div style="display:flex; align-items:center; gap:1rem;">
-            <img id="childPhoto" src="" alt="Child photo" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid var(--primary);" />
+            <div class="student-photo-wrapper" id="childPhotoWrapper">
+              <img id="childPhoto" src="" alt="Child photo" />
+              <div class="initials" id="childInitials"></div>
+            </div>
             <div>
               <h2 id="childNameDisplay"></h2>
               <p id="childClassDisplay"></p>
@@ -113,14 +242,10 @@
           </div>
         </div>
 
-        <!-- fees status -->
+        <!-- fees detail -->
         <div class="detail-card">
           <h3>School Fees</h3>
-          <div id="feesStatus">
-            <div>Fee Amount: <span id="feeAmount">Not set</span></div>
-            <div>Total Paid: <span id="totalPaid">₦0</span></div>
-            <div>Arrears: <span id="arrears" class="fee-status">₦0</span></div>
-          </div>
+          <div id="feeDetailContainer"><p>Loading fee details…</p></div>
         </div>
 
         <!-- CBT scores -->
@@ -131,25 +256,19 @@
 
         <!-- subject scores -->
         <div class="detail-card">
-          <h3>Subject Scores (This Term)</h3>
+          <h3 id="subjectScoresHeading">Subject Scores (This Term)</h3>
           <div id="subjectScoresList"><p class="no-data-msg">No subject scores recorded.</p></div>
         </div>
 
-        <!-- report card section -->
+        <!-- report card -->
         <div class="detail-card">
           <h3>Report Card</h3>
-          <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem;">
-            <div class="form-group" style="margin:0;">
-              <label for="reportTermSelect">Term</label>
-              <select id="reportTermSelect"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select>
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label for="reportSessionSelect">Session</label>
-              <select id="reportSessionSelect"></select>
-            </div>
-            <button id="loadReportBtn" class="btn-primary">Load Report</button>
+          <div style="display:flex; flex-direction:column; gap:0.5rem;">
+            <button id="downloadReportBtn" class="btn-primary" style="align-self:flex-start;">
+              <i class="fa-solid fa-file-pdf"></i> Download Report Card (PDF)
+            </button>
+            <p style="font-size:0.85rem; color:var(--text-500);">Generates a printable report for the current term/session.</p>
           </div>
-          <div id="reportCardContent"><p class="no-data-msg">Select a term and session to view the report card.</p></div>
         </div>
       </div>
     </div>

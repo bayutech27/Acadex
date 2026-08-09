@@ -111,7 +111,6 @@
       margin-bottom: 28px;
     }
 
-    /* Clickable nav card – shared base */
     .clickable-card {
       background: #fff;
       border-radius: 16px;
@@ -132,7 +131,6 @@
       height: 4px;
       border-radius: 16px 16px 0 0;
     }
-    /* Color top-bar per card */
     #classCard::before      { background: linear-gradient(90deg, #4361ee, #7c3aed); }
     #scoresCard::before     { background: linear-gradient(90deg, #10b981, #06b6d4); }
     #attendanceCard::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
@@ -144,7 +142,6 @@
       border-color: rgba(67,97,238,.1);
     }
 
-    /* Card icon badge */
     .card-icon-wrap {
       width: 60px; height: 60px;
       border-radius: 16px;
@@ -158,7 +155,6 @@
       transform: scale(1.1) rotate(-3deg);
     }
 
-    /* Icon colour themes */
     #classCard      .card-icon-wrap { background: rgba(67,97,238,.1);  color: #4361ee; }
     #scoresCard     .card-icon-wrap { background: rgba(16,185,129,.1); color: #10b981; }
     #attendanceCard .card-icon-wrap { background: rgba(245,158,11,.1); color: #d97706; }
@@ -179,13 +175,11 @@
       font-weight: 500;
     }
 
-    /* Stagger entry */
     .clickable-card:nth-child(1) { animation-delay: .05s; }
     .clickable-card:nth-child(2) { animation-delay: .12s; }
     .clickable-card:nth-child(3) { animation-delay: .19s; }
     .clickable-card:nth-child(4) { animation-delay: .26s; }
 
-    /* Disabled card */
     .disabled-card {
       opacity: 0.52;
       cursor: not-allowed !important;
@@ -196,8 +190,6 @@
       transform: none !important;
       box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08) !important;
     }
-
-    /* Disabled sidebar nav link */
     .disabled-nav-link {
       opacity: .42 !important;
       cursor: not-allowed !important;
@@ -207,9 +199,7 @@
     /* =========================================================
        MOBILE MENU CARDS  (≤ 768 px only — identical to admin)
        ========================================================= */
-    .mobile-menu-section {
-      display: none;
-    }
+    .mobile-menu-section { display: none; }
 
     @media (max-width: 768px) {
       .mobile-menu-section {
@@ -275,28 +265,20 @@
         box-shadow: 0 8px 24px rgba(67,97,238,.38);
       }
       .mobile-nav-card.active .mobile-nav-icon,
-      .mobile-nav-card.active .mobile-nav-label {
-        color: #fff !important;
-      }
-      .mobile-nav-card.active .mobile-nav-icon {
-        background: rgba(255,255,255,.18) !important;
-      }
+      .mobile-nav-card.active .mobile-nav-label { color: #fff !important; }
+      .mobile-nav-card.active .mobile-nav-icon { background: rgba(255,255,255,.18) !important; }
 
       .mobile-nav-icon {
         width: 50px; height: 50px;
         border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: flex; align-items: center; justify-content: center;
         font-size: 1.3rem;
         transition: transform .2s ease;
         background: var(--icon-bg);
         color: var(--icon-color);
         box-shadow: 0 3px 10px rgba(0,0,0,.09);
       }
-      .mobile-nav-card:hover .mobile-nav-icon {
-        transform: scale(1.1) rotate(-3deg);
-      }
+      .mobile-nav-card:hover .mobile-nav-icon { transform: scale(1.1) rotate(-3deg); }
 
       .mobile-nav-label {
         font-family: 'Outfit', sans-serif;
@@ -306,14 +288,13 @@
         letter-spacing: -.01em;
       }
 
-      /* Color themes per card */
+      /* Color themes */
       .mnc-dashboard  { --card-color-a: #4361ee; --card-color-b: #7c3aed; --icon-bg: rgba(67,97,238,.1);  --icon-color: #4361ee; }
       .mnc-class      { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
       .mnc-scores     { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
       .mnc-attendance { --card-color-a: #8b5cf6; --card-color-b: #f72585; --icon-bg: rgba(139,92,246,.1); --icon-color: #8b5cf6; }
       .mnc-cbt        { --card-color-a: #0ea5e9; --card-color-b: #6366f1; --icon-bg: rgba(14,165,233,.1); --icon-color: #0ea5e9; }
 
-      /* Stagger animation */
       .mobile-nav-card:nth-child(1) { animation-delay: .04s; }
       .mobile-nav-card:nth-child(2) { animation-delay: .10s; }
       .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
@@ -329,23 +310,24 @@
       .clickable-card { padding: 20px 16px 16px; }
       .card-icon-wrap { width: 50px; height: 50px; font-size: 1.3rem; border-radius: 13px; margin-bottom: 10px; }
       .card-title { font-size: 1rem; }
-    }
 
-    /* =========================================================
-       HEADER tweaks
-       ========================================================= */
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: nowrap;
-    }
-    .school-header-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      min-width: 0;
-      flex: 1;
+      /* ── Header logo: allow upload on mobile (like admin) ── */
+      .school-header-left .school-logo .camera-icon {
+        display: none !important;   /* hide camera overlay on mobile */
+      }
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation; /* improves tap responsiveness */
+        cursor: pointer;            /* let the user know it's clickable */
+      }
+      .school-header-left .school-logo img {
+        pointer-events: none;       /* clicks pass through to the container */
+      }
+      .header-right .subscription-badge {
+        display: none !important;   /* hide badge on mobile to save space */
+      }
+      .school-name h1 { font-size: 1.1rem !important; max-width: 46vw; }
     }
 
     /* Hide hamburger on desktop */
@@ -353,9 +335,6 @@
       .hamburger-menu { display: none !important; }
     }
 
-    /* =========================================================
-       KEYFRAMES
-       ========================================================= */
     @keyframes fadeSlideUp {
       from { opacity: 0; transform: translateY(18px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -445,7 +424,7 @@
     <!-- ---- TOP HEADER ---- -->
     <header class="header">
       <div class="school-header-left">
-        <!-- Logo (hidden on mobile via CSS) -->
+        <!-- Logo – same upload behaviour as admin: camera on desktop, tappable circle on mobile -->
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
           <div id="cameraIcon" class="camera-icon" title="Change logo">
@@ -453,24 +432,19 @@
           </div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
-        <!-- School name & address -->
         <div class="school-name">
           <h1 id="schoolName">Loading...</h1>
           <div id="schoolAddress" class="school-address"></div>
         </div>
       </div>
 
-      <!-- Right controls -->
       <div class="header-right">
-        <!-- Hamburger (mobile only) -->
         <button class="hamburger-menu" aria-label="Open menu">
           <i class="fa-solid fa-bars"></i>
         </button>
-        <!-- Subscription status -->
         <div id="subscriptionBadge" class="subscription-badge">
           <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
         </div>
-        <!-- Logout (desktop only) -->
         <button id="logoutBtn" class="logout-btn">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -490,7 +464,7 @@
     <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content">
 
-      <!-- Welcome card – now fully visible with explicit styles -->
+      <!-- Welcome card -->
       <div class="welcome-card">
         <h1>
           <i class="fa-solid fa-chalkboard-user" style="opacity:.8; margin-right:8px;"></i>
@@ -499,7 +473,7 @@
         <p>Manage your students, class, scores, and attendance.</p>
       </div>
 
-      <!-- ---- MOBILE NAVIGATION CARDS (visible ≤ 768px) ---- -->
+      <!-- MOBILE NAVIGATION CARDS -->
       <div class="mobile-menu-section">
         <div class="mobile-menu-title">
           <i class="fa-solid fa-grip"></i> Quick Navigation
@@ -507,89 +481,68 @@
         <div class="mobile-nav-grid">
 
           <a href="teacher-dashboard.html" class="mobile-nav-card mnc-dashboard active">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-gauge-high"></i>
-            </div>
+            <div class="mobile-nav-icon"><i class="fa-solid fa-gauge-high"></i></div>
             <span class="mobile-nav-label">Dashboard</span>
           </a>
 
           <a href="class.html" class="mobile-nav-card mnc-class">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-school"></i>
-            </div>
+            <div class="mobile-nav-icon"><i class="fa-solid fa-school"></i></div>
             <span class="mobile-nav-label">Class</span>
           </a>
 
           <a href="scores.html" class="mobile-nav-card mnc-scores">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-chart-bar"></i>
-            </div>
+            <div class="mobile-nav-icon"><i class="fa-solid fa-chart-bar"></i></div>
             <span class="mobile-nav-label">Scores</span>
           </a>
 
           <a href="attendance.html" class="mobile-nav-card mnc-attendance">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-clipboard-list"></i>
-            </div>
+            <div class="mobile-nav-icon"><i class="fa-solid fa-clipboard-list"></i></div>
             <span class="mobile-nav-label">Class Attendance</span>
           </a>
 
           <a href="teacher-cbt.html" class="mobile-nav-card mnc-cbt" style="grid-column: span 2;">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-laptop-code"></i>
-            </div>
+            <div class="mobile-nav-icon"><i class="fa-solid fa-laptop-code"></i></div>
             <span class="mobile-nav-label">CBT</span>
           </a>
 
         </div>
       </div>
-      <!-- /mobile nav cards -->
 
-      <!-- ---- DESKTOP / TABLET DASHBOARD CARDS ---- -->
+      <!-- DESKTOP / TABLET DASHBOARD CARDS -->
       <div class="stats-grid">
 
         <!-- Class Card -->
         <div class="clickable-card" id="classCard">
-          <div class="card-icon-wrap">
-            <i class="fa-solid fa-school"></i>
-          </div>
+          <div class="card-icon-wrap"><i class="fa-solid fa-school"></i></div>
           <div class="card-title">Class</div>
           <div class="card-desc">Manage your homeroom class (if assigned)</div>
         </div>
 
         <!-- Scores Card -->
         <div class="clickable-card" id="scoresCard">
-          <div class="card-icon-wrap">
-            <i class="fa-solid fa-chart-bar"></i>
-          </div>
+          <div class="card-icon-wrap"><i class="fa-solid fa-chart-bar"></i></div>
           <div class="card-title">Scores</div>
           <div class="card-desc">Enter and manage exam scores</div>
         </div>
 
         <!-- Attendance Card -->
         <div class="clickable-card" id="attendanceCard">
-          <div class="card-icon-wrap">
-            <i class="fa-solid fa-clipboard-list"></i>
-          </div>
+          <div class="card-icon-wrap"><i class="fa-solid fa-clipboard-list"></i></div>
           <div class="card-title">Class Attendance</div>
           <div class="card-desc">Track daily morning &amp; afternoon attendance for your class</div>
         </div>
 
         <!-- CBT Card -->
         <div class="clickable-card" id="cbtCard">
-          <div class="card-icon-wrap">
-            <i class="fa-solid fa-laptop-code"></i>
-          </div>
+          <div class="card-icon-wrap"><i class="fa-solid fa-laptop-code"></i></div>
           <div class="card-title">CBT</div>
           <div class="card-desc">Computer-Based Testing — set &amp; manage online assessments</div>
         </div>
 
       </div>
-      <!-- /stats-grid -->
 
-    </div><!-- /.content -->
+    </div>
 
-    <!-- ---- FOOTER ---- -->
     <footer class="app-footer">
       <p>
         <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
@@ -628,7 +581,7 @@
     loadSchoolInfo();
     setupSidebar();
     setupLogout();
-    setupLogoUpload();
+    setupLogoUpload();       // ← enables logo upload (same as admin)
     initMobileMenu();
 
     const isClassTeacher = await checkClassTeacherStatus();
@@ -712,7 +665,6 @@
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
         .catch(err => {

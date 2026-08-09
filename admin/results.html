@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>Acadex - Results Management (Admin)</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     /* ========== BASE STYLES ========== */
     * { box-sizing: border-box; }
@@ -78,127 +79,107 @@
       font-size: 0.7rem;
     }
 
-    /* ========== REPORT CARD STYLES (truncated for brevity – same as original) ========== */
-    .report-card { position: relative; background: white; padding: 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 11px; }
-    .report-card.watermark-ready::before { content: ""; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; background-repeat: no-repeat; background-position: center; background-size: contain; opacity: 0.06; pointer-events: none; z-index: 0; }
-    .report-card > * { position: relative; z-index: 1; }
-    .report-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; border-bottom: 2px solid #eef2ff; margin-bottom: 6px; }
-    .school-logo-area { width: 70px; display: flex; justify-content: center; }
-    .school-logo-small { max-height: 65px; width: auto; object-fit: contain; }
-    .school-name-area { flex: 1; text-align: center; }
-    .school-name-report { font-size: 1.5rem; margin: 0; font-weight: 700; color: #0f172a; }
-    .school-motto { font-size: 12px; color: #475569; margin-top: 2px; }
-    .school-address { font-size: 12px; color: #64748b; margin-top: 2px; }
-    .passport-area { width: 75px; display: flex; justify-content: center; }
-    .student-passport-img { max-width: 65px; max-height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e8f0; }
-    .student-details-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 10px; background: #f9f9fb; padding: 8px 10px; border-radius: 6px; border: 1px solid #edf2f7; font-size: 12px; margin: 6px 8px; font-weight: 600; }
-    .student-details-grid div { white-space: nowrap; overflow-x: auto; }
-    .student-details-grid strong { font-weight: 700; color: #1e293b; }
-    .student-name-caps { text-transform: uppercase; font-size: 14px; font-weight: 800; color: #0f172a; }
-    .subject-table { width: 100%; border-collapse: collapse; font-size: 10px; margin: 8px 0; }
-    .subject-table th, .subject-table td { border: 1px solid #cbd5e1; padding: 6px 3px; text-align: center; vertical-align: middle; }
-    .subject-table th { background-color: #f8fafc; font-weight: 700; color: #1e293b; }
-    .subject-table th:not(:first-child) { writing-mode: vertical-rl; transform: rotate(180deg); height: 80px; width: 38px; white-space: nowrap; padding: 8px 2px; line-height: 1.2; }
-    .subject-table td:first-child { text-align: left; font-weight: 500; background: #fefce8; padding-left: 8px; }
-    .subject-table th:first-child { background: #fefce8; width: 28%; }
-    .skills-wrapper { display: flex; gap: 10px; margin: 8px 8px; }
-    .skills-half { flex: 1; }
-    .skills-table { width: 100%; border-collapse: collapse; font-size: 9px; margin: 2px 0; }
-    .skills-table th, .skills-table td { border: 1px solid #cbd5e1; padding: 4px 4px; text-align: left; vertical-align: middle; }
-    .skills-table th { background: #f8fafc; font-weight: 600; font-size: 9px; }
-    .skills-table td:last-child { text-align: center; width: 85px; }
-    .summary-grading-wrapper { display: flex; gap: 10px; margin: 10px 8px 8px 8px; flex-wrap: wrap; }
-    .summary-wrapper { flex: 2; min-width: 160px; }
-    .grading-wrapper { flex: 1; min-width: 140px; }
-    .section-title { font-weight: bold; font-size: 11px; margin-bottom: 4px; text-transform: uppercase; color: #334155; letter-spacing: 0.5px; }
-    .summary-table { width: 100%; border-collapse: collapse; font-size: 9px; margin: 0; }
-    .summary-table th, .summary-table td { border: 1px solid #cbd5e1; padding: 4px 5px; text-align: left; }
-    .summary-table th { background: #f1f5f9; font-weight: 600; width: 45%; }
-    .grade-scale-table { width: 100%; border-collapse: collapse; font-size: 8px; margin: 0; }
-    .grade-scale-table th, .grade-scale-table td { border: 1px solid #e2e8f0; padding: 3px 2px; text-align: center; }
-    .grade-scale-table th { background: #f1f5f9; font-weight: 600; }
-    .rating-guide { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; background: #f8fafc; padding: 3px 6px; border-radius: 30px; margin: 6px 8px; font-size: 9px; font-weight: 500; color: #2c3e66; }
-    .comments-section { margin: 12px 8px 8px 8px; font-size: 13px; }
-    .comments-section h3 { font-size: 15px; margin: 6px 0 8px; }
-    .comment-group { margin-bottom: 12px; }
-    .comment-group label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
-    .comment-group select, .comment-group textarea { width: 100%; font-size: 13px; padding: 6px 8px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 4px; }
-    .print-comment-text { display: none; }
-    .signature-stamp { display: flex; justify-content: space-between; flex-wrap: wrap; margin: 16px 8px 8px 8px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 11px; gap: 12px; }
-    .signature-item { flex: 1; min-width: 100px; }
-    .signature-item strong { font-size: 11px; }
-    .signature-line { display: block; width: 90%; border-bottom: 1px solid #94a3b8; margin-top: 6px; height: 14px; }
-    .stamp-placeholder { display: block; margin-top: 6px; font-style: italic; color: #475569; border: 1px dashed #cbd5e1; padding: 4px 8px; text-align: center; width: fit-content; min-width: 80px; font-size: 10px; }
-    .rating-tick { display: inline-flex; gap: 4px; align-items: center; }
-    .tick { width: 22px; height: 22px; border-radius: 30px; background: #eef2ff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 11px; font-weight: 600; color: #1e293b; transition: all 0.15s; }
-    .tick.selected { background: #3b82f6; color: white; }
-    .print-value { display: none; }
-    .attendance-section { margin: 8px 8px 4px 8px; }
-    .attendance-table { width: 40%; border-collapse: collapse; font-size: 10px; margin: 6px 0; margin-left: 0; }
-    .attendance-table td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: middle; }
-    .attendance-label { font-weight: 600; background-color: #f8fafc; width: 50%; }
-    .attendance-input-cell { text-align: center; }
-    .attendance-input { width: 80px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px; text-align: center; }
-    .attendance-value { display: none; }
-    .report-main-grid { display: grid; grid-template-columns: 70% 30%; gap: 12px; margin: 8px 8px; }
-    .subject-table-col { width: 100%; }
-    .skills-stack-col { display: flex; flex-direction: column; gap: 12px; }
-    .psychomotor-wrapper, .affective-wrapper { width: 100%; }
-    .psychomotor-table, .affective-table { width: 80%; margin: 0 auto; font-size: 9px; }
-    .summary-wrapper { flex: 0 0 50%; width: 50%; margin-left: 0; margin-right: auto; }
-
     /* Header subscription badge */
+    .subscription-badge {
+      font-weight: 700;
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+    /* School address */
+    .school-address {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    /* Header layout */
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
-    .school-header {
+    .school-header-left {
       display: flex;
       align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
     }
-    .subscription-badge {
-      margin-left: auto;
-      margin-right: 20px;
-      font-weight: bold;
-      font-size: 0.9rem;
-      padding: 4px 12px;
-      border-radius: 20px;
-      background: #f1f5f9;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .subscription-badge.active { background: #dcfce7; color: #15803d; }
-    .subscription-badge.expired { background: #fee2e2; color: #b91c1c; }
-
-    /* Payment banner */
-    .payment-banner {
-      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-      border-radius: 12px;
-      padding: 20px 24px;
-      margin-bottom: 20px;
+    .school-header-left .school-logo {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #e0e7ff;
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      justify-content: space-between;
-      color: white;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      justify-content: center;
+      cursor: pointer;
     }
-    .payment-banner-content { flex: 2; }
-    .payment-banner h3 { margin: 0 0 8px 0; font-size: 1.25rem; }
-    .payment-banner p { margin: 0; opacity: 0.9; }
-    .payment-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
-    .paystack-btn { background: #00b3f0; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: transform 0.2s; font-size: 1rem; }
-    .paystack-btn:hover { transform: scale(1.02); background: #0095cc; }
-    .whatsapp-btn { background: #25D366; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: transform 0.2s; text-decoration: none; }
-    .whatsapp-btn:hover { transform: scale(1.02); background: #128C7E; }
-    .whatsapp-icon { font-size: 1.2rem; font-weight: bold; }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      background: rgba(0,0,0,0.8);
+    }
 
-    /* Print styles (truncated – same as original) */
+    /* Mobile responsive header */
+    @media (max-width: 768px) {
+      .school-header-left .school-logo .camera-icon {
+        display: none !important;
+      }
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        pointer-events: none;
+      }
+      .header-right .subscription-badge {
+        display: none !important;
+      }
+    }
+
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
+
+    /* Print styles truncated for brevity – keep existing print styles */
     @media print {
       .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
       .action-buttons, .attendance-input {
@@ -230,12 +211,6 @@
       .attendance-table { width: 40%; margin-left: 0; font-size: 8px; }
       .attendance-table td { padding: 3px 6px; }
     }
-    /* Hide hamburger on desktop */
-    @media (min-width: 769px) {
-      .hamburger-menu {
-        display: none !important;
-      }
-    }
   </style>
 </head>
 <body>
@@ -247,30 +222,14 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html" class="active">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html" class="active"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -279,40 +238,20 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html" class="active">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html" class="active"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -322,7 +261,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -331,15 +270,16 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
@@ -462,9 +402,8 @@
     if (state.manualOverride) termEl?.classList.add('override-badge');
     else termEl?.classList.remove('override-badge');
   });
-</script>
-<script>
-  // Register Service Worker for offline navigation
+
+  // Service Worker
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
@@ -472,9 +411,7 @@
           console.log('Service Worker registered with scope:', registration.scope);
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
+        .catch(err => console.error('Service Worker registration failed:', err));
     });
   }
 </script>

@@ -19,7 +19,7 @@
 
   <style>
     /* =========================================================
-       STUDENT DASHBOARD – Page-specific styles
+       STUDENT DASHBOARD – Page‑specific styles
        ========================================================= */
 
     /* ----- Academic badge row ----- */
@@ -76,7 +76,7 @@
     .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
     .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
-    /* ----- School logo: READ-ONLY (no camera, no upload) ----- */
+    /* ----- School logo: READ-ONLY (no camera, no upload, no pointer cursor) ----- */
     .school-logo-readonly {
       width: 52px; height: 52px;
       border-radius: 50%;
@@ -88,14 +88,16 @@
       align-items: center;
       justify-content: center;
       box-shadow: 0 0 0 4px rgba(67,97,238,.12);
+      cursor: default;
     }
     .school-logo-readonly img {
       width: 100%; height: 100%;
       object-fit: cover;
       border-radius: 50%;
+      pointer-events: none;
     }
 
-    /* ----- Notification bell ----- */
+    /* ----- Notification bell (unchanged) ----- */
     .notification-bell {
       position: relative;
       background: #f0f4ff;
@@ -118,7 +120,6 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(67,97,238,.3);
     }
-    /* Red badge with white number, top‑right */
     .notification-badge-counter {
       position: absolute;
       top: -6px;
@@ -136,9 +137,8 @@
       padding: 0 4px;
       box-sizing: border-box;
       border: 2px solid #fff;
-      display: none;              /* hidden when count is 0 */
+      display: none;
     }
-
     .notification-dropdown {
       position: absolute;
       top: 48px; right: 0;
@@ -173,8 +173,6 @@
       color: #0d1b2a;
     }
     .notification-header i { color: #4361ee; }
-
-    /* Notification item – beautiful, creative style */
     .notification-item {
       padding: .75rem 1rem;
       border-bottom: 1px solid #f8fafc;
@@ -194,16 +192,12 @@
       border-left-color: #4361ee;
       transform: translateX(2px);
     }
-    .notification-item[data-type="cbt"] {
-      border-left-color: transparent;
-    }
     .notification-item[data-type="cbt"]:hover {
       border-left-color: #10b981;
     }
     .notification-item[data-type="score"]:hover {
       border-left-color: #f59e0b;
     }
-
     .notification-item .notif-icon {
       width: 22px;
       text-align: center;
@@ -225,7 +219,6 @@
       color: #64748b;
       font-weight: 400;
     }
-
     .notification-item:last-child { border-bottom: none; }
     .empty-notification {
       padding: 1.5rem;
@@ -270,7 +263,6 @@
       background: rgba(67,97,238,.05);
     }
     .internal-tab-btn.active i { opacity: 1; }
-
     .tab-pane { display: none; animation: fadeTabIn .25s ease; }
     .tab-pane.active-pane { display: block; }
     @keyframes fadeTabIn {
@@ -434,20 +426,14 @@
       margin-bottom: .9rem;
     }
 
-    /* =========================================================
-       GRADE BADGES (for results table – kept for compatibility)
-       ========================================================= */
+    /* Grade badges */
     .grade-A { background: #d1fae5; color: #065f46; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-B { background: #dbeafe; color: #1e40af; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-C { background: #fef3c7; color: #92400e; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-D { background: #fee2e2; color: #991b1b; font-weight: 800; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
-
-    /* Results table wrapper */
     .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
 
-    /* =========================================================
-       WELCOME CARD (Results Section) – ADDED explicit visibility styles
-       ========================================================= */
+    /* Welcome card – explicit visibility */
     .welcome-card {
       background: linear-gradient(135deg, #fff 0%, #f8faff 100%);
       border-radius: 18px;
@@ -479,7 +465,7 @@
     }
 
     /* =========================================================
-       MOBILE MENU CARDS  (≤ 768 px — identical to admin/teacher)
+       MOBILE MENU CARDS  (≤ 768 px)
        ========================================================= */
     .mobile-menu-section { display: none; }
 
@@ -508,7 +494,6 @@
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
       }
-
       .mobile-nav-card {
         background: #fff;
         border-radius: 16px;
@@ -575,7 +560,6 @@
       .mnc-cbt       { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
       .mnc-results   { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
 
-      /* Stagger */
       .mobile-nav-card:nth-child(1) { animation-delay: .04s; }
       .mobile-nav-card:nth-child(2) { animation-delay: .10s; }
       .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
@@ -593,31 +577,22 @@
 
       /* School name */
       .school-name h1 { font-size: 1.1rem !important; max-width: 46vw; }
-    }
 
-    /* =========================================================
-       HEADER tweaks
-       ========================================================= */
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: nowrap;
-    }
-    .school-header-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      min-width: 0;
-      flex: 1;
+      /* Read‑only logo on mobile */
+      .school-logo-readonly {
+        width: 44px !important;
+        height: 44px !important;
+        cursor: default !important;
+      }
+      /* Hide subscription badge on mobile */
+      .header-right .subscription-badge {
+        display: none !important;
+      }
     }
 
     /* Hide hamburger on desktop */
     @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
 
-    /* =========================================================
-       KEYFRAMES
-       ========================================================= */
     @keyframes fadeSlideUp {
       from { opacity: 0; transform: translateY(18px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -627,11 +602,7 @@
 <body>
 <div class="dashboard-container">
 
-  <!-- ===================== DESKTOP SIDEBAR ===================== -->
-  <!--
-    Logout link is intentionally REMOVED from the desktop sidebar.
-    Logout is available only via the header Logout button.
-  -->
+  <!-- DESKTOP SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -647,12 +618,11 @@
       <a href="#" data-section="results">
         <i class="fa-solid fa-chart-bar"></i> Results
       </a>
-      <!-- Logout intentionally omitted from desktop sidebar -->
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
-  <!-- ===================== MOBILE SIDEBAR ===================== -->
+  <!-- MOBILE SIDEBAR -->
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
@@ -679,44 +649,34 @@
   </div>
   <div id="overlay" class="overlay"></div>
 
-  <!-- ===================== MAIN CONTENT ===================== -->
+  <!-- MAIN CONTENT -->
   <main class="main-content">
 
     <!-- ---- TOP HEADER ---- -->
-    <!--
-      School logo is READ-ONLY — no camera, no upload.
-      Logo loaded from Firestore "logo" field.
-      School name and address only — NO term/session text here.
-    -->
     <header class="header">
       <div class="school-header-left">
-        <!-- Logo: read-only, no camera overlay -->
-        <!-- <div class="school-logo-readonly">
+        <!-- READ-ONLY logo: no camera, no upload, no pointer cursor -->
+        <div class="school-logo-readonly">
           <img
             id="schoolLogoImg"
             alt="School Logo"
             src="https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=S&size=80"
           >
-        </div> -->
-        <!-- School name & address -->
+        </div>
         <div class="school-name">
           <h1 id="schoolName">Loading&hellip;</h1>
           <div id="schoolAddress" class="school-address"></div>
-          <!-- NO session/term line here — removed per requirement -->
         </div>
       </div>
 
-      <!-- Right controls -->
       <div class="header-right">
-        <!-- Hamburger (mobile only) -->
         <button class="hamburger-menu" aria-label="Open menu">
           <i class="fa-solid fa-bars"></i>
         </button>
-        <!-- Subscription status -->
         <div id="subscriptionBadge" class="subscription-badge">
           <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
         </div>
-        <!-- Notification bell (badge added) -->
+        <!-- Notification bell -->
         <div style="position:relative;">
           <button id="notificationBell" class="notification-bell" aria-label="Notifications">
             <i class="fa-solid fa-bell"></i>
@@ -734,7 +694,6 @@
             </div>
           </div>
         </div>
-        <!-- Logout (desktop only) -->
         <button id="logoutBtn" class="logout-btn">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -742,11 +701,6 @@
     </header>
 
     <!-- ---- ACADEMIC CALENDAR BADGE ---- -->
-    <!--
-      This pill — driven by academic-calendar.js + calendar-sync.js —
-      is the ONLY place the current term and session appear in the header area.
-      It sits directly below the header.
-    -->
     <div class="academic-badge-row">
       <div class="academic-badge">
         <i class="fa-solid fa-calendar-days"></i>
@@ -759,83 +713,51 @@
     <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content" id="mainContentArea">
 
-      <!-- ======================================================
-           DASHBOARD SECTION
-           ====================================================== -->
+      <!-- DASHBOARD SECTION -->
       <div id="dashboardSection" class="dynamic-section">
-
-        <!-- Hero container (rendered by student-portal.js) -->
         <div id="heroContainer"></div>
 
-        <!-- ---- MOBILE NAVIGATION CARDS (visible ≤ 768px) ---- -->
+        <!-- MOBILE NAVIGATION CARDS -->
         <div class="mobile-menu-section">
           <div class="mobile-menu-title">
             <i class="fa-solid fa-grip"></i> Quick Navigation
           </div>
           <div class="mobile-nav-grid">
-
             <a href="#" data-section="dashboard" class="mobile-nav-card mnc-dashboard active">
-              <div class="mobile-nav-icon">
-                <i class="fa-solid fa-gauge-high"></i>
-              </div>
+              <div class="mobile-nav-icon"><i class="fa-solid fa-gauge-high"></i></div>
               <span class="mobile-nav-label">Dashboard</span>
             </a>
-
             <a href="#" data-section="cbt" class="mobile-nav-card mnc-cbt">
-              <div class="mobile-nav-icon">
-                <i class="fa-solid fa-laptop-code"></i>
-              </div>
+              <div class="mobile-nav-icon"><i class="fa-solid fa-laptop-code"></i></div>
               <span class="mobile-nav-label">CBT</span>
             </a>
-
             <a href="#" data-section="results" class="mobile-nav-card mnc-results" style="grid-column: span 2;">
-              <div class="mobile-nav-icon">
-                <i class="fa-solid fa-chart-bar"></i>
-              </div>
+              <div class="mobile-nav-icon"><i class="fa-solid fa-chart-bar"></i></div>
               <span class="mobile-nav-label">Results</span>
             </a>
-
           </div>
         </div>
-        <!-- /mobile nav cards -->
 
-        <!-- ---- INTERNAL TABS ---- -->
+        <!-- INTERNAL TABS -->
         <div class="internal-tabs">
-          <button class="internal-tab-btn active" data-tab="profile">
-            <i class="fa-solid fa-user"></i> Profile
-          </button>
-          <button class="internal-tab-btn" data-tab="attendance">
-            <i class="fa-solid fa-clipboard-list"></i> Attendance
-          </button>
-          <button class="internal-tab-btn" data-tab="subjects">
-            <i class="fa-solid fa-book-open"></i> Subjects
-          </button>
-          <button class="internal-tab-btn" data-tab="assignments">
-            <i class="fa-solid fa-pen-to-square"></i> Assignments
-          </button>
+          <button class="internal-tab-btn active" data-tab="profile"><i class="fa-solid fa-user"></i> Profile</button>
+          <button class="internal-tab-btn" data-tab="attendance"><i class="fa-solid fa-clipboard-list"></i> Attendance</button>
+          <button class="internal-tab-btn" data-tab="subjects"><i class="fa-solid fa-book-open"></i> Subjects</button>
+          <button class="internal-tab-btn" data-tab="assignments"><i class="fa-solid fa-pen-to-square"></i> Assignments</button>
         </div>
 
         <div id="profileTab"     class="tab-pane active-pane">Loading profile&hellip;</div>
         <div id="attendanceTab"  class="tab-pane">Loading attendance&hellip;</div>
         <div id="subjectsTab"    class="tab-pane">Loading subjects&hellip;</div>
         <div id="assignmentsTab" class="tab-pane">Loading assignments&hellip;</div>
-
       </div>
-      <!-- /dashboardSection -->
 
-      <!-- ======================================================
-           RESULTS SECTION
-           ====================================================== -->
+      <!-- RESULTS SECTION -->
       <div id="resultsSection" class="dynamic-section" style="display:none;">
-        <!-- Welcome message – now fully visible with dedicated styles -->
         <div class="welcome-card">
-          <h1>
-            <i class="fa-solid fa-chart-bar" style="opacity:.8; margin-right:8px;"></i>
-            Assigned CBT Performance
-          </h1>
+          <h1><i class="fa-solid fa-chart-bar" style="opacity:.8; margin-right:8px;"></i> Assigned CBT Performance</h1>
           <p>Your assigned CBT results breakdown.</p>
         </div>
-        <!-- Results summary container (empty – no cards shown) -->
         <div id="resultsSummaryContainer" class="summary-stats"></div>
         <div style="background:#fff; border-radius:16px; padding:1.4rem; box-shadow:0 2px 0 rgba(0,0,0,.05),0 6px 22px rgba(13,27,42,.07); border:1px solid rgba(67,97,238,.07);">
           <h3 style="font-family:'Outfit',sans-serif; font-size:1.05rem; margin-bottom:.25rem; display:flex; align-items:center; gap:.5rem;">
@@ -849,19 +771,12 @@
           </div>
         </div>
       </div>
-      <!-- /resultsSection -->
 
     </div>
-    <!-- /content -->
 
-    <!-- ---- FOOTER ---- -->
     <footer class="app-footer">
-      <p>
-        <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
-        <span id="currentYear"></span> Acadex &mdash; All rights reserved.
-      </p>
+      <p><i class="fa-regular fa-copyright" style="margin-right:4px;"></i> <span id="currentYear"></span> Acadex &mdash; All rights reserved.</p>
     </footer>
-
   </main>
 </div>
 
@@ -879,7 +794,7 @@
     if (sidebarYr) sidebarYr.innerText = yr;
   });
 
-  /* ── CBT button validation and redirect ── */
+  /* CBT button validation and redirect */
   (function () {
     function validateAndRedirectToCBT(event) {
       event.preventDefault();
@@ -889,7 +804,6 @@
         alert('Unable to access CBT. Please log out and log in again.');
         return false;
       }
-      // Correct path: go up one level (out of students/) then into cbt/html/
       window.location.href = '../cbt/html/cbt.html';
       return true;
     }
@@ -903,18 +817,14 @@
   })();
 </script>
 <script>
-  // Register Service Worker for offline navigation
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
           console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
           setInterval(() => registration.update(), 60 * 60 * 1000);
         })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
+        .catch(err => console.error('Service Worker registration failed:', err));
     });
   }
 </script>

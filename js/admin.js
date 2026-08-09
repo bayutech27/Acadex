@@ -407,11 +407,10 @@ async function updateFeeDisplay(schoolId, sub) {
         <small>Your subscription has expired. Please renew to unlock all features.</small>
       </div>`;
   } else {
+    // ── FIX 3: Only show "Subscription active" text ──
     feeContainer.innerHTML = `
       <div style="background:#dcfce7;border-left:4px solid #10b981;padding:12px 16px;border-radius:8px;margin:16px 0;">
-        <strong>✅ Subscription Active</strong><br>
-        Plan: ${plan}<br>
-        <small>Your subscription is active and all features are unlocked.</small>
+        <strong>✅ Subscription active</strong>
       </div>`;
   }
 }
@@ -658,27 +657,57 @@ async function getSchoolById(schoolId) {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// LOGO UPLOAD – Click on the logo container (works on both desktop & mobile)
+// ───────────────────────────────────────────────────────────────────────────────
 export function setupLogoUpload() {
-  const cameraIcon = document.getElementById('cameraIcon');
-  const fileInput  = document.getElementById('logoUploadInput');
-  if (cameraIcon && fileInput) {
-    cameraIcon.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (file && file.type.startsWith('image/')) {
-        const schoolId = await getCurrentSchoolId();
-        if (!schoolId) { toast.error('School ID not found. Please refresh the page.'); return; }
-        const newLogo = await uploadSchoolLogo(schoolId, file);
-        if (newLogo) {
-          const logoImg = document.getElementById('schoolLogoImg');
-          if (logoImg) logoImg.src = newLogo;
-        }
-      } else if (file) {
-        toast.error('Please select a valid image file (JPG, PNG, GIF).');
-      }
-      if (fileInput) fileInput.value = '';
+  const logoContainer = document.querySelector('.school-logo');
+  const fileInput = document.getElementById('logoUploadInput');
+  if (!logoContainer || !fileInput) return;
+
+  // Remove old listeners by cloning and replacing the container
+  const newContainer = logoContainer.cloneNode(true);
+  logoContainer.parentNode.replaceChild(newContainer, logoContainer);
+
+  // Re‑query the fresh elements
+  const freshContainer = document.querySelector('.school-logo');
+  const freshFileInput = document.getElementById('logoUploadInput');
+  if (!freshContainer || !freshFileInput) return;
+
+  // Main click handler – works on desktop & mobile (touch)
+  freshContainer.addEventListener('click', (e) => {
+    e.preventDefault();
+    freshFileInput.click();
+  });
+
+  // Camera icon click (desktop only, hidden on mobile but safe to attach)
+  const cameraIcon = freshContainer.querySelector('#cameraIcon');
+  if (cameraIcon) {
+    cameraIcon.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent container’s click from firing twice
+      freshFileInput.click();
     });
   }
+
+  // File selection handler
+  freshFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const schoolId = await getCurrentSchoolId();
+      if (!schoolId) {
+        toast.error('School ID not found. Please refresh the page.');
+        return;
+      }
+      const newLogo = await uploadSchoolLogo(schoolId, file);
+      if (newLogo) {
+        const logoImg = document.getElementById('schoolLogoImg');
+        if (logoImg) logoImg.src = newLogo;
+      }
+    } else if (file) {
+      toast.error('Please select a valid image file (JPG, PNG, GIF).');
+    }
+    freshFileInput.value = ''; // Allow re‑selecting the same file
+  });
 }
 
 export async function loadDashboardCounts() {
