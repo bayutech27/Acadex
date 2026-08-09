@@ -9,6 +9,21 @@ import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './acade
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { auth } from './firebase-config.js';
 
+// NEW: shared grading utilities
+import {
+  calculateGrade,
+  getGradeRemark,
+  getSkillKey,
+  getDefaultRatings,
+  getGradeScaleHtml,
+  getCommentOptionsByGrade,
+  getTermSuffix,
+  calculateAge,
+  escapeHtml,
+  psychomotorSkillsList,
+  affectiveSkillsList
+} from './report-utils.js';
+
 let currentSchoolId = null;
 let teacherData = null;
 let currentClassId = null;          // Currently selected class ID (for report card)
@@ -21,8 +36,8 @@ let allSubjectsList = [];
 let studentsList = [];
 let isSubscriptionActive = false;
 
-const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
-const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
+const psychomotorSkillsList_local = psychomotorSkillsList;
+const affectiveSkillsList_local = affectiveSkillsList;
 
 let reportState = {
   selectedStudent: null,
@@ -35,8 +50,9 @@ let reportState = {
   savedReportId: null
 };
 
-[...psychomotorSkillsList, ...affectiveSkillsList].forEach(skill => {
-  const key = skill.toLowerCase().replace(/[^a-z]/g, '');
+// Initialize ratings with defaults
+[...psychomotorSkillsList_local, ...affectiveSkillsList_local].forEach(skill => {
+  const key = getSkillKey(skill);
   reportState.psychomotor[key] = 3;
 });
 
@@ -101,33 +117,12 @@ function enableSubscriptionFeatures() {
   if (warning) warning.remove();
 }
 
-// ------------------- Helper Functions -------------------
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
-}
+// ------------------- Helper Functions (now using imports) -------------------
+// Removed local definitions of calculateGrade, getGradeRemark, etc.
 
-function calculateGrade(total) {
-  if (total >= 85) return 'A1';
-  if (total >= 75) return 'B2';
-  if (total >= 70) return 'B3';
-  if (total >= 65) return 'C4';
-  if (total >= 60) return 'C5';
-  if (total >= 50) return 'C6';
-  if (total >= 45) return 'D7';
-  if (total >= 40) return 'E8';
-  return 'F9';
-}
-
-function getGradeRemark(grade) {
-  const remarks = { A1:'Excellent', B2:'Very Good', B3:'Good', C4:'Credit', C5:'Credit', C6:'Credit', D7:'Pass', E8:'Pass', F9:'Fail' };
-  return remarks[grade] || '';
-}
-
-// ==================== DATA LOADING ====================
+// ------------------- DATA LOADING -------------------
 async function loadTeacherHostClasses() {
   try {
-    // Use the authenticated user's UID directly
     const user = auth.currentUser;
     if (!user || !user.uid) {
       console.error('No authenticated user');
@@ -144,7 +139,6 @@ async function loadTeacherHostClasses() {
     if (teacher.hostClassIds && teacher.hostClassIds.length > 0) {
       hostClassIds = teacher.hostClassIds;
     } else if (teacher.hostClassId) {
-      // Backward compatibility: single hostClassId
       hostClassIds = [teacher.hostClassId];
     } else {
       hostClassIds = [];
@@ -480,7 +474,7 @@ async function saveReportCard() {
   }
 }
 
-// ========== PRINT HANDLER ==========
+// ========== PRINT HANDLER (unchanged except using escapeHtml from import) ==========
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -560,7 +554,7 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ========== WHATSAPP SHARE FUNCTION ==========
+// ========== WHATSAPP SHARE FUNCTION (unchanged) ==========
 function sendToWhatsApp() {
   if (!reportState.selectedStudent) {
     toast.error('Please select a student first.');
@@ -602,7 +596,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ========== BROADSHEET FUNCTIONS ==========
+// ========== BROADSHEET FUNCTIONS (unchanged) ==========
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -692,7 +686,7 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average  = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
-      const grade    = calculateGrade(average);
+      const grade    = calculateGrade(average); // using imported
       const remark   = getGradeRemark(grade);
       const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
       const combinedAvg = termValues.length ? (termValues.reduce((a,b)=>a+b,0)/termValues.length).toFixed(1) : null;

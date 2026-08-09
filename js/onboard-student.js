@@ -151,7 +151,6 @@ async function loadTeacherClassesAndPopulateDropdown() {
     hostIds = [...new Set([...hostIds, ...classIdsFromQuery])];
   } catch (err) {
     console.warn('Could not query classes for teacherId:', err);
-    // Continue with whatever hostIds we have
   }
 
   if (hostIds.length === 0) {
@@ -162,7 +161,6 @@ async function loadTeacherClassesAndPopulateDropdown() {
 
   // Update teacher document with merged hostClassIds if they differ (optional but helpful)
   if (hostIds.length > 0 && !teacherData.hostClassIds) {
-    // Only set if not already an array
     await updateDoc(teacherRef, { hostClassIds: hostIds });
   }
 
@@ -364,7 +362,6 @@ async function handlePassportUpload(e) {
 }
 
 // Load and display students for the currently selected class
-// FIXED: Uses proper table-container class for scrolling
 async function loadAndDisplayStudents() {
   if (!currentClassId) return;
   let students;
@@ -439,11 +436,19 @@ async function loadAndDisplayStudents() {
   window.deleteStudent = async (id) => {
     if (confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) {
       try {
+        // Fetch student data to get UID before deletion
+        const studentData = await service.getStudentById(id);
         await service.deleteStudent(id);
         const scoresSnap = await getDocs(query(collection(db, 'scores'), where('studentId', '==', id)));
         for (const d of scoresSnap.docs) await deleteDoc(d.ref);
         const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
         for (const d of reportsSnap.docs) await deleteDoc(d.ref);
+
+        // ======= NEW: Mark user as disabled =======
+        if (studentData && studentData.uid) {
+          await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
+        }
+
         await loadAndDisplayStudents();
         toast.success('Student and related data deleted.');
       } catch (err) {

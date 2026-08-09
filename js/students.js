@@ -18,7 +18,7 @@ import { auth, firebaseConfig } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import {
-  collection, getDocs, query, where, doc, setDoc, serverTimestamp
+  collection, getDocs, query, where, doc, setDoc, serverTimestamp, updateDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
 import { getCurrentSchoolId, protectAdminPage } from './admin.js';
@@ -694,6 +694,8 @@ async function loadAndDisplayStudents() {
     if (!confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) return;
     showLoader();
     try {
+      // Fetch student data to get UID before deletion
+      const studentData = await service.getStudentById(id);
       await service.deleteStudent(id);
       const { collection, getDocs, query, where, deleteDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db: localDb } = await import('./firebase-config.js');
@@ -701,6 +703,12 @@ async function loadAndDisplayStudents() {
       for (const d of scoresSnap.docs) await deleteDoc(d.ref);
       const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
       for (const d of reportsSnap.docs) await deleteDoc(d.ref);
+
+      // ======= NEW: Mark user as disabled =======
+      if (studentData && studentData.uid) {
+        await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
+      }
+
       await loadAndDisplayStudents();
       toast.success('Student and all associated data deleted successfully.');
     } catch (err) {
@@ -996,8 +1004,18 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => {
-    window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+  // ======= NEW: payment reference logging =======
+  document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
+    const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    await setDoc(doc(db, 'paymentReferences', ref), {
+      schoolId: currentSchoolId,
+      amount: 0, // update with actual amount when available
+      reason: 'renewal',
+      createdAt: new Date(),
+      status: 'pending',
+      reference: ref
+    });
+    window.open(`https://paystack.shop/pay/fmj267paou?reference=${ref}`, '_blank');
   });
 }
 

@@ -29,6 +29,9 @@ import { getUserData, getSchoolById } from './app.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { calculateTermAndSessionFromDate } from './academic-calendar.js';
 
+// NEW: security imports
+import { enforcePasswordChange } from './security.js';
+
 // ---------- VALID ROLES ----------
 const VALID_ROLES = ['super-admin', 'admin', 'teacher', 'student', 'parent'];
 
@@ -300,6 +303,20 @@ export async function loginUser(email, password) {
     const role     = userData.role;
     const schoolId = userData.schoolId;
 
+    // ======= NEW: must change password =======
+    if (userData.mustChangePassword) {
+      localStorage.setItem('mustChangePassword', 'true');
+      window.location.href = `change-password.html?redirect=${encodeURIComponent(ROLE_REDIRECTS[role])}`;
+      return;
+    }
+
+    // ======= NEW: disabled account =======
+    if (userData.disabled) {
+      toast.error('Your account has been disabled. Contact the school.');
+      await signOut(auth);
+      return;
+    }
+
     if (!VALID_ROLES.includes(role)) {
       await signOut(auth);
       toast.error(`Account type "${role}" is not recognised. Please contact support.`);
@@ -570,6 +587,18 @@ export function initStudentPortal() {
         window.location.href = '/';
         return;
       }
+
+      // ======= NEW: enforce password change =======
+      await enforcePasswordChange(window.location.href);
+
+      // ======= NEW: disabled account check =======
+      if (userData.disabled) {
+        toast.error('Your account has been disabled. Contact the school.');
+        await signOut(auth);
+        window.location.href = '/';
+        return;
+      }
+
       localStorage.setItem('userSchoolId', userData.schoolId);
       localStorage.setItem('userRole', 'student');
       localStorage.setItem('studentId', user.uid);
@@ -603,6 +632,18 @@ export function initParentPortal() {
         window.location.href = '/';
         return;
       }
+
+      // ======= NEW: enforce password change =======
+      await enforcePasswordChange(window.location.href);
+
+      // ======= NEW: disabled account check =======
+      if (userData.disabled) {
+        toast.error('Your account has been disabled. Contact the school.');
+        await signOut(auth);
+        window.location.href = '/';
+        return;
+      }
+
       localStorage.setItem('userSchoolId', userData.schoolId);
       localStorage.setItem('userRole', 'parent');
       localStorage.setItem('parentId', user.uid);

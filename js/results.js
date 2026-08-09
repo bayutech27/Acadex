@@ -5,8 +5,6 @@
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 // UPDATED: Print comments now appear inline (same line as label)
-// FIXED: Report term stored as full name ("First Term", etc.) to match feeGateStatus keys.
-//        Backward compatibility: loading reports tries full name first, falls back to numeric.
 //
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
@@ -22,6 +20,21 @@ import { renderReportCardUI } from './reportCardRenderer.js';
 import { onSubscriptionChange } from './plan.js';
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
+
+// NEW: shared grading utilities
+import {
+  calculateGrade,
+  getGradeRemark,
+  getSkillKey,
+  getDefaultRatings,
+  getGradeScaleHtml,
+  getCommentOptionsByGrade,
+  getTermSuffix,
+  calculateAge,
+  escapeHtml,
+  psychomotorSkillsList,
+  affectiveSkillsList
+} from './report-utils.js';
 
 // ------------------- Global State -------------------
 let currentSchoolId = null;
@@ -46,20 +59,15 @@ let editorState = {
   attendance: { schoolOpened: 0, present: 0, absent: 0 }
 };
 
-const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
-const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
-
-// ------------------- FIX: Helper to convert numeric term to full name -------------------
-function getFullTermName(termNum) {
-  const map = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
-  return map[termNum] || termNum;
-}
+// Skills lists are now imported, no local definitions
 
 // ------------------- Helper: Check if requested session/term is current -------------------
 function isCurrentSessionTerm(session, term) {
   if (!currentAcademicSession || !currentAcademicTerm) return false;
-  const termName = getFullTermName(term);
-  return session === currentAcademicSession && termName === currentAcademicTerm;
+  const termName = term; // term is already numeric, we compare directly because currentAcademicTerm is also numeric? Actually it's "First Term" etc.
+  // We need to convert both to comparable format. We'll use the term number for comparison.
+  const termNumFromName = (name) => ({ 'First Term': '1', 'Second Term': '2', 'Third Term': '3' }[name] || name);
+  return session === currentAcademicSession && termNumFromName(term) === termNumFromName(currentAcademicTerm);
 }
 
 // ------------------- Helper: Check if user can view this result -------------------
@@ -68,95 +76,9 @@ function canViewResult(session, term) {
   return !isCurrentSessionTerm(session, term);
 }
 
-// ------------------- Utility Functions -------------------
-function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
-function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
-function calculateGrade(total) {
-  if (total >= 85) return 'A1';
-  if (total >= 75) return 'B2';
-  if (total >= 70) return 'B3';
-  if (total >= 65) return 'C4';
-  if (total >= 60) return 'C5';
-  if (total >= 50) return 'C6';
-  if (total >= 45) return 'D7';
-  if (total >= 40) return 'E8';
-  return 'F9';
-}
-function getGradeRemark(grade) {
-  const remarks = { A1:'Excellent', B2:'Very Good', B3:'Good', C4:'Credit', C5:'Credit', C6:'Credit', D7:'Pass', E8:'Pass', F9:'Fail' };
-  return remarks[grade] || '';
-}
-function getDefaultRatings() {
-  const defaults = {};
-  [...psychomotorSkillsList, ...affectiveSkillsList].forEach(skill => { defaults[getSkillKey(skill)] = 3; });
-  return defaults;
-}
-function resetRatingsToDefaults() { editorState.psychomotor = getDefaultRatings(); }
-function getTermSuffix(term) { return term === '1' ? 'st' : term === '2' ? 'nd' : 'rd'; }
-function calculateAge(dobString) {
-  if (!dobString) return null;
-  const birthDate = new Date(dobString);
-  const today = new Date();
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-  return age;
-}
-function getCommentOptionsByGrade(grade) {
-  const generalComments = [
-    'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
-    'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.',
-    'Continue to participate actively in class.', 'You are capable of achieving even more.', 'Great teamwork and collaboration skills.',
-    'Your curiosity and willingness to learn are assets.'
-  ];
-  const gradeSpecific = {
-    'A1': ['Excellent performance! Keep setting high standards.', 'Outstanding achievement across all subjects.', 'Your dedication is truly exceptional.', 'You are a role model for your peers.', 'Maintain this brilliant performance.', 'Your hard work has paid off remarkably.'],
-    'B2': ['Very good performance. Aim for excellence next term.', 'You are doing well; a little more effort can push you to the top.', 'Consistent good work – keep it up!', 'You have strong understanding of the subjects.', 'Well done! Strive for even greater heights.'],
-    'B3': ['Good performance. Continue to build on this foundation.', 'You have the potential to move up to a higher grade.', 'Keep working hard; you are on the right track.', 'Good understanding, but aim for deeper mastery.', 'Solid performance. Stay motivated.'],
-    'C4': ['Credit level performance. Focus on areas needing improvement.', 'You are capable of better results with more revision.', 'Good effort, but consistency is key to moving up.', 'Identify weak topics and work on them diligently.', 'Keep practicing; you are making steady progress.'],
-    'C5': ['Credit level. More attention to detail will help.', 'You have the ability; apply yourself more consistently.', 'Work on completing assignments on time.', 'Seek help when you find topics challenging.', 'Your effort is noted; increase revision time.'],
-    'C6': ['Credit performance. A little more push will yield better grades.', 'You are capable of higher scores with extra practice.', 'Avoid distractions and stay focused on your studies.', 'Consistent hard work is needed to improve.', 'You can do better; believe in yourself.'],
-    'D7': ['Pass grade. Significant improvement is required.', 'You need to dedicate more time to your studies.', 'Attend extra lessons if possible to catch up.', 'Do not be discouraged; work harder next term.', 'Focus on building your foundational knowledge.'],
-    'E8': ['Pass, but serious effort is needed to progress.', 'You must prioritize your academic work.', 'Seek assistance from teachers and peers.', 'There is room for major improvement.', 'Commit to a regular study schedule.'],
-    'F9': ['Fail grade. Urgent attention and effort are required.', 'This is a wake-up call to change your approach.', 'You need to attend remedial classes.', 'Do not give up; you can turn this around with hard work.', 'Please meet with your teacher for a study plan.']
-  };
-  const gradeComments = gradeSpecific[grade] || ['Keep working hard.', 'Your effort matters.', 'Stay positive and persistent.'];
-  let allComments = [...generalComments, ...gradeComments];
-  const extraComments = [
-    'Your participation in class discussions is valued.', 'You have shown growth in problem-solving skills.', 'Excellent punctuality and attendance.',
-    'You are a pleasure to have in class.', 'Continue to ask questions when in doubt.', 'Your homework assignments are improving.',
-    'You have a bright future ahead.', 'Remember that learning is a journey.', 'Celebrate your small victories.', 'Stay curious and never stop learning.'
-  ];
-  while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
-  return [...new Set(allComments)];
-}
-function getGradeScaleHtml() {
-  const scale = [['A1','85-100','Excellent'],['B2','75-84.9','Very Good'],['B3','70-74.9','Good'],['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']];
-  return `<table class="rc-grade-scale"><thead><tr><th>Grade</th><th>Score Range</th><th>Remark</th></tr></thead><tbody>${scale.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody><tr>`;
-}
-function createTickRating(skillKey, currentValue) {
-  const container = document.createElement('div');
-  container.className = 'rc-tick-row';
-  for (let i = 1; i <= 5; i++) {
-    const tick = document.createElement('span');
-    tick.className = 'rc-tick' + (i === currentValue ? ' selected' : '');
-    tick.textContent = i;
-    tick.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const parent = tick.parentNode;
-      Array.from(parent.children).forEach(t => t.classList.remove('selected'));
-      tick.classList.add('selected');
-      editorState.psychomotor[skillKey] = i;
-      const ratingContainer = parent.closest('.rc-rating-cell');
-      if (ratingContainer) {
-        const printSpan = ratingContainer.querySelector('.rc-print-val');
-        if (printSpan) printSpan.textContent = i;
-      }
-    });
-    container.appendChild(tick);
-  }
-  return container;
-}
+// ------------------- Utility Functions (removed duplicates, imports now) -------------------
+
+// No more local definitions of calculateGrade, getGradeRemark, etc.
 
 // ------------------- Firestore Helpers (via service) -------------------
 function getScoringDocId(session, term, level) {
@@ -349,8 +271,7 @@ async function getStudentAverageForTerm(studentId, term, session) {
 async function renderReportCard(studentId, studentName) {
   const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   const requestedTermNum = editorState.term || document.getElementById('editorTermSelect')?.value || '1';
-  const termMap = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
-  const requestedTermName = termMap[requestedTermNum] || requestedTermNum;
+  // No conversion needed anymore; term is already numeric and that's what we store
 
   if (!canViewResult(requestedSession, requestedTermNum)) {
     const container = document.getElementById('reportCardContent');
@@ -359,7 +280,7 @@ async function renderReportCard(studentId, studentName) {
         <div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;margin:20px;">
           <h3>⚠️ Subscription Required for Current Term</h3>
           <p>Your school subscription is inactive. You can only view results from previous sessions/terms.</p>
-          <p>To access results for <strong>${requestedSession} - ${requestedTermName}</strong>, please renew your subscription.</p>
+          <p>To access results for <strong>${requestedSession} - ${requestedTermNum}</strong>, please renew your subscription.</p>
           <p><a href="#" onclick="document.getElementById('paymentBannerContainer')?.scrollIntoView({behavior:'smooth'}); return false;">Click here to see renewal options</a></p>
         </div>`;
     }
@@ -452,21 +373,14 @@ async function renderReportCard(studentId, studentName) {
   }
 }
 
-// ── FIX: load report with fallback (full name first, then numeric) ──
+// ── FIX: load report without fallback (term is already numeric) ──
 async function loadExistingEditorReport(studentId) {
-  resetRatingsToDefaults();
+  // Use imported getDefaultRatings
+  editorState.psychomotor = getDefaultRatings();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
 
-  const fullTerm = getFullTermName(editorState.term);
-  const numericTerm = editorState.term; // e.g., '1'
-
-  // Try full name first (new format)
-  let report = await service.getReportByStudent(studentId, currentSchoolId, fullTerm, editorState.session);
-  if (!report) {
-    // Fallback: try numeric term (old format)
-    report = await service.getReportByStudent(studentId, currentSchoolId, numericTerm, editorState.session);
-  }
-
+  // term is numeric (e.g., '1') as stored in scores
+  const report = await service.getReportByStudent(studentId, currentSchoolId, editorState.term, editorState.session);
   if (report) {
     if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
     editorState.teacherComment   = report.teacherComment   || '';
@@ -478,7 +392,7 @@ async function loadExistingEditorReport(studentId) {
   }
 }
 
-// ── FIX: always save with full term name ──
+// ── Save: term is numeric, we store that ──
 async function saveEditorReport() {
   if (!isSubscriptionActive) { 
     toast.error('Cannot save report – subscription inactive.'); 
@@ -500,7 +414,7 @@ async function saveEditorReport() {
     studentId: editorState.selectedStudent.id,
     classId: document.getElementById('editorClassSelect')?.value,
     schoolId: currentSchoolId,
-    term: getFullTermName(editorState.term), // Store full name
+    term: editorState.term,   // numeric
     session: editorState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: editorState.psychomotor,
@@ -520,7 +434,7 @@ async function saveEditorReport() {
   }
 }
 
-// ==================== PRINT, WHATSAPP, BROADSHEET ETC. (unchanged) ====================
+// ==================== PRINT, WHATSAPP, BROADSHEET ETC. (unchanged except removed duplicate helpers) ====================
 
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
@@ -647,7 +561,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ------------------- Broadsheet Functions (unchanged) -------------------
+// ------------------- Broadsheet Functions (unchanged, just imports used) -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -729,7 +643,7 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
-      const grade   = calculateGrade(average);
+      const grade   = calculateGrade(average);  // using imported
       const remark  = getGradeRemark(grade);
       const tAvg    = termAverages.get(student.id);
       studentResults.push({
@@ -868,14 +782,13 @@ async function onEditorClassChange() {
   if (firstStudent) {
     const firstEl = document.querySelector('.student-list-item');
     if (firstEl) firstEl.classList.add('active');
-    resetRatingsToDefaults();
+    // resetRatingsToDefaults() - no longer needed as it's done inside render
     await renderReportCard(firstStudent.id, firstStudent.name);
   }
   document.querySelectorAll('.student-list-item').forEach(el => {
     el.addEventListener('click', async () => {
       document.querySelectorAll('.student-list-item').forEach(item => item.classList.remove('active'));
       el.classList.add('active');
-      resetRatingsToDefaults();
       await renderReportCard(el.dataset.id, el.textContent.trim());
     });
   });
@@ -921,7 +834,22 @@ function updateSubscriptionUI() {
           </div>
         `;
         container.appendChild(banner);
-        document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => window.open('https://paystack.shop/pay/fmj267paou', '_blank'));
+        document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
+          const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+          await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js').then(({ setDoc, doc }) => {
+            import('./firebase-config.js').then(({ db }) => {
+              setDoc(doc(db, 'paymentReferences', ref), {
+                schoolId: currentSchoolId,
+                amount: 0,
+                reason: 'renewal',
+                createdAt: new Date(),
+                status: 'pending',
+                reference: ref
+              });
+            });
+          });
+          window.open(`https://paystack.shop/pay/fmj267paou?reference=${ref}`, '_blank');
+        });
       }
     } else {
       const existing = document.getElementById('paymentBanner');

@@ -1,771 +1,647 @@
-// records.js - Archive viewer + report card + broadsheet
-// Fully integrated with Central Academic Calendar Engine
-// Print/render pattern duplicated exactly from results.js
-
-import { db } from './firebase-config.js';
-import {
-  collection, getDocs, query, where, doc, getDoc, updateDoc, addDoc, setDoc, onSnapshot
-} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { getCurrentSchoolId } from './admin.js';
+// js/parent-portal.js
+import { auth, db } from './firebase-config.js';
+import { onAuthStateChanged, updatePassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import { doc, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { getCurrentTerm, getCurrentSession, initAcademicCalendar, subscribeToCalendar } from './academic-calendar.js';
+import { toast } from './error-handler.js';
+import * as service from './service.js';
+import { logoutUser } from './auth.js';
+import { initMobileMenu } from './menu.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
-import { showNotification, handleError, showLoader, hideLoader } from './error-handler.js';
-import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 
-// ------------------- Global State -------------------
+// NEW: import shared helpers
+import { getDefaultRatings, escapeHtml } from './report-utils.js';
+
+let parentData = null;
+let selectedChildId = null;
 let currentSchoolId = null;
-let classesMap = new Map();
-let subjectsMap = new Map();
-let allSubjectsList = [];
-let studentsList = [];
-let unsubscribeSub = null;
+let currentChild = null;
+let currentChildClassInfo = null;   // for class level (primary/secondary)
+let subjectsMap = new Map();        // subjectId -> {name, level}
 
-// Dummy flag to keep the pattern (records page is always active)
-let isSubscriptionActive = true;
+// ── CBT pagination state ──────────────────────────────
+let cbtResults = [];
+let cbtShowAll = false;
 
-let currentReportState = {
-  selectedStudent: null, term: '', session: '', psychomotor: {},
-  teacherComment: '', principalComment: '', attendance: { schoolOpened: 0, present: 0, absent: 0 }, savedReportId: null
-};
-
-// ------------------- Helper Functions -------------------
-function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
-function getTermSuffix(t) { return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd'; }
-function calculateAge(dobString) {
-  if (!dobString) return null;
-  const birthDate = new Date(dobString);
-  const today = new Date();
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-  return age;
-}
-function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
-
-function getDefaultRatings() {
-  const psychomotorSkillsList = ['Handling of tools', 'Public Speaking', 'Speech Fluency', 'Handwriting', 'Sport and Game', 'Drawing/Painting'];
-  const affectiveSkillsList = ['Attentiveness', 'Neatness', 'Honesty', 'Politeness', 'Punctuality', 'Self-control/Calmness', 'Obedience', 'Reliability', 'Relationship with others', 'Leadership'];
-  const defaults = {};
-  [...psychomotorSkillsList, ...affectiveSkillsList].forEach(skill => { defaults[getSkillKey(skill)] = 3; });
-  return defaults;
-}
-function resetRatingsToDefaults() { currentReportState.psychomotor = getDefaultRatings(); }
-
-function getScoringDocId(session, term, level) {
-  return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
-}
-function generateSessionOptionsFromCurrent(currentSession) {
-  if (!currentSession || typeof currentSession !== 'string') return [];
-  const parts = currentSession.split('/');
-  if (parts.length !== 2) return [];
-  const startYear = parseInt(parts[0], 10);
-  if (isNaN(startYear)) return [];
-  const sessions = [];
-  for (let i = 0; i < 5; i++) {
-    const year = startYear - i;
-    sessions.push(`${year}/${year + 1}`);
-  }
-  return sessions;
-}
-function getSubjectsByLevel(level) {
-  if (!level) return allSubjectsList;
-  return allSubjectsList.filter(subj => !subj.level || subj.level === level);
+// ── Helpers ─────────────────────────────────────────────
+function totalOwed(feeData) {
+  if (!feeData) return 0;
+  return (feeData.amount || 0) + (feeData.openingBalance || 0);
 }
 
-// ---------- Comment bank (exactly as in results.js) ----------
-function getCommentOptions() {
-  const generalComments = [
-    'Keep up the great work!', 'Your effort is commendable.', 'Consistent practice will yield even better results.',
-    'You have shown improvement this term.', 'Stay focused and keep pushing forward.', 'Your positive attitude is appreciated.'
-  ];
-  let allComments = [...generalComments];
-  const extraComments = ['Your participation is valued.', 'You have shown growth.', 'Excellent punctuality.'];
-  while (allComments.length < 30) allComments.push(extraComments[allComments.length % extraComments.length]);
-  return [...new Set(allComments)];
-}
-
-// ------------------- Data Loading (with subject level) -------------------
-async function loadClassesAndSubjects() {
-  try {
-    const classesSnap = await getDocs(query(collection(db, 'classes'), where('schoolId', '==', currentSchoolId)));
-    classesMap.clear();
-    classesSnap.forEach(doc => classesMap.set(doc.id, { name: doc.data().name, level: doc.data().level }));
-
-    const subjSnap = await getDocs(query(collection(db, 'subjects'), where('schoolId', '==', currentSchoolId)));
-    subjectsMap.clear();
-    allSubjectsList = [];
-    subjSnap.forEach(doc => {
-      const data = doc.data();
-      subjectsMap.set(doc.id, { name: data.name, level: data.level || null });
-      allSubjectsList.push({ id: doc.id, name: data.name, level: data.level || null });
-    });
-  } catch (err) { handleError(err, "Failed to load classes/subjects."); throw err; }
-}
-async function loadAllStudents() {
-  try {
-    const snap = await getDocs(query(collection(db, 'students'), where('schoolId', '==', currentSchoolId)));
-    studentsList = snap.docs.map(doc => ({
-      id: doc.id, name: doc.data().name, classId: doc.data().classId, level: doc.data().level || 'secondary',
-      admissionNumber: doc.data().admissionNumber || '—', gender: doc.data().gender || '—',
-      dob: doc.data().dob || '', club: doc.data().club || '—', passport: doc.data().passport || null,
-      subjects: doc.data().subjects || []
-    }));
-  } catch (err) { handleError(err, "Failed to load students."); throw err; }
-}
-
-// ------------------- Level-aware Grading (exactly as results.js) -------------------
-async function loadGradingSetting(session, term, level) {
-  try {
-    const docId = getScoringDocId(session, term, level);
-    const docSnap = await getDoc(doc(db, 'scoring', docId));
-    let grading = '40/60';
-    if (docSnap.exists()) grading = docSnap.data().grading;
-    const [ca, exam] = grading.split('/').map(Number);
-    return { ca, exam };
-  } catch (err) { return { ca: 40, exam: 60 }; }
-}
-
-// ------------------- Scores & Stats -------------------
-async function fetchStudentScores(studentId, term, session) {
-  try {
-    const q = query(collection(db, 'scores'), where('studentId', '==', studentId), where('schoolId', '==', currentSchoolId), where('term', '==', term), where('session', '==', session));
-    const snap = await getDocs(q);
-    return snap.docs.map(doc => ({ subjectId: doc.data().subjectId, ca: doc.data().ca, exam: doc.data().exam }));
-  } catch (err) { return []; }
-}
-async function fetchClassScores(classId, term, session) {
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return [];
-  const studentIds = classStudents.map(s => s.id);
-  const scores = [];
-  for (let i = 0; i < studentIds.length; i += 30) {
-    const chunk = studentIds.slice(i, i+30);
-    const q = query(collection(db, 'scores'), where('studentId', 'in', chunk), where('schoolId', '==', currentSchoolId), where('term', '==', term), where('session', '==', session));
-    const snap = await getDocs(q);
-    snap.forEach(doc => scores.push({ ...doc.data(), id: doc.id }));
-  }
-  return scores;
-}
-async function computeSubjectStats(classId, term, session) {
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return new Map();
-  const allScores = await fetchClassScores(classId, term, session);
-  const subjectMap = new Map();
-  for (const subjId of subjectsMap.keys()) subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
-  for (const score of allScores) {
-    const total = (score.ca || 0) + (score.exam || 0);
-    const stat = subjectMap.get(score.subjectId);
-    if (stat) stat.totals.push({ studentId: score.studentId, total });
-  }
-  for (const [subjId, stat] of subjectMap.entries()) {
-    if (stat.totals.length) {
-      stat.totals.sort((a,b) => b.total - a.total);
-      const avg = stat.totals.reduce((s,t) => s + t.total, 0) / stat.totals.length;
-      stat.classAverage = avg.toFixed(1);
-      let rank = 1;
-      for (let i=0; i<stat.totals.length; i++) {
-        if (i>0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
-        stat.rankMap.set(stat.totals[i].studentId, rank);
+function computeAttendanceSummary(records) {
+  let present = 0, absent = 0;
+  records.forEach(rec => {
+    const days = rec.days || {};
+    for (const day of ['mon','tue','wed','thu','fri']) {
+      const sess = days[day];
+      if (sess) {
+        if (sess.M === true) present++;
+        else if (sess.M === false) absent++;
+        if (sess.A === true) present++;
+        else if (sess.A === false) absent++;
       }
     }
-  }
-  return subjectMap;
+  });
+  const total = present + absent;
+  return { schoolOpened: total, present, absent };
 }
 
-// ------------------- Helper: Get relevant subjects (level + have scores) -------------------
-async function getRelevantSubjectsForClass(classId, term, session) {
-  const classInfo = classesMap.get(classId);
-  if (!classInfo) return [];
-  const classLevel = classInfo.level;
-  let levelSubjects = allSubjectsList.filter(subj => subj.level === classLevel);
-  if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return levelSubjects;
-  const studentIds = classStudents.map(s => s.id);
-  const subjectIdsWithScores = new Set();
-  for (let i = 0; i < studentIds.length; i += 30) {
-    const chunk = studentIds.slice(i, i+30);
-    const q = query(
-      collection(db, 'scores'),
-      where('studentId', 'in', chunk),
-      where('schoolId', '==', currentSchoolId),
-      where('term', '==', term),
-      where('session', '==', session)
-    );
-    const snap = await getDocs(q);
-    snap.forEach(doc => subjectIdsWithScores.add(doc.data().subjectId));
+// ── Helper to get initials from name ──────────────────
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) {
+    const first = parts[0];
+    if (first.length >= 2) return first.substring(0, 2).toUpperCase();
+    return first.substring(0, 1).toUpperCase();
   }
-  return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
+  const first = parts[0][0] || '';
+  const last = parts[parts.length - 1][0] || '';
+  return (first + last).toUpperCase();
 }
 
-// ------------------- Existing Report Loader -------------------
-async function loadExistingReport(studentId, term, session) {
-  resetRatingsToDefaults();
+// ── Compute total outstanding for a student ──────────
+async function computeStudentOutstanding(schoolId, studentId, currentTerm, currentSession) {
+  const allFees = await service.getFeesByStudent(schoolId, studentId);
+  if (!allFees || allFees.length === 0) {
+    return { totalOutstanding: 0, totalArrears: 0, currentBalance: 0, currentFeeAmount: 0, currentPayments: 0 };
+  }
+
+  let totalOutstanding = 0;
+  let totalArrears = 0;
+  let currentBalance = 0;
+  let currentFeeAmount = 0;
+  let currentPayments = 0;
+
+  for (const fee of allFees) {
+    const feeAmount = totalOwed(fee);
+    const term = fee.term;
+    const session = fee.session;
+    const payments = await service.getPaymentsByStudent(schoolId, studentId, term, session);
+    let paid = 0;
+    payments.forEach(p => { if (!p.voided) paid += p.amount || 0; });
+    const unpaid = Math.max(0, feeAmount - paid);
+
+    const isCurrent = (term === currentTerm && session === currentSession);
+    if (isCurrent) {
+      currentFeeAmount = feeAmount;
+      currentPayments = paid;
+      currentBalance = unpaid;
+    } else {
+      totalArrears += unpaid;
+    }
+    totalOutstanding += unpaid;
+  }
+
+  return { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments };
+}
+
+// ── Helper: get CA max from scoring config ─────────────
+async function getCaMax(schoolId, level, term, session) {
   try {
-    const q = query(collection(db, 'reports'), where('studentId', '==', studentId), where('schoolId', '==', currentSchoolId), where('term', '==', term), where('session', '==', session));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const data = snap.docs[0].data();
-      if (data.psychomotor) Object.assign(currentReportState.psychomotor, data.psychomotor);
-      currentReportState.teacherComment = data.teacherComment || '';
-      currentReportState.principalComment = data.principalComment || '';
-      currentReportState.attendance = data.attendance || { schoolOpened: 0, present: 0, absent: 0 };
-      currentReportState.savedReportId = snap.docs[0].id;
-    } else { currentReportState.savedReportId = null; }
-  } catch (err) { handleError(err, "Failed to load existing report."); }
+    const configs = await service.getScoringConfig(schoolId, level);
+    if (!configs || configs.length === 0) return 40;
+    const match = configs.find(c => c.term === term && c.session === session);
+    if (match && match.grading) {
+      const parts = match.grading.split('/');
+      if (parts.length === 2) {
+        const caMax = parseInt(parts[0], 10);
+        if (!isNaN(caMax)) return caMax;
+      }
+    }
+    return 40;
+  } catch (err) {
+    console.warn('Failed to fetch scoring config for CA max:', err);
+    return 40;
+  }
 }
 
-// ========== RENDER — exact pattern from results.js ==========
-async function renderStudentReportCard(studentId, studentName, classId, session, term) {
-  // Subscription placeholder (always active for records page)
-  if (!isSubscriptionActive) {
-    const container = document.getElementById('reportCardContent');
-    container.innerHTML = `<div style="text-align: center; padding: 40px; background: #fef3c7; border-radius: 8px;"><h3>⚠️ Subscription Required</h3><p>Report cards are unavailable because the school subscription is inactive.</p></div>`;
-    document.getElementById('reportActions').style.display = 'none';
+// ── Main init ──────────────────────────────────────────
+export async function initParentPortal() {
+  const user = await new Promise((resolve) => {
+    const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u); });
+  });
+  if (!user) { window.location.href = '/'; return; }
+
+  const userDoc = await service.getUserById(user.uid);
+  if (!userDoc || userDoc.role !== 'parent') {
+    toast.error('Access denied. Parent privileges required.');
+    window.location.href = '/';
+    return;
+  }
+  currentSchoolId = userDoc.schoolId;
+
+  parentData = await service.getParentById(user.uid);
+  if (!parentData) {
+    toast.error('Parent profile not found. Please contact admin.');
+    window.location.href = '/';
     return;
   }
 
-  currentReportState.selectedStudent = { id: studentId, name: studentName };
-  currentReportState.term = term;
-  currentReportState.session = session;
+  await initAcademicCalendar();
+  subscribeToCalendar((state) => {
+    document.getElementById('currentTermDisplay').textContent = state.currentTerm || '';
+    document.getElementById('currentSessionDisplay').textContent = state.currentSession || '';
+  });
 
-  const classInfo = classesMap.get(classId);
-  const className = classInfo?.name || 'Class';
-  const classLevel = classInfo?.level || 'secondary';
-  const isPrimary = (classLevel === 'primary');
+  await loadSchoolInfo();
+  await loadSubjectsMap();
+  await renderChildren();
 
-  // Load grading for this class level
-  let grading = { ca: 40, exam: 60 };
-  try { grading = await loadGradingSetting(session, term, classLevel); } catch(e) {}
+  document.getElementById('logoutBtn').addEventListener('click', logoutUser);
+  document.querySelector('.mobile-logout-btn')?.addEventListener('click', logoutUser);
+  initMobileMenu();
 
-  // Get relevant subjects (level + have scores) to filter display
-  const relevantSubjects = await getRelevantSubjectsForClass(classId, term, session);
-  const subjectIds = new Set(relevantSubjects.map(s => s.id));
+  document.getElementById('currentYear').textContent = new Date().getFullYear();
+  document.getElementById('sidebarYear').textContent = new Date().getFullYear();
 
-  await loadExistingReport(studentId, term, session);
+  const hour = new Date().getHours();
+  let greeting = 'Good ';
+  if (hour < 12) greeting += 'Morning';
+  else if (hour < 17) greeting += 'Afternoon';
+  else greeting += 'Evening';
+  const lastName = parentData.name ? parentData.name.split(' ').pop() : 'Parent';
+  document.getElementById('greetingText').textContent = `${greeting}, ${parentData.title || ''} ${lastName}`;
 
-  // Comment prefill: fallback to first from bank (exactly as results.js)
-  const commentBank = getCommentOptions();
-  if (!currentReportState.teacherComment) currentReportState.teacherComment = commentBank[0];
-  if (!currentReportState.principalComment) currentReportState.principalComment = commentBank[0];
+  document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+}
 
-  showLoader();
+async function loadSchoolInfo() {
+  const school = await service.getSchoolById(currentSchoolId);
+  if (school) {
+    document.getElementById('schoolName').textContent = school.name || '';
+    document.getElementById('schoolAddress').textContent = school.address || '';
+    const logo = document.getElementById('schoolLogoImg');
+    if (school.logo) logo.src = school.logo;
+  }
+}
+
+async function loadSubjectsMap() {
+  const subjects = await service.getSubjectsBySchool(currentSchoolId);
+  subjectsMap.clear();
+  subjects.forEach(s => subjectsMap.set(s.id, { name: s.name, level: s.level }));
+}
+
+async function renderChildren() {
+  const childIds = parentData.childIds || [];
+  if (childIds.length === 0) {
+    document.getElementById('childrenContainer').innerHTML = '<p>No children linked to your account.</p>';
+    return;
+  }
+  const students = await service.getStudentsByIds(childIds);
+  const container = document.getElementById('childrenContainer');
+  container.innerHTML = '';
+  students.forEach(s => {
+    const chip = document.createElement('div');
+    chip.className = 'child-card stat-card';
+    chip.style.padding = '0.75rem 1.25rem';
+    chip.style.cursor = 'pointer';
+    chip.style.borderRadius = '999px';
+    chip.style.display = 'inline-flex';
+    chip.style.alignItems = 'center';
+    chip.style.gap = '0.5rem';
+    chip.innerHTML = `
+      <img src="${s.passport || ''}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:#e2e8f0;" />
+      <span>${s.name || 'Student'}</span>
+      <span style="font-size:0.7rem;color:var(--text-500);">${s.admissionNumber || ''}</span>
+    `;
+    chip.dataset.studentId = s.id;
+    chip.addEventListener('click', () => selectChild(s.id));
+    container.appendChild(chip);
+  });
+  if (students.length > 0) {
+    selectChild(students[0].id);
+  }
+}
+
+async function selectChild(studentId) {
+  selectedChildId = studentId;
+  document.querySelectorAll('.child-card').forEach(el => {
+    el.classList.toggle('active', el.dataset.studentId === studentId);
+  });
+  currentChild = await service.getStudentById(studentId);
+  if (!currentChild) return;
+  if (currentChild.classId) {
+    currentChildClassInfo = await service.getClassById(currentChild.classId);
+  } else {
+    currentChildClassInfo = null;
+  }
+
+  document.getElementById('selectedChildDetail').style.display = 'block';
+  document.getElementById('childNameDisplay').textContent = currentChild.name || '';
+  const classInfo = currentChildClassInfo;
+  document.getElementById('childClassDisplay').textContent = `Admission: ${currentChild.admissionNumber || '—'} | Class: ${classInfo?.name || currentChild.classId || ''}`;
+
+  const img = document.getElementById('childPhoto');
+  const initialsEl = document.getElementById('childInitials');
+  const wrapper = document.getElementById('childPhotoWrapper');
+
+  if (currentChild.passport) {
+    img.src = currentChild.passport;
+    img.style.display = 'block';
+    initialsEl.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    const initials = getInitials(currentChild.name || 'Student');
+    initialsEl.textContent = initials;
+    initialsEl.style.display = 'flex';
+  }
+
+  cbtResults = [];
+  cbtShowAll = false;
+
+  await loadAttendance();
+  await renderFeeDetail(studentId);
+  await loadCbtScores();
+  await loadSubjectScores();
+}
+
+async function loadAttendance() {
+  const term = getCurrentTerm();
+  const session = getCurrentSession();
+  if (!term || !session) {
+    document.getElementById('attPresent').textContent = 'N/A';
+    document.getElementById('attAbsent').textContent = 'N/A';
+    document.getElementById('attPercent').textContent = 'N/A';
+    return;
+  }
   try {
-    const schoolDoc = await getDoc(doc(db, 'schools', currentSchoolId));
-    const school = {
-      name: schoolDoc.exists() ? schoolDoc.data().name : 'School Name',
-      address: schoolDoc.exists() ? schoolDoc.data().address : '',
-      logo: schoolDoc.exists() ? schoolDoc.data().logo : null
-    };
+    const records = await service.getAttendanceByStudent(
+      currentSchoolId, selectedChildId, currentChild.classId, session, term
+    );
+    const summary = computeAttendanceSummary(records);
+    const total = summary.schoolOpened;
+    const pct = total > 0 ? Math.round((summary.present / total) * 100) : 0;
+    document.getElementById('attPresent').textContent = summary.present;
+    document.getElementById('attAbsent').textContent = summary.absent;
+    document.getElementById('attPercent').textContent = pct + '%';
+  } catch (err) {
+    toast.error('Could not load attendance.');
+    console.error(err);
+  }
+}
 
-    const student = studentsList.find(s => s.id === studentId) || {};
-    const scoresRaw = await fetchStudentScores(studentId, term, session);
-    // Filter to only level‑appropriate subjects (same as results.js)
-    const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
-    const scoresWithNames = scoresRaw.filter(s => relevantSubjectIds.includes(s.subjectId)).map(score => ({
-      subjectId: score.subjectId,
-      subjectName: subjectsMap.get(score.subjectId)?.name || score.subjectId,
-      ca: score.ca,
-      exam: score.exam
-    }));
+async function renderFeeDetail(studentId) {
+  const term = getCurrentTerm();
+  const session = getCurrentSession();
+  const container = document.getElementById('feeDetailContainer');
+  if (!term || !session) {
+    container.innerHTML = '<p>Unable to determine current term/session.</p>';
+    return;
+  }
 
-    let subjectStats = new Map();
-    if (classId) {
-      const fullStats = await computeSubjectStats(classId, term, session);
-      // Keep only the relevant subject stats
-      for (let [subjId, stat] of fullStats) if (subjectIds.has(subjId)) subjectStats.set(subjId, stat);
+  try {
+    const { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments } =
+      await computeStudentOutstanding(currentSchoolId, studentId, term, session);
+
+    const allFees = await service.getFeesByStudent(currentSchoolId, studentId);
+    if (!allFees || allFees.length === 0) {
+      container.innerHTML = '<p>No fee records found for this student.</p>';
+      return;
     }
 
-    const studentData = {
-      id: studentId,
-      name: studentName,
-      admissionNumber: student.admissionNumber || '—',
-      gender: student.gender || '—',
-      dob: student.dob || '',
-      club: student.club || '—',
-      passport: student.passport || null
-    };
+    const currentFeeDoc = allFees.find(f => f.term === term && f.session === session);
+    const feeAmountDisplay = currentFeeDoc ? totalOwed(currentFeeDoc) : 0;
+    const openingBalance = currentFeeDoc?.openingBalance || 0;
 
-    const comments = { teacherComment: currentReportState.teacherComment, principalComment: currentReportState.principalComment };
-    const attendance = currentReportState.attendance || { schoolOpened: 0, present: 0, absent: 0 };
+    const balance = currentBalance;
+    const balanceLabel = balance > 0
+      ? `<span style="color:var(--danger-text);">Owing ₦${balance.toLocaleString()}</span>`
+      : balance < 0
+        ? `<span style="color:var(--success-text);">₦${Math.abs(balance).toLocaleString()} credit</span>`
+        : `<span style="color:var(--success-text);">Settled</span>`;
 
-    renderReportCardUI({
+    const arrearsLabel = totalArrears > 0
+      ? `<span style="color:var(--danger-text);">₦${totalArrears.toLocaleString()}</span>`
+      : `<span style="color:var(--success-text);">None</span>`;
+
+    const payments = await service.getPaymentsByStudent(currentSchoolId, studentId, term, session);
+    let historyHtml = payments.length === 0 ? '<p style="margin:0.5rem 0;">No payments recorded.</p>' : '';
+    payments.forEach(p => {
+      const isVoided = p.voided === true;
+      historyHtml += `
+        <div class="detail-row" style="display:flex; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid #f1f5f9; ${isVoided ? 'opacity:0.5;' : ''}">
+          <span style="${isVoided ? 'text-decoration:line-through;' : ''}">
+            ${new Date(p.date).toLocaleDateString()} – ₦${p.amount.toLocaleString()} (${p.method || 'n/a'})
+            ${p.term && p.session ? ` <span style="font-size:0.7rem; color:#64748b;">(${p.term}, ${p.session})</span>` : ''}
+          </span>
+          ${isVoided ? '<small style="color:var(--danger-text);">Voided</small>' : ''}
+        </div>
+      `;
+    });
+
+    let html = `
+      <div class="student-detail-container" style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+        <div class="student-detail-info" style="flex:1; min-width:180px;">
+          <div><strong>Fee Set (this term):</strong> ₦${feeAmountDisplay.toLocaleString()}</div>
+          ${openingBalance ? `<div style="font-size:0.8rem;color:var(--text-500);">Includes ₦${openingBalance.toLocaleString()} opening balance (as of ${currentFeeDoc?.openingBalanceAsOf || 'migration'})</div>` : ''}
+          <div><strong>Total Paid (this term):</strong> ₦${currentPayments.toLocaleString()}</div>
+          <div><strong>Arrears from previous terms:</strong> ${arrearsLabel}</div>
+          <div><strong>Balance (this term):</strong> ${balanceLabel}</div>
+          <div><strong>Total Outstanding (all terms):</strong> <span style="font-weight:700;color:${totalOutstanding > 0 ? 'var(--danger-text)' : 'var(--success-text)'};">₦${totalOutstanding.toLocaleString()}</span></div>
+        </div>
+        <div class="student-detail-history" style="flex:2; min-width:200px;">
+          <strong>Payment History (this term)</strong>
+          <div class="payment-list" style="max-height:200px; overflow-y:auto; margin-top:0.5rem;">
+            ${historyHtml}
+          </div>
+        </div>
+      </div>`;
+
+    container.innerHTML = html;
+
+    const downloadBtn = document.getElementById('downloadReportBtn');
+    if (totalOutstanding > 0) {
+      downloadBtn.disabled = true;
+      downloadBtn.title = 'Report unavailable – outstanding fees';
+      downloadBtn.style.opacity = '0.5';
+      downloadBtn.style.cursor = 'not-allowed';
+    } else {
+      downloadBtn.disabled = false;
+      downloadBtn.title = '';
+      downloadBtn.style.opacity = '1';
+      downloadBtn.style.cursor = 'pointer';
+    }
+
+  } catch (err) {
+    console.error('Fee detail error:', err);
+    container.innerHTML = '<p>Error loading fee details.</p>';
+  }
+}
+
+async function loadCbtScores() {
+  const container = document.getElementById('cbtScoresList');
+  if (!selectedChildId) {
+    container.innerHTML = '<p class="no-data-msg">No student selected.</p>';
+    return;
+  }
+  try {
+    const results = await service.getAssignedCbtScoresByStudent(selectedChildId);
+    cbtResults = results || [];
+    cbtResults.sort((a, b) => {
+      const aTime = a.completedAt?.seconds || 0;
+      const bTime = b.completedAt?.seconds || 0;
+      return bTime - aTime;
+    });
+    renderCbtList();
+  } catch (err) {
+    console.error('CBT scores error:', err);
+    container.innerHTML = '<p class="no-data-msg">Error loading CBT scores.</p>';
+  }
+}
+
+function renderCbtList() {
+  const container = document.getElementById('cbtScoresList');
+  if (!cbtResults.length) {
+    container.innerHTML = '<p class="no-data-msg">No CBT scores available.</p>';
+    return;
+  }
+
+  const limit = 6;
+  const showAll = cbtShowAll;
+  const itemsToShow = showAll ? cbtResults : cbtResults.slice(0, limit);
+  const hasMore = cbtResults.length > limit;
+
+  let html = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr><th>Subject</th><th>Score</th><th>Date</th></tr></thead><tbody>`;
+  itemsToShow.forEach(r => {
+    const subject = r.subject || 'Unknown Subject';
+    const score = r.rawScore ?? r.correctAnswers ?? 0;
+    const date = r.completedAt ? new Date(r.completedAt.seconds * 1000).toLocaleDateString() : '';
+    html += `<tr><td>${subject}</td><td>${score}</td><td>${date}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  if (hasMore) {
+    const btnText = showAll ? 'Show less' : `Load more (${cbtResults.length - limit} remaining)`;
+    html += `<button class="load-more-btn" id="cbtLoadMoreBtn">${btnText}</button>`;
+  }
+
+  container.innerHTML = html;
+
+  if (hasMore) {
+    document.getElementById('cbtLoadMoreBtn')?.addEventListener('click', () => {
+      cbtShowAll = !cbtShowAll;
+      renderCbtList();
+    });
+  }
+}
+
+// ── Subject scores → C.A This Term (with responsive wrapper) ──
+async function loadSubjectScores() {
+  const term = getCurrentTerm();
+  const session = getCurrentSession();
+  const container = document.getElementById('subjectScoresList');
+  const heading = document.getElementById('subjectScoresHeading');
+
+  if (heading) {
+    heading.textContent = 'C.A This Term';
+  }
+
+  if (!term || !session) {
+    container.innerHTML = '<p class="no-data-msg">Unable to determine current term/session.</p>';
+    return;
+  }
+
+  try {
+    const level = currentChildClassInfo?.level || 'secondary';
+    const caMax = await getCaMax(currentSchoolId, level, term, session);
+
+    // Fetch scores directly with term as returned by calendar (which is full name)
+    let scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
+    // No fallback mapping
+
+    if (!scores || scores.length === 0) {
+      container.innerHTML = '<p class="no-data-msg">No C.A scores recorded for this term.</p>';
+      return;
+    }
+
+    let tableHtml = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr><th>Subject</th><th>Score</th></tr></thead><tbody>`;
+    scores.forEach(s => {
+      const ca = s.ca || 0;
+      const subjectName = subjectsMap.get(s.subjectId)?.name || s.subjectId;
+      tableHtml += `<tr><td>${subjectName}</td><td>${ca} / ${caMax}</td></tr>`;
+    });
+    tableHtml += '</tbody></table></div>';
+    container.innerHTML = tableHtml;
+  } catch (err) {
+    console.error('Error loading subject scores:', err);
+    toast.error('Could not load C.A scores.');
+    container.innerHTML = '<p class="no-data-msg">Error loading C.A scores.</p>';
+  }
+}
+
+// ── Download Report ────────────────────────────────────
+async function downloadReport() {
+  const term = getCurrentTerm();
+  const session = getCurrentSession();
+  if (!term || !session) {
+    toast.error('Current term/session not available.');
+    return;
+  }
+
+  if (!selectedChildId) {
+    toast.error('No student selected.');
+    return;
+  }
+
+  const { totalOutstanding } = await computeStudentOutstanding(currentSchoolId, selectedChildId, term, session);
+  if (totalOutstanding > 0) {
+    toast.warning('Cannot download report – outstanding fees remain.');
+    return;
+  }
+
+  const school = await service.getSchoolById(currentSchoolId);
+  const student = currentChild;
+  if (!student) {
+    toast.error('Student data not loaded.');
+    return;
+  }
+
+  // Fetch scores directly, no fallback
+  let scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
+
+  if (!scoresRaw || scoresRaw.length === 0) {
+    toast.warning('No scores found for this term. Cannot generate report.');
+    return;
+  }
+
+  const scoresWithNames = scoresRaw.map(s => ({
+    subjectId: s.subjectId,
+    subjectName: subjectsMap.get(s.subjectId)?.name || s.subjectId,
+    ca: s.ca || 0,
+    exam: s.exam || 0
+  }));
+
+  const classLevel = currentChildClassInfo?.level || 'secondary';
+  const isPrimary = (classLevel === 'primary');
+  const gradingConfigs = await service.getScoringConfig(currentSchoolId, classLevel);
+  let grading = { ca: 40, exam: 60 };
+  if (gradingConfigs && gradingConfigs.length > 0) {
+    const match = gradingConfigs.find(g => g.term === term && g.session === session);
+    if (match && match.grading) {
+      const [ca, exam] = match.grading.split('/').map(Number);
+      if (!isNaN(ca) && !isNaN(exam)) grading = { ca, exam };
+    }
+  }
+
+  // Get saved report
+  let report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
+  const psychomotor = report?.psychomotor || getDefaultRatings();
+  const teacherComment = report?.teacherComment || '';
+  const principalComment = report?.principalComment || '';
+
+  const attendanceRecords = await service.getAttendanceByStudent(
+    currentSchoolId, selectedChildId, student.classId, session, term
+  );
+  const attendanceSummary = computeAttendanceSummary(attendanceRecords);
+
+  const studentData = {
+    id: student.id,
+    name: student.name || 'Student',
+    classId: student.classId,
+    schoolId: currentSchoolId,
+    admissionNumber: student.admissionNumber || '—',
+    gender: student.gender || '—',
+    dob: student.dob || '',
+    club: student.club || '—',
+    passport: student.passport || null,
+    parentPhone: student.parentPhone || null
+  };
+
+  const className = currentChildClassInfo?.name || student.classId || 'Class';
+
+  const hiddenContainer = document.createElement('div');
+  hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; background:white; z-index:9999;';
+  document.body.appendChild(hiddenContainer);
+
+  try {
+    await renderReportCardUI({
       student: studentData,
       scores: scoresWithNames,
       className,
       school,
       grading,
-      psychomotor: currentReportState.psychomotor,
-      comments,
+      psychomotor,
+      comments: { teacherComment, principalComment },
       term,
       session,
-      subjectStats,
-      container: document.getElementById('reportCardContent'),
-      attendance,
-      isPrimary,
-      onRatingChange: (key, val) => { currentReportState.psychomotor[key] = val; },
-      onTeacherCommentChange: (val) => { currentReportState.teacherComment = val; },
-      onPrincipalCommentChange: (val) => { currentReportState.principalComment = val; }
+      subjectStats: undefined,
+      container: hiddenContainer,
+      attendance: attendanceSummary,
+      skipLiveAttendanceFetch: true,
+      isPrimary
     });
 
-    const reportActions = document.getElementById('reportActions');
-    if (reportActions) reportActions.style.display = 'flex';
-  } catch (err) { handleError(err, "Failed to render report card."); } finally { hideLoader(); }
-}
+    const clonedReport = hiddenContainer.cloneNode(true);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report.');
+      return;
+    }
 
-async function saveReportCard() {
-  if (!currentReportState.selectedStudent) { showNotification("Select a student.", "error"); return; }
-  const schoolOpened = parseInt(document.querySelector('.attendance-input.school-opened')?.value) || 0;
-  const present = parseInt(document.querySelector('.attendance-input.present')?.value) || 0;
-  const absent = parseInt(document.querySelector('.attendance-input.absent')?.value) || 0;
-  const attendance = { schoolOpened, present, absent };
-  const totalScore = parseInt(document.querySelector('.summary-table tr:nth-child(1) td')?.textContent) || 0;
-  const totalObtainable = parseInt(document.querySelector('.summary-table tr:nth-child(2) td')?.textContent) || 0;
-  const average = parseFloat(document.querySelector('.summary-table tr:nth-child(4) td')?.textContent) || 0;
-  const overallGrade = document.querySelector('.summary-table tr:nth-child(5) td')?.textContent || 'N/A';
-  const reportData = {
-    studentId: currentReportState.selectedStudent.id,
-    classId: document.getElementById('classSelect').value,
-    schoolId: currentSchoolId,
-    term: currentReportState.term,
-    session: currentReportState.session,
-    totalScore, maxTotal: totalObtainable, average, overallGrade,
-    psychomotor: currentReportState.psychomotor,
-    teacherComment: currentReportState.teacherComment,
-    principalComment: currentReportState.principalComment,
-    attendance, updatedAt: new Date()
-  };
-  showLoader();
-  try {
-    if (currentReportState.savedReportId) {
-      await updateDoc(doc(db, 'reports', currentReportState.savedReportId), reportData);
-    } else {
-      const newRef = await addDoc(collection(db, 'reports'), { ...reportData, createdAt: new Date() });
-      currentReportState.savedReportId = newRef.id;
-    }
-    showNotification("Report saved.", "success");
-  } catch (err) { handleError(err, "Save failed."); } finally { hideLoader(); }
-}
+    const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
+    const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
+    const extraPrintCSS = `
+      @page { size: A4; margin: 8mm; }
+      body, .print-container { margin: 0; padding: 0; background: white; }
+      .print-container { width: 100%; max-width: 210mm; margin: 0 auto; }
+      .rc-wrapper { max-width: 100%; border: none; padding: 0; font-size: 8pt; background: #fdf8f2 !important; }
+      .rc-school-name { font-size: 22pt !important; }
+      .rc-main-row { display: grid !important; grid-template-columns: 62fr 35fr !important; gap: 14px !important; }
+      .rc-col-left, .rc-col-right { min-width: 0; }
+      .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
+      .rc-print-val     { display: inline !important; }
+      .rc-print-comment { display: inline !important; }
+      .rc-scroll-outer  { overflow: visible !important; }
+      .rc-details-band  { background: #1a3a5c !important; }
+      .rc-details-cell  { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
+      .rc-details-cell strong { color: #a8d8f0 !important; }
+      .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale { break-inside: avoid; page-break-inside: avoid; }
+      *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+      .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
+      .rc-grade-scale th { background: #FFD700 !important; }
+      .rc-comments { background: #f9f9f9 !important; }
+      .rc-comment-row, .rc-comment-item {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: baseline !important;
+        gap: 8px !important;
+        flex-wrap: wrap !important;
+      }
+      .rc-comment-label, .rc-comment-item strong {
+        white-space: nowrap !important;
+      }
+    `;
 
-// ========== PRINT — exactly as results.js, keep untouched ==========
-function printReportCard() {
-  // Sync comment text → print spans before cloning (same as results.js handlePrint)
-  const teacherText = document.getElementById('teacherCommentText');
-  const printTeacher = document.getElementById('printTeacherComment');
-  if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
-
-  const principalText = document.getElementById('principalCommentText');
-  const printPrincipal = document.getElementById('printPrincipalComment');
-  if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
-
-  const reportContent = document.getElementById('reportCardContent');
-  if (!reportContent || reportContent.children.length === 0 ||
-      (reportContent.children.length === 1 && reportContent.children[0].tagName === 'P' &&
-       reportContent.children[0].textContent.includes('Select a student'))) {
-    showNotification("Report not ready yet. Please select a student and ensure the report is loaded.", "error");
-    return;
-  }
-
-  const clonedReport = reportContent.cloneNode(true);
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    showNotification("Please allow popups for this site to print the report.", "error");
-    return;
-  }
-
-  const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-  const inlineStyles = Array.from(document.querySelectorAll('style'))
-    .map(style => style.innerHTML)
-    .join('\n');
-
-  const extraPrintCSS = `
-    .report-card, .report-card * {
-      page-break-inside: avoid;
-      page-break-after: avoid;
-      page-break-before: avoid;
-    }
-    @page {
-      size: A4;
-      margin: 8mm;
-    }
-    body, .print-container {
-      margin: 0;
-      padding: 0;
-      background: white;
-    }
-    .print-container {
-      width: 100%;
-      max-width: 210mm;
-      margin: 0 auto;
-    }
-    .report-card {
-      padding: 4px !important;
-      margin: 0 !important;
-      font-size: 9px !important;
-    }
-    .subject-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 6.5px !important;
-      line-height: 1.2;
-    }
-    .subject-table th, .subject-table td {
-      padding: 3px 2px !important;
-      word-break: break-word;
-    }
-    .subject-table th:not(:first-child) {
-      height: 70px !important;
-      width: 28px !important;
-      padding: 4px 2px !important;
-      writing-mode: vertical-rl;
-      transform: rotate(180deg);
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.2;
-      vertical-align: middle;
-    }
-    .subject-table th:first-child,
-    .subject-table td:first-child {
-      white-space: normal;
-      word-break: break-word;
-      line-height: 1.3;
-      padding: 4px 3px !important;
-    }
-    .student-details-grid {
-      font-size: 7px !important;
-      gap: 2px 4px !important;
-      margin-bottom: 4px !important;
-    }
-    .skills-table, .summary-table, .grade-scale-table {
-      font-size: 6px !important;
-    }
-    .skills-table th, .skills-table td,
-    .summary-table th, .summary-table td {
-      padding: 2px 3px !important;
-    }
-    .comments-section {
-      font-size: 8px !important;
-      margin-top: 4px !important;
-    }
-    .signature-stamp {
-      margin-top: 4px !important;
-      padding-top: 2px !important;
-    }
-    .rating-tick, select, textarea, button, .comment-controls, .tick {
-      display: none !important;
-    }
-    .print-value, .print-comment-text {
-      display: block !important;
-    }
-  `;
-
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Report Card - ${escapeHtml(currentReportState.selectedStudent?.name || 'Student')}</title>
-      <link rel="stylesheet" href="${externalCssUrl}">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: white; margin: 0; padding: 0; display: flex; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .print-container { width: 210mm; margin: 0 auto; background: white; }
-        ${inlineStyles}
-        ${extraPrintCSS}
-      </style>
-    </head>
-    <body>
-      <div class="print-container">${clonedReport.outerHTML}</div>
-    </body>
-    </html>
-  `);
-  printWindow.document.close();
-  setTimeout(() => {
-    printWindow.focus();
-    printWindow.print();
-  }, 300);
-}
-
-// ------------------- Broadsheet Functions -------------------
-async function getStudentAverageForTerm(studentId, term, session) {
-  const scores = await fetchStudentScores(studentId, term, session);
-  if (!scores.length) return null;
-  let total = 0, count = 0;
-  for (const s of scores) { total += (s.ca || 0) + (s.exam || 0); count++; }
-  if (count === 0) return null;
-  return ((total / (count * 100)) * 100).toFixed(1);
-}
-
-async function generateBroadsheet(classId, session, term) {
-  const classInfo = classesMap.get(classId);
-  const className = classInfo?.name || 'Class';
-  const classLevel = classInfo?.level;
-
-  const relevantSubjects = await getRelevantSubjectsForClass(classId, term, session);
-  if (relevantSubjects.length === 0) return '<div class="alert">No subjects found for the selected class level or no scores available.</div>';
-
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) return '<div class="alert">No students found.</div>';
-
-  const allScores = await fetchClassScores(classId, term, session);
-  const scoresByStudent = new Map();
-  for (const score of allScores) {
-    if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
-    scoresByStudent.get(score.studentId).push(score);
-  }
-  const term1Averages = new Map(), term2Averages = new Map(), term3Averages = new Map();
-  for (const student of classStudents) {
-    const avg1 = await getStudentAverageForTerm(student.id, '1', session);
-    const avg2 = await getStudentAverageForTerm(student.id, '2', session);
-    const avg3 = await getStudentAverageForTerm(student.id, '3', session);
-    term1Averages.set(student.id, avg1 ? parseFloat(avg1) : null);
-    term2Averages.set(student.id, avg2 ? parseFloat(avg2) : null);
-    term3Averages.set(student.id, avg3 ? parseFloat(avg3) : null);
-  }
-  const studentResults = [];
-  for (const student of classStudents) {
-    const scores = scoresByStudent.get(student.id) || [];
-    const scoreMap = new Map();
-    scores.forEach(s => scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }));
-    let totalScore = 0;
-    const subjectDetails = [];
-    for (const subj of relevantSubjects) {
-      const { ca = 0, exam = 0, total = 0 } = scoreMap.get(subj.id) || {};
-      totalScore += total;
-      subjectDetails.push({ subjectName: subj.name, ca, exam, total });
-    }
-    const totalObtainable = relevantSubjects.length * 100;
-    const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
-    let grade = 'F9', remark = 'Fail';
-    if (classLevel === 'primary') {
-      if (average >= 90) grade = 'A+'; else if (average >= 80) grade = 'A'; else if (average >= 70) grade = 'B+';
-      else if (average >= 60) grade = 'B'; else if (average >= 50) grade = 'C'; else if (average >= 40) grade = 'D';
-      else grade = 'F';
-      const remarks = { 'A+':'Exceptional','A':'Excellent','B+':'Very Good','B':'Good','C':'Fairly Good','D':'Pass','F':'Fail' };
-      remark = remarks[grade] || '';
-    } else {
-      if (average >= 85) grade = 'A1'; else if (average >= 75) grade = 'B2'; else if (average >= 70) grade = 'B3';
-      else if (average >= 65) grade = 'C4'; else if (average >= 60) grade = 'C5'; else if (average >= 50) grade = 'C6';
-      else if (average >= 45) grade = 'D7'; else if (average >= 40) grade = 'E8'; else grade = 'F9';
-      const remarks = { A1:'Excellent',B2:'Very Good',B3:'Good',C4:'Credit',C5:'Credit',C6:'Credit',D7:'Pass',E8:'Pass',F9:'Fail' };
-      remark = remarks[grade] || '';
-    }
-    const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
-    let combinedAvg = termValues.length ? (termValues.reduce((a,b)=>a+b,0)/termValues.length).toFixed(1) : null;
-    studentResults.push({
-      studentId: student.id, studentName: student.name, totalScore, average, grade, remark, subjectDetails,
-      term1Avg: term1Averages.get(student.id) !== null ? term1Averages.get(student.id).toFixed(1)+'%' : '—',
-      term2Avg: term2Averages.get(student.id) !== null ? term2Averages.get(student.id).toFixed(1)+'%' : '—',
-      term3Avg: term3Averages.get(student.id) !== null ? term3Averages.get(student.id).toFixed(1)+'%' : '—',
-      combinedAvg: combinedAvg ? combinedAvg+'%' : '—'
-    });
-  }
-  studentResults.sort((a,b) => b.totalScore - a.totalScore);
-  let rank = 1;
-  for (let i=0; i<studentResults.length; i++) {
-    if (i>0 && studentResults[i].totalScore < studentResults[i-1].totalScore) rank = i+1;
-    studentResults[i].position = rank;
-  }
-  let html = `<div style="margin-bottom:1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
-  html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0"><thead>`;
-  html += `<tr><th>S/N</th><th>Student Name</th>`;
-  for (const subj of relevantSubjects) html += `<th colspan="3">${escapeHtml(subj.name)}</th>`;
-  html += `<th>Total</th><th>1st Term</th><th>2nd Term</th><th>3rd Term</th><th>% Avg Total</th><th>Grade</th><th>Position</th><th>Remark</th></tr>`;
-  html += `<tr><th></th><th></th>`;
-  for (let i=0; i<relevantSubjects.length; i++) html += `<th>CA</th><th>Exam</th><th>Total</th>`;
-  html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
-  for (let i=0; i<studentResults.length; i++) {
-    const r = studentResults[i];
-    html += `<tr>`;
-    html += `<td>${i+1}</td>`;
-    html += `<td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
-    for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
-    html += `<td>${r.totalScore}</td>`;
-    html += `<td>${r.term1Avg}</td>`;
-    html += `<td>${r.term2Avg}</td>`;
-    html += `<td>${r.term3Avg}</td>`;
-    html += `<td>${r.combinedAvg}</td>`;
-    html += `<td>${r.grade}</td>`;
-    html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td>`;
-    html += `<td>${r.remark}</td>`;
-    html += `</tr>`;
-  }
-  html += `</tbody></table></div>`;
-  return html;
-}
-
-function printBroadsheet() {
-  const broadsheetDiv = document.getElementById('currentBroadsheetContainer');
-  if (!broadsheetDiv || !broadsheetDiv.querySelector('.broadsheet-table')) {
-    showNotification("No broadsheet data to print.", "error");
-    return;
-  }
-  const cloned = broadsheetDiv.cloneNode(true);
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) { showNotification("Please allow popups.", "error"); return; }
-  printWindow.document.write(`
-    <!DOCTYPE html><html><head><title>Broadsheet</title>
-    <style>
-      body { margin: 20px; font-family: 'Segoe UI', sans-serif; }
-      .broadsheet-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-      .broadsheet-table th, .broadsheet-table td { border: 1px solid #000; padding: 6px 4px; text-align: center; }
-      .student-name-cell { text-align: left; }
-      @media print { @page { size: landscape; margin: 1cm; } body { margin: 0; } }
-    </style>
-    </head><body>${cloned.outerHTML}</body></html>
-  `);
-  printWindow.document.close();
-  setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
-}
-
-// ------------------- Document Type Handler -------------------
-async function onGetDoc() {
-  const classId = document.getElementById('classSelect')?.value;
-  const session = document.getElementById('sessionSelect')?.value;
-  const term = document.getElementById('termSelect')?.value;
-  const docType = document.getElementById('docTypeSelect')?.value;
-  if (!classId || !session || !term || !docType) {
-    showNotification("Please select Class, Session, Term, and Document Type.", "error");
-    return;
-  }
-  const container = document.getElementById('recordsList');
-  if (!container) return;
-  if (docType === 'report') {
-    const classStudents = studentsList.filter(s => s.classId === classId);
-    if (!classStudents.length) { container.innerHTML = '<div class="no-data">No students found.</div>'; return; }
-    const editorHtml = `
-      <div class="report-editor-container">
-        <div class="student-list-panel"><h3>👩‍🎓 Students</h3><div id="studentListContainer"></div></div>
-        <div class="report-card-panel" id="reportCardArea">
-          <div id="reportCardContainer">
-            <div id="reportCardContent" class="report-card"><p>Select a student</p></div>
-            <div id="reportActions" class="action-buttons" style="display:none;">
-              <button id="saveReportBtn" class="btn-primary">💾 Save Report</button>
-              <button id="printReportBtn" class="btn-secondary">🖨️ Print / PDF</button>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    container.innerHTML = editorHtml;
-    const studentContainer = document.getElementById('studentListContainer');
-    if (studentContainer) {
-      let studentHtml = '';
-      classStudents.forEach(s => {
-        studentHtml += `<div class="student-list-item" data-id="${s.id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>`;
-      });
-      studentContainer.innerHTML = studentHtml;
-    }
-    document.querySelectorAll('.student-list-item').forEach(el => {
-      el.addEventListener('click', async () => {
-        document.querySelectorAll('.student-list-item').forEach(i => i.classList.remove('active'));
-        el.classList.add('active');
-        resetRatingsToDefaults();
-        await renderStudentReportCard(el.dataset.id, el.dataset.name, classId, session, term);
-      });
-    });
-    const first = document.querySelector('.student-list-item');
-    if (first) {
-      first.classList.add('active');
-      resetRatingsToDefaults();
-      await renderStudentReportCard(first.dataset.id, first.dataset.name, classId, session, term);
-    }
-    const saveBtn = document.getElementById('saveReportBtn');
-    if (saveBtn) saveBtn.addEventListener('click', saveReportCard);
-    const printBtn = document.getElementById('printReportBtn');
-    if (printBtn) printBtn.addEventListener('click', printReportCard);
-  } else if (docType === 'broadsheet') {
-    const broadsheetHtml = await generateBroadsheet(classId, session, term);
-    container.innerHTML = `<div id="currentBroadsheetContainer" class="table-responsive-wrapper">${broadsheetHtml}</div>`;
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'action-buttons';
-    actionsDiv.style.marginTop = '16px';
-    actionsDiv.style.display = 'flex';
-    actionsDiv.style.gap = '12px';
-    actionsDiv.style.justifyContent = 'flex-end';
-    const printBtn = document.createElement('button');
-    printBtn.className = 'btn-secondary';
-    printBtn.textContent = '🖨️ Print / PDF';
-    printBtn.addEventListener('click', printBroadsheet);
-    actionsDiv.appendChild(printBtn);
-    container.appendChild(actionsDiv);
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Report Card – ${escapeHtml(studentData.name)}</title>
+        <link rel="stylesheet" href="${externalCssUrl}">
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+          .print-container { width: 210mm; margin: 0 auto; background: white; }
+          ${inlineStyles}
+          ${extraPrintCSS}
+        </style>
+      </head>
+      <body>
+        <div class="print-container">${clonedReport.innerHTML}</div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
+  } catch (err) {
+    console.error('Report generation error:', err);
+    toast.error('Failed to generate report. Please try again.');
+  } finally {
+    hiddenContainer.remove();
   }
 }
 
-// ------------------- Subscription Payment Banner -------------------
-function injectSubscriptionUI() {
-  if (!document.getElementById('paymentBannerContainer')) {
-    const contentDiv = document.querySelector('.content');
-    if (contentDiv) {
-      const pd = document.createElement('div');
-      pd.id = 'paymentBannerContainer';
-      pd.style.margin = '16px 0';
-      contentDiv.insertBefore(pd, contentDiv.firstChild);
-    }
-  }
-}
-function showPaymentBanner() {
-  const container = document.getElementById('paymentBannerContainer');
-  if (!container) return;
-  const existing = document.getElementById('paymentBanner');
-  if (existing) existing.remove();
-  const banner = document.createElement('div');
-  banner.id = 'paymentBanner';
-  banner.className = 'payment-banner';
-  banner.innerHTML = `
-    <div><h3>💰 Activate Your Subscription</h3><p>Pay via Paystack or WhatsApp.</p></div>
-    <div><button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now</button>
-    <a href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">WhatsApp</a></div>`;
-  container.appendChild(banner);
-  document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => window.open('https://paystack.shop/pay/fmj267paou', '_blank'));
-}
-function hidePaymentBanner() { document.getElementById('paymentBanner')?.remove(); }
-async function setupSubscriptionUI() { injectSubscriptionUI(); hidePaymentBanner(); }
-async function initSubscriptionListener() {
-  if (!currentSchoolId) return;
-  if (window._unsubRecords) window._unsubRecords();
-  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
-  window._unsubRecords = onSnapshot(subRef, (snap) => {
-    if (!snap.exists()) return showPaymentBanner();
-    const sub = snap.data();
-    (sub.status === 'active' && sub.locked === false) ? hidePaymentBanner() : showPaymentBanner();
-  }, (err) => handleError(err, "Subscription listener error."));
-}
-
-// ------------------- Initialization -------------------
-export async function initRecordsPage() {
-  currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) { showNotification("School ID missing.", "error"); return; }
-
-  await initAcademicCalendar();
-  await loadClassesAndSubjects();
-  await loadAllStudents();
-
-  const classSelect = document.getElementById('classSelect');
-  if (classSelect) {
-    classSelect.innerHTML = '<option value="">Select Class</option>';
-    classesMap.forEach((info, id) => { classSelect.appendChild(new Option(info.name, id)); });
-  }
-
-  const currentSession = getCurrentSession();
-  const sessions = generateSessionOptionsFromCurrent(currentSession);
-  const sessionSelect = document.getElementById('sessionSelect');
-  if (sessionSelect) {
-    sessionSelect.innerHTML = '<option value="">Select Session</option>';
-    sessions.forEach(s => { sessionSelect.appendChild(new Option(s, s)); });
-    sessionSelect.value = currentSession;
-  }
-
-  const termSelect = document.getElementById('termSelect');
-  const currentTerm = getCurrentTerm();
-  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
-  const currentTermNum = termMap[currentTerm] || '1';
-  if (termSelect) {
-    termSelect.innerHTML = '<option value="">Select Term</option><option value="1">1st Term</option><option value="2">2nd Term</option><option value="3">3rd Term</option>';
-    termSelect.value = currentTermNum;
-  }
-
-  document.getElementById('getDocBtn')?.addEventListener('click', onGetDoc);
-  setupSubscriptionUI();
-  initSubscriptionListener();
-  const container = document.getElementById('recordsList');
-  if (container) container.innerHTML = `<div class="no-data"><p>Please select <strong>Class, Session, Term, and Document Type</strong>, then click <strong>Get Doc</strong>.</p></div>`;
-}
+// escapeHtml is now imported

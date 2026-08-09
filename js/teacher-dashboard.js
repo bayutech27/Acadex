@@ -19,6 +19,9 @@ import { showNotification, handleError, showLoader, hideLoader, toast } from './
 import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './academic-calendar.js';
 import * as service from './service.js';
 
+// NEW: security import
+import { enforcePasswordChange } from './security.js';
+
 let currentTeacherId = null;
 let currentSchoolId = null;
 let teacherData = null;
@@ -70,6 +73,16 @@ export async function protectTeacherPage() {
         }
 
         await initAcademicCalendar();
+
+        // ======= NEW: enforce password change =======
+        await enforcePasswordChange(window.location.href);
+
+        // ======= NEW: disabled account check =======
+        if (userRoleData.disabled) {
+          toast.error('Your account has been disabled. Contact the school.');
+          await logoutUser();
+          return;
+        }
 
         let teacher = null;
         try {

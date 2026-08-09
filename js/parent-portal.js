@@ -1,6 +1,6 @@
 // js/parent-portal.js
 import { auth, db } from './firebase-config.js';
-import { onAuthStateChanged, updatePassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { doc, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentTerm, getCurrentSession, initAcademicCalendar, subscribeToCalendar } from './academic-calendar.js';
 import { toast } from './error-handler.js';
@@ -8,6 +8,8 @@ import * as service from './service.js';
 import { logoutUser } from './auth.js';
 import { initMobileMenu } from './menu.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
+import { getDefaultRatings, escapeHtml } from './report-utils.js';
+import { enforcePasswordChange } from './security.js';   // NEW
 
 let parentData = null;
 let selectedChildId = null;
@@ -26,21 +28,6 @@ function totalOwed(feeData) {
   return (feeData.amount || 0) + (feeData.openingBalance || 0);
 }
 
-function getDefaultRatings() {
-  const defaults = {};
-  const skills = [
-    'Handling of tools','Public Speaking','Speech Fluency','Handwriting',
-    'Sport and Game','Drawing/Painting','Attentiveness','Neatness','Honesty',
-    'Politeness','Punctuality','Self-control/Calmness','Obedience','Reliability',
-    'Relationship with others','Leadership'
-  ];
-  skills.forEach(skill => {
-    const key = skill.toLowerCase().replace(/[^a-z]/g, '');
-    defaults[key] = 3;
-  });
-  return defaults;
-}
-
 function computeAttendanceSummary(records) {
   let present = 0, absent = 0;
   records.forEach(rec => {
@@ -56,9 +43,6 @@ function computeAttendanceSummary(records) {
     }
   });
   const total = present + absent;
-  // "schoolOpened" is the total sessions possible (present+absent) for this student
-  // because we only count days where the student has a mark (M or A) – we don't have
-  // a class-wide holiday check, so we treat total sessions as present+absent.
   return { schoolOpened: total, present, absent };
 }
 
@@ -67,12 +51,10 @@ function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) {
-    // Single name: take first two letters or first letter if too short
     const first = parts[0];
     if (first.length >= 2) return first.substring(0, 2).toUpperCase();
     return first.substring(0, 1).toUpperCase();
   }
-  // Take first letter of first and last parts
   const first = parts[0][0] || '';
   const last = parts[parts.length - 1][0] || '';
   return (first + last).toUpperCase();
@@ -91,18 +73,15 @@ async function computeStudentOutstanding(schoolId, studentId, currentTerm, curre
   let currentFeeAmount = 0;
   let currentPayments = 0;
 
-  // For each fee doc, get its payments and compute unpaid balance
   for (const fee of allFees) {
     const feeAmount = totalOwed(fee);
     const term = fee.term;
     const session = fee.session;
-    // Get payments for this fee doc
     const payments = await service.getPaymentsByStudent(schoolId, studentId, term, session);
     let paid = 0;
     payments.forEach(p => { if (!p.voided) paid += p.amount || 0; });
     const unpaid = Math.max(0, feeAmount - paid);
 
-    // Check if this is the current term/session
     const isCurrent = (term === currentTerm && session === currentSession);
     if (isCurrent) {
       currentFeeAmount = feeAmount;
@@ -121,7 +100,7 @@ async function computeStudentOutstanding(schoolId, studentId, currentTerm, curre
 async function getCaMax(schoolId, level, term, session) {
   try {
     const configs = await service.getScoringConfig(schoolId, level);
-    if (!configs || configs.length === 0) return 40; // default for secondary
+    if (!configs || configs.length === 0) return 40;
     const match = configs.find(c => c.term === term && c.session === session);
     if (match && match.grading) {
       const parts = match.grading.split('/');
@@ -130,7 +109,7 @@ async function getCaMax(schoolId, level, term, session) {
         if (!isNaN(caMax)) return caMax;
       }
     }
-    return 40; // fallback
+    return 40;
   } catch (err) {
     console.warn('Failed to fetch scoring config for CA max:', err);
     return 40;
@@ -152,6 +131,19 @@ export async function initParentPortal() {
   }
   currentSchoolId = userDoc.schoolId;
 
+  // ---- NEW: enforce password change ----
+  try {
+    await enforcePasswordChange(window.location.href);
+  } catch (e) { /* redirecting */ }
+
+  // ---- NEW: disabled account check ----
+  if (userDoc.disabled) {
+    toast.error('Your account has been disabled. Contact the school.');
+    await signOut(auth);
+    window.location.href = '/';
+    return;
+  }
+
   parentData = await service.getParentById(user.uid);
   if (!parentData) {
     toast.error('Parent profile not found. Please contact admin.');
@@ -166,7 +158,7 @@ export async function initParentPortal() {
   });
 
   await loadSchoolInfo();
-  await loadSubjectsMap(); // for resolving subject names in scores/reports
+  await loadSubjectsMap();
   await renderChildren();
 
   document.getElementById('logoutBtn').addEventListener('click', logoutUser);
@@ -184,7 +176,6 @@ export async function initParentPortal() {
   const lastName = parentData.name ? parentData.name.split(' ').pop() : 'Parent';
   document.getElementById('greetingText').textContent = `${greeting}, ${parentData.title || ''} ${lastName}`;
 
-  // Download report button
   document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
 }
 
@@ -254,7 +245,6 @@ async function selectChild(studentId) {
   const classInfo = currentChildClassInfo;
   document.getElementById('childClassDisplay').textContent = `Admission: ${currentChild.admissionNumber || '—'} | Class: ${classInfo?.name || currentChild.classId || ''}`;
 
-  // ── Update photo / initials ──────────────────────────
   const img = document.getElementById('childPhoto');
   const initialsEl = document.getElementById('childInitials');
   const wrapper = document.getElementById('childPhotoWrapper');
@@ -270,7 +260,6 @@ async function selectChild(studentId) {
     initialsEl.style.display = 'flex';
   }
 
-  // Reset CBT pagination when switching child
   cbtResults = [];
   cbtShowAll = false;
 
@@ -280,7 +269,6 @@ async function selectChild(studentId) {
   await loadSubjectScores();
 }
 
-// ── Attendance (used both for UI and report) ──────────
 async function loadAttendance() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -306,7 +294,6 @@ async function loadAttendance() {
   }
 }
 
-// ── Fee detail with arrears ────────────────────────────
 async function renderFeeDetail(studentId) {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -317,23 +304,20 @@ async function renderFeeDetail(studentId) {
   }
 
   try {
-    // Compute total outstanding and arrears
     const { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments } =
       await computeStudentOutstanding(currentSchoolId, studentId, term, session);
 
-    // If no fee structure at all (allFees empty), show a message
     const allFees = await service.getFeesByStudent(currentSchoolId, studentId);
     if (!allFees || allFees.length === 0) {
       container.innerHTML = '<p>No fee records found for this student.</p>';
       return;
     }
 
-    // We still need the current fee doc to show "Fee Set" and opening balance if any
     const currentFeeDoc = allFees.find(f => f.term === term && f.session === session);
     const feeAmountDisplay = currentFeeDoc ? totalOwed(currentFeeDoc) : 0;
     const openingBalance = currentFeeDoc?.openingBalance || 0;
 
-    const balance = currentBalance; // already computed as unpaid for current term
+    const balance = currentBalance;
     const balanceLabel = balance > 0
       ? `<span style="color:var(--danger-text);">Owing ₦${balance.toLocaleString()}</span>`
       : balance < 0
@@ -344,7 +328,6 @@ async function renderFeeDetail(studentId) {
       ? `<span style="color:var(--danger-text);">₦${totalArrears.toLocaleString()}</span>`
       : `<span style="color:var(--success-text);">None</span>`;
 
-    // Fetch payments for current term to display history
     const payments = await service.getPaymentsByStudent(currentSchoolId, studentId, term, session);
     let historyHtml = payments.length === 0 ? '<p style="margin:0.5rem 0;">No payments recorded.</p>' : '';
     payments.forEach(p => {
@@ -380,7 +363,6 @@ async function renderFeeDetail(studentId) {
 
     container.innerHTML = html;
 
-    // Update download button state based on totalOutstanding
     const downloadBtn = document.getElementById('downloadReportBtn');
     if (totalOutstanding > 0) {
       downloadBtn.disabled = true;
@@ -400,7 +382,6 @@ async function renderFeeDetail(studentId) {
   }
 }
 
-// ── CBT scores (Feature 2) with pagination ─────────────
 async function loadCbtScores() {
   const container = document.getElementById('cbtScoresList');
   if (!selectedChildId) {
@@ -410,7 +391,6 @@ async function loadCbtScores() {
   try {
     const results = await service.getAssignedCbtScoresByStudent(selectedChildId);
     cbtResults = results || [];
-    // Sort by completedAt descending (already done by query, but we'll ensure)
     cbtResults.sort((a, b) => {
       const aTime = a.completedAt?.seconds || 0;
       const bTime = b.completedAt?.seconds || 0;
@@ -466,7 +446,6 @@ async function loadSubjectScores() {
   const container = document.getElementById('subjectScoresList');
   const heading = document.getElementById('subjectScoresHeading');
 
-  // Update heading to "C.A This Term"
   if (heading) {
     heading.textContent = 'C.A This Term';
   }
@@ -477,26 +456,17 @@ async function loadSubjectScores() {
   }
 
   try {
-    // Fetch CA max from scoring config
     const level = currentChildClassInfo?.level || 'secondary';
     const caMax = await getCaMax(currentSchoolId, level, term, session);
 
-    // Try to fetch scores with full term name; fallback to numeric if none
+    // Fetch scores directly, no fallback mapping
     let scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
-    const TERM_TO_NUM = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
-    if (!scores || scores.length === 0) {
-      const numericTerm = TERM_TO_NUM[term];
-      if (numericTerm) {
-        scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, numericTerm, session);
-      }
-    }
 
     if (!scores || scores.length === 0) {
       container.innerHTML = '<p class="no-data-msg">No C.A scores recorded for this term.</p>';
       return;
     }
 
-    // Build table with responsive wrapper
     let tableHtml = `<div class="table-responsive-wrapper"><table class="data-table"><thead><tr><th>Subject</th><th>Score</th></tr></thead><tbody>`;
     scores.forEach(s => {
       const ca = s.ca || 0;
@@ -526,14 +496,12 @@ async function downloadReport() {
     return;
   }
 
-  // Check outstanding – if > 0, button should be disabled; but we also check here as a safeguard.
   const { totalOutstanding } = await computeStudentOutstanding(currentSchoolId, selectedChildId, term, session);
   if (totalOutstanding > 0) {
     toast.warning('Cannot download report – outstanding fees remain.');
     return;
   }
 
-  // Gather data
   const school = await service.getSchoolById(currentSchoolId);
   const student = currentChild;
   if (!student) {
@@ -541,22 +509,14 @@ async function downloadReport() {
     return;
   }
 
-  // Try to fetch scores with full term name; if none, fallback to numeric term
+  // Fetch scores directly, no fallback
   let scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
-  const TERM_TO_NUM = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
-  if (!scoresRaw || scoresRaw.length === 0) {
-    const numericTerm = TERM_TO_NUM[term];
-    if (numericTerm) {
-      scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, numericTerm, session);
-    }
-  }
 
   if (!scoresRaw || scoresRaw.length === 0) {
     toast.warning('No scores found for this term. Cannot generate report.');
     return;
   }
 
-  // Build scores with subject names
   const scoresWithNames = scoresRaw.map(s => ({
     subjectId: s.subjectId,
     subjectName: subjectsMap.get(s.subjectId)?.name || s.subjectId,
@@ -564,7 +524,6 @@ async function downloadReport() {
     exam: s.exam || 0
   }));
 
-  // Get grading config for the class level
   const classLevel = currentChildClassInfo?.level || 'secondary';
   const isPrimary = (classLevel === 'primary');
   const gradingConfigs = await service.getScoringConfig(currentSchoolId, classLevel);
@@ -577,25 +536,17 @@ async function downloadReport() {
     }
   }
 
-  // Get saved report (if any) – with fallback to numeric term
+  // Get saved report, no fallback
   let report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
-  if (!report) {
-    const numericTerm = TERM_TO_NUM[term];
-    if (numericTerm) {
-      report = await service.getReportByStudent(selectedChildId, currentSchoolId, numericTerm, session);
-    }
-  }
   const psychomotor = report?.psychomotor || getDefaultRatings();
   const teacherComment = report?.teacherComment || '';
   const principalComment = report?.principalComment || '';
 
-  // Attendance – using the same per-student query
   const attendanceRecords = await service.getAttendanceByStudent(
     currentSchoolId, selectedChildId, student.classId, session, term
   );
   const attendanceSummary = computeAttendanceSummary(attendanceRecords);
 
-  // Build student data for renderer
   const studentData = {
     id: student.id,
     name: student.name || 'Student',
@@ -611,7 +562,6 @@ async function downloadReport() {
 
   const className = currentChildClassInfo?.name || student.classId || 'Class';
 
-  // Create hidden container
   const hiddenContainer = document.createElement('div');
   hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; background:white; z-index:9999;';
   document.body.appendChild(hiddenContainer);
@@ -627,14 +577,13 @@ async function downloadReport() {
       comments: { teacherComment, principalComment },
       term,
       session,
-      subjectStats: undefined, // intentionally omitted
+      subjectStats: undefined,
       container: hiddenContainer,
       attendance: attendanceSummary,
-      skipLiveAttendanceFetch: true,  // new param
+      skipLiveAttendanceFetch: true,
       isPrimary
     });
 
-    // Clone rendered HTML and open print window (copied from results.js handlePrint)
     const clonedReport = hiddenContainer.cloneNode(true);
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -643,7 +592,6 @@ async function downloadReport() {
     }
 
     const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
-    // Gather all style tags from current document (including the renderer's inline styles)
     const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
     const extraPrintCSS = `
       @page { size: A4; margin: 8mm; }
@@ -705,9 +653,4 @@ async function downloadReport() {
   } finally {
     hiddenContainer.remove();
   }
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }

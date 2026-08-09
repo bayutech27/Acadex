@@ -195,10 +195,20 @@ async function loadParentsTable() {
     });
 
     document.querySelectorAll('.delete-parent').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         const id = e.currentTarget.dataset.id;
-        if (confirm('Are you sure you want to delete this parent?')) {
-          toast.warning('Delete feature coming soon.');
+        if (confirm('Are you sure you want to delete this parent? This will also disable their login.')) {
+          try {
+            // Delete parent doc
+            await service.deleteParent(id);
+            // Mark user as disabled
+            await updateDoc(doc(db, 'users', id), { disabled: true, disabledAt: new Date() });
+            toast.success('Parent deleted and login disabled.');
+            await loadParentsTable();
+          } catch (err) {
+            console.error('Delete parent error:', err);
+            toast.error('Failed to delete parent. Please try again.');
+          }
         }
       });
     });

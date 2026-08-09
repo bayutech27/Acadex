@@ -16,12 +16,11 @@ import {
   isSubscriptionActive,
   handleNewStudentAddition,
   getSubscriptionStatus,
-  // approveExtraStudents, // ✅ REMOVED – unused import
   getSubscriptionDisplayStatus,
 } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { showPageLoader, hidePageLoader } from './loading.js';
-import { initMobileMenu } from './menu.js'; // ✅ Added import
+import { initMobileMenu } from './menu.js';
 
 // ========== ACADEMIC CALENDAR IMPORTS ==========
 import {
@@ -35,6 +34,9 @@ import {
   getAcademicCalendar,
 } from './academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from './calendar-sync.js';
+
+// NEW: security imports
+import { enforcePasswordChange } from './security.js';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // AUTH STATE
@@ -139,6 +141,21 @@ export async function protectAdminPage() {
     showSubscriptionExpiredBanner();
   }
 
+  // ======= NEW: enforce password change =======
+  try {
+    await enforcePasswordChange(window.location.href);
+  } catch (e) {
+    // If enforcePasswordChange throws (redirect), we exit
+    return null;
+  }
+
+  // ======= NEW: disabled account check =======
+  if (currentUserData.disabled) {
+    toast.error('Your account has been disabled. Contact the school.');
+    await logoutUser();
+    return null;
+  }
+
   injectSubscriptionUI();
   updateSubscriptionBadge(schoolId);
   initSubscriptionUI(schoolId);
@@ -240,8 +257,18 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  document.getElementById('paystackPaymentBtn')?.addEventListener('click', () => {
-    window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+  // ======= NEW: payment reference logging =======
+  document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
+    const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    await setDoc(doc(db, 'paymentReferences', ref), {
+      schoolId: currentUserData.schoolId,
+      amount: 0, // update with actual amount when available
+      reason: 'renewal',
+      createdAt: new Date(),
+      status: 'pending',
+      reference: ref
+    });
+    window.open(`https://paystack.shop/pay/fmj267paou?reference=${ref}`, '_blank');
   });
 }
 
@@ -348,7 +375,6 @@ async function alignSubscriptionEndDate(schoolId, currentSubData) {
     await updateDoc(subRef, { endDate: termEndDate, lastUpdated: new Date() });
   } catch (err) {
     console.warn('Failed to align subscription endDate:', err);
-    // Silent fail – not critical for user
   }
 }
 
@@ -407,7 +433,6 @@ async function updateFeeDisplay(schoolId, sub) {
         <small>Your subscription has expired. Please renew to unlock all features.</small>
       </div>`;
   } else {
-    // ── FIX 3: Only show "Subscription active" text ──
     feeContainer.innerHTML = `
       <div style="background:#dcfce7;border-left:4px solid #10b981;padding:12px 16px;border-radius:8px;margin:16px 0;">
         <strong>✅ Subscription active</strong>
@@ -456,8 +481,17 @@ async function updatePendingExtraDisplay(schoolId, sub = null) {
       </div>
     </div>`;
 
-  document.getElementById('payNowPendingBtn')?.addEventListener('click', () => {
-    window.open('https://paystack.shop/pay/fmj267paou', '_blank');
+  document.getElementById('payNowPendingBtn')?.addEventListener('click', async () => {
+    const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+    await setDoc(doc(db, 'paymentReferences', ref), {
+      schoolId: schoolId,
+      amount: totalExtraFee,
+      reason: 'extraStudents',
+      createdAt: new Date(),
+      status: 'pending',
+      reference: ref
+    });
+    window.open(`https://paystack.shop/pay/fmj267paou?reference=${ref}`, '_blank');
   });
 }
 
@@ -490,7 +524,6 @@ export async function loadAcademicInfo() {
     if (academicDiv) academicDiv.textContent = `${session || 'N/A'} • ${termNames[term] || term || ''}`;
   } catch (err) {
     console.warn('Could not load academic info', err);
-    // Silent fail – non-critical
   }
 }
 
@@ -506,7 +539,6 @@ function getCachedSchoolInfo() {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      // Check if cache is less than 24 hours old
       if (data.timestamp && (Date.now() - data.timestamp) < 24 * 60 * 60 * 1000) {
         return data.info;
       }
@@ -522,7 +554,6 @@ function setCachedSchoolInfo(info) {
 }
 
 async function loadSchoolInfoWithRetry() {
-  // Try to load from Firestore with retry logic
   const maxAttempts = 3;
   let attempt = 0;
   let success = false;
@@ -532,7 +563,6 @@ async function loadSchoolInfoWithRetry() {
     try {
       await loadSchoolInfo();
       success = true;
-      // Save to cache
       const userData = currentUserData;
       if (userData) {
         const school = await getSchoolById(userData.schoolId);
@@ -543,17 +573,14 @@ async function loadSchoolInfoWithRetry() {
     } catch (err) {
       console.warn(`School info load attempt ${attempt} failed:`, err);
       if (attempt < maxAttempts) {
-        // Exponential backoff: 1s, 2s, 4s
         await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
       }
     }
   }
 
-  // If all attempts failed, try to use cached data
   if (!success) {
     const cached = getCachedSchoolInfo();
     if (cached) {
-      // Apply cached data to UI
       const schoolNameEl = document.getElementById('schoolName');
       const schoolAddressEl = document.getElementById('schoolAddress');
       const logoImg = document.getElementById('schoolLogoImg');
@@ -562,7 +589,6 @@ async function loadSchoolInfoWithRetry() {
       if (logoImg && cached.logo) logoImg.src = cached.logo;
       toast.warning('Using cached school info. Some data may be outdated.');
     } else {
-      // Show a fallback error message in the UI
       const schoolNameEl = document.getElementById('schoolName');
       if (schoolNameEl) {
         schoolNameEl.textContent = '⚠️ Unable to load school info';
@@ -606,7 +632,6 @@ async function uploadSchoolLogo(schoolId, file) {
     const compressed = await compressImage(file, 500, 500);
     await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
     toast.success('Logo uploaded successfully');
-    // Update cache after successful upload
     const school = await getSchoolById(schoolId);
     if (school) setCachedSchoolInfo(school);
     return compressed;
@@ -634,7 +659,6 @@ export async function loadSchoolInfo() {
       logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
     }
 
-    // Update subscription and academic info
     await loadAcademicInfo();
     if (userData.schoolId) {
       updateSubscriptionBadge(userData.schoolId);
@@ -643,7 +667,7 @@ export async function loadSchoolInfo() {
   } catch (err) {
     console.error('School info error:', err);
     toast.warning('Unable to load school information. Please refresh the page.');
-    throw err; // rethrow for retry logic
+    throw err;
   }
 }
 
@@ -665,31 +689,25 @@ export function setupLogoUpload() {
   const fileInput = document.getElementById('logoUploadInput');
   if (!logoContainer || !fileInput) return;
 
-  // Remove old listeners by cloning and replacing the container
   const newContainer = logoContainer.cloneNode(true);
   logoContainer.parentNode.replaceChild(newContainer, logoContainer);
-
-  // Re‑query the fresh elements
   const freshContainer = document.querySelector('.school-logo');
   const freshFileInput = document.getElementById('logoUploadInput');
   if (!freshContainer || !freshFileInput) return;
 
-  // Main click handler – works on desktop & mobile (touch)
   freshContainer.addEventListener('click', (e) => {
     e.preventDefault();
     freshFileInput.click();
   });
 
-  // Camera icon click (desktop only, hidden on mobile but safe to attach)
   const cameraIcon = freshContainer.querySelector('#cameraIcon');
   if (cameraIcon) {
     cameraIcon.addEventListener('click', (e) => {
-      e.stopPropagation(); // prevent container’s click from firing twice
+      e.stopPropagation();
       freshFileInput.click();
     });
   }
 
-  // File selection handler
   freshFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
@@ -706,7 +724,7 @@ export function setupLogoUpload() {
     } else if (file) {
       toast.error('Please select a valid image file (JPG, PNG, GIF).');
     }
-    freshFileInput.value = ''; // Allow re‑selecting the same file
+    freshFileInput.value = '';
   });
 }
 
@@ -765,31 +783,23 @@ export async function loadDashboardCounts() {
  * @returns {Promise<Object>} - The result from protectAdminPage
  */
 export async function initAdminPage(pageInitFn) {
-  // 1. Protect the page (auth, subscription, calendar, school info)
   const result = await protectAdminPage();
-  if (!result) return null; // redirect already happened
+  if (!result) return null;
 
-  // 2. Shared UI setup (idempotent – safe to call even if already done)
   setupSidebar();
   setupLogout();
   setupLogoUpload();
   initMobileMenu();
 
-  // 3. Run page‑specific initialisation
   if (typeof pageInitFn === 'function') {
     await pageInitFn();
   }
 
-  // 4. Set up academic calendar subscription (term/session display)
   setupAcademicCalendarDisplay();
 
   return result;
 }
 
-/**
- * Sets up the academic calendar subscription to update the term/session
- * elements on any admin page.
- */
 function setupAcademicCalendarDisplay() {
   subscribeToCalendar((state) => {
     const termEl = document.getElementById('currentTermDisplay');
