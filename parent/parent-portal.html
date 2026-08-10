@@ -285,5 +285,26 @@
 import { initParentPortal } from '../js/parent-portal.js';
 initParentPortal();
 </script>
+<script>
+  // Unregister any existing service worker, then clear all its caches.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (let registration of registrations) {
+        registration.unregister();
+      }
+    }).catch(function(err) {
+      console.log('Service Worker unregistration failed: ', err);
+    });
+
+    // Also delete all caches just in case.
+    if (window.caches) {
+      caches.keys().then(function(cacheNames) {
+        cacheNames.forEach(function(cacheName) {
+          caches.delete(cacheName);
+        });
+      });
+    }
+  }
+</script>
 </body>
 </html>

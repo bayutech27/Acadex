@@ -553,19 +553,24 @@
   })();
 </script>
 <script>
-  // Register Service Worker for offline navigation
+  // Unregister any existing service worker, then clear all its caches.
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('Service Worker registered with scope:', registration.scope);
-          // Optional: check for updates every hour
-          setInterval(() => registration.update(), 60 * 60 * 1000);
-        })
-        .catch(err => {
-          console.error('Service Worker registration failed:', err);
-        });
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (let registration of registrations) {
+        registration.unregister();
+      }
+    }).catch(function(err) {
+      console.log('Service Worker unregistration failed: ', err);
     });
+
+    // Also delete all caches just in case.
+    if (window.caches) {
+      caches.keys().then(function(cacheNames) {
+        cacheNames.forEach(function(cacheName) {
+          caches.delete(cacheName);
+        });
+      });
+    }
   }
 </script>
 </body>

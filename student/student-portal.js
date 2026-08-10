@@ -1,4 +1,4 @@
-// student-portal.js
+// student-portal.js (inside student folder)
 // Attendance tab: aggregates morning/afternoon sessions from Firestore attendance collection.
 // Subjects tab: shows only subject names (scores removed, but remain in Results tab).
 // Calendar integration: uses academic-calendar.js subscription to get current term/session.
@@ -39,6 +39,7 @@ import { subscribeToCalendar } from '../js/academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from '../js/calendar-sync.js';
 import * as service from '../js/service.js';
 import { toast } from '../js/error-handler.js';
+import { enforcePasswordChange } from '../js/security.js';   // NEW
 
 // ─────────────────────────────────── Global state ────────────────────────────
 let currentStudentData = null;
@@ -818,6 +819,20 @@ async function loadStudentDashboard() {
       toast.error('School information missing. Please contact your administrator.');
       throw new Error('No schoolId linked');
     }
+
+    // ---- NEW: enforce password change ----
+    try {
+      await enforcePasswordChange(window.location.href);
+    } catch (e) { /* redirecting */ }
+
+    // ---- NEW: disabled account check ----
+    if (userData.disabled) {
+      toast.error('Your account has been disabled. Contact the school.');
+      await signOut(auth);
+      window.location.href = '/';
+      return;
+    }
+
     localStorage.setItem('userSchoolId', currentSchoolId);
     initSubscriptionListener(currentSchoolId);
   } catch (err) {
