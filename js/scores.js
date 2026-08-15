@@ -1,6 +1,8 @@
 // scores.js - Teacher score entry with direct Firestore subscription check
 // FIXED: Duplicate scores – bypass cache for fetching existing scores and saving.
-// All other operations (subjects, classes, students, grading) still use service.js.
+// UPDATED: Subjects and teacher assignments now loaded directly from Firestore
+//          to bypass any stale client-side cache and ensure new subjects appear.
+// All other operations (students, grading) still use service.js.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth } from './firebase-config.js';
@@ -123,13 +125,24 @@ async function loadGradingSetting(session, term) {
 }
 
 // ------------------- Data loading via service -------------------
+// UPDATED: Direct Firestore query to bypass cache for subjects
 async function loadAllSubjects() {
   try {
-    const subjects = await service.getSubjectsBySchool(currentSchoolId);
+    const q = query(
+      collection(db, 'subjects'),
+      where('schoolId', '==', currentSchoolId)
+    );
+    const snap = await getDocs(q);
     subjectsMap.clear();
-    subjects.forEach(subj => subjectsMap.set(subj.id, subj.name));
+    snap.forEach(docSnap => {
+      const subjectData = docSnap.data();
+      if (subjectData.name) {
+        subjectsMap.set(docSnap.id, subjectData.name);
+      }
+    });
+    console.log(`Loaded ${subjectsMap.size} subjects directly from Firestore.`);
   } catch (err) {
-    console.error('Load subjects error:', err);
+    console.error('Load subjects direct error:', err);
     toast.error('Unable to load subjects. Please refresh the page.');
   }
 }
@@ -147,20 +160,22 @@ async function loadAllClasses() {
   }
 }
 
+// UPDATED: Direct Firestore getDoc for teacher to bypass cache
 async function loadTeacherAssignedSubjectsAndClasses() {
   if (!teacherId) return;
   try {
-    const teacher = await service.getTeacherById(teacherId);
-    if (teacher) {
+    const teacherDocSnap = await getDoc(doc(db, 'teachers', teacherId));
+    if (teacherDocSnap.exists()) {
+      const teacher = teacherDocSnap.data();
       teacherSubjectIds = teacher.subjectIds || [];
       teacherClassIds = teacher.classIds || [];
-      console.log("Teacher assigned subjects:", teacherSubjectIds);
-      console.log("Teacher assigned classes:", teacherClassIds);
+      console.log("Teacher assigned subjects (fresh):", teacherSubjectIds);
+      console.log("Teacher assigned classes (fresh):", teacherClassIds);
     } else {
       console.warn("Teacher document not found for UID:", teacherId);
     }
   } catch (err) {
-    console.error('Load teacher assignments error:', err);
+    console.error('Load teacher assignments direct error:', err);
     toast.warning('Unable to load teacher assignments. Please refresh the page.');
   }
 }
