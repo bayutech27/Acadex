@@ -723,11 +723,18 @@ export function setupLogoUpload() {
   const fileInput = document.getElementById('logoUploadInput');
   if (!logoContainer || !fileInput) return;
 
+  // Replace the container with a fresh clone to remove any old listeners.
   const newContainer = logoContainer.cloneNode(true);
   logoContainer.parentNode.replaceChild(newContainer, logoContainer);
   const freshContainer = document.querySelector('.school-logo');
   const freshFileInput = document.getElementById('logoUploadInput');
   if (!freshContainer || !freshFileInput) return;
+
+  // FIX: Prevent the input's own click from bubbling up to the container,
+  // which caused infinite recursion and prevented the file picker from opening.
+  freshFileInput.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
 
   freshContainer.addEventListener('click', (e) => {
     e.preventDefault();
