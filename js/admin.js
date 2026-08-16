@@ -534,6 +534,15 @@ export { adminOverrideCalendar, adminResetToAuto };
 // ───────────────────────────────────────────────────────────────────────────────
 const CACHE_KEY = 'acadex_school_info';
 
+// ===== Logo compression rules =====
+// Only compress if the ORIGINAL file exceeds this size (KB).
+// Files already under this size are stored as-is, uncompressed.
+const LOGO_SIZE_THRESHOLD_KB = 500;
+// When compression kicks in, this is the target output size (KB).
+const LOGO_COMPRESSED_TARGET_KB = 200;
+// Max width used only when compressing (keeps compressed file small).
+const LOGO_MAX_WIDTH = 500;
+
 function getCachedSchoolInfo() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -599,7 +608,20 @@ async function loadSchoolInfoWithRetry() {
   }
 }
 
-async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
+// Reads a file straight to a base64 data URL, no resizing/re-encoding.
+// Used when the original file is already under the size threshold.
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('File reading failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Resizes + re-encodes as JPEG, stepping quality down until the base64
+// output is under the target size (or quality bottoms out at 0.1).
+async function compressImage(file, maxSizeKB = LOGO_COMPRESSED_TARGET_KB, maxWidth = LOGO_MAX_WIDTH) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -627,14 +649,26 @@ async function compressImage(file, maxSizeKB = 500, maxWidth = 500) {
   });
 }
 
+// Decides whether compression is needed based on the ORIGINAL file size,
+// then saves the result to schools/{schoolId}.logo as a base64 string.
 async function uploadSchoolLogo(schoolId, file) {
   try {
-    const compressed = await compressImage(file, 500, 500);
-    await updateDoc(doc(db, 'schools', schoolId), { logo: compressed });
+    const originalSizeKB = file.size / 1024;
+    let finalImage;
+
+    if (originalSizeKB > LOGO_SIZE_THRESHOLD_KB) {
+      // Over 500KB — must compress down to ~200KB before saving.
+      finalImage = await compressImage(file, LOGO_COMPRESSED_TARGET_KB, LOGO_MAX_WIDTH);
+    } else {
+      // Already under 500KB — save as-is, no compression needed.
+      finalImage = await fileToBase64(file);
+    }
+
+    await updateDoc(doc(db, 'schools', schoolId), { logo: finalImage });
     toast.success('Logo uploaded successfully');
     const school = await getSchoolById(schoolId);
     if (school) setCachedSchoolInfo(school);
-    return compressed;
+    return finalImage;
   } catch (error) {
     console.error('Logo upload error:', error);
     toast.error('Failed to upload logo. Please try with a smaller image (under 500KB).');
