@@ -255,10 +255,17 @@ export async function renderReportCardUI({
   let tableRows = '';
   let totalScore = 0;
   let subjectCount = 0;
+
   if (scores && scores.length) {
     for (const score of scores) {
+      const ca = Number(score.ca || 0);
+      const exam = Number(score.exam || 0);
+
+      // ⚠️ Skip any subject where either CA or Exam is zero
+      if (ca === 0 || exam === 0) continue;
+
       const subjectName = score.subjectName || score.subjectId;
-      const total = (score.ca || 0) + (score.exam || 0);
+      const total = ca + exam;
       totalScore += total;
       subjectCount++;
       const grade  = calculateGrade(total);
@@ -277,17 +284,22 @@ export async function renderReportCardUI({
       if (isPrimary) {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
-          <td>${score.ca}</td><td class="rc-exam">${score.exam}</td><td class="rc-total">${total}</td>
+          <td>${ca}</td><td class="rc-exam">${exam}</td><td class="rc-total">${total}</td>
           <td>${grade}</td><td class="rc-remark">${remark}</td>
         </tr>`;
       } else {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
-          <td>${score.ca}</td><td class="rc-exam">${score.exam}</td><td class="rc-total">${total}</td>
+          <td>${ca}</td><td class="rc-exam">${exam}</td><td class="rc-total">${total}</td>
           <td>${grade}</td><td class="rc-remark">${remark}</td>
           <td class="rc-position">${positionHtml}</td><td class="rc-class-avg">${classAvg}</td>
         </tr>`;
       }
+    }
+
+    if (subjectCount === 0) {
+      const colSpan = isPrimary ? 6 : 8;
+      tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
     }
   } else {
     const colSpan = isPrimary ? 6 : 8;
