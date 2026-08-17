@@ -310,7 +310,7 @@
     <div class="content">
       <div class="welcome-card">
         <h1>Subjects & Classes</h1>
-        <p>Manage subjects (Primary/Secondary) and class groups.</p>
+        <p>Manage subjects (Nursery/Primary/Secondary) and class groups.</p>
       </div>
 
       <div class="two-columns">
@@ -401,17 +401,25 @@
           </div>
 
           <div class="form-card" style="margin-top: 24px;">
-            <h2>Add New Subject (For Primary Only)</h2>
-            <form id="primarySubjectForm">
+            <h2>Add New Subjects for Nursery/Primary</h2>
+            <form id="nurseryPrimarySubjectForm">
               <div class="form-group">
-                <label for="primarySubjectName">Subject Name</label>
-                <input type="text" id="primarySubjectName" placeholder="e.g., Basic Science, Civic Education" required>
+                <label for="nurseryPrimarySubjectName">Subject Name</label>
+                <input type="text" id="nurseryPrimarySubjectName" placeholder="e.g., Basic Science, Civic Education" required>
               </div>
               <div class="form-group">
-                <label for="primarySubjectCode">Subject Code (optional)</label>
-                <input type="text" id="primarySubjectCode" placeholder="e.g., SCI101">
+                <label for="nurseryPrimaryLevel">Level</label>
+                <select id="nurseryPrimaryLevel">
+                  <option value="">-- Select level --</option>
+                  <option value="nursery">Nursery</option>
+                  <option value="primary">Primary</option>
+                </select>
               </div>
-              <button type="submit" class="btn-primary">Add Primary Subject</button>
+              <div class="form-group">
+                <label for="nurseryPrimarySubjectCode">Subject Code (optional)</label>
+                <input type="text" id="nurseryPrimarySubjectCode" placeholder="e.g., SCI101">
+              </div>
+              <button type="submit" class="btn-primary">Add Subject</button>
             </form>
           </div>
 
@@ -424,7 +432,7 @@
         <!-- Classes Section -->
         <div>
           <div class="form-card">
-            <h2>Add New Class</h2>
+            <h2>Add New Class (For Nursery, Primary and Secondary)</h2>
             <form id="classForm">
               <div class="form-group">
                 <label for="className">Select from list</label>
@@ -462,6 +470,7 @@
                 <label for="manualClassLevel">Level (for manual entry)</label>
                 <select id="manualClassLevel">
                   <option value="">-- Select level --</option>
+                  <option value="nursery">Nursery</option>
                   <option value="primary">Primary</option>
                   <option value="secondary">Secondary</option>
                 </select>
