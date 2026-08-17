@@ -1,12 +1,15 @@
-// classes.js - Manage classes with subscription payment banner and level detection (Primary/Secondary)
+// classes.js - Manage classes with subscription payment banner and level detection (Nursery/Primary/Secondary)
 // All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet provide createClass/deleteClass – direct Firestore writes kept temporarily.
+// TODO: service.js does not yet provide createClass/deleteClass/updateClass – direct Firestore writes kept temporarily.
 // ADDED: Guaranteed horizontal and vertical scrolling using inline styles.
+// NEW: Added Nursery level support and Edit functionality with modal.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
+import { db } from './firebase-config.js';
+import { collection, addDoc, deleteDoc, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 
 let currentSchoolId = null;
 let unsubscribeSub = null;
@@ -42,7 +45,10 @@ async function loadClassesAndSetupForm() {
 function getClassLevel(className) {
   if (!className) return 'secondary';
   const lowerName = className.toLowerCase();
-  if (lowerName.includes('nursery') || lowerName.includes('kindergarten') || lowerName.includes('primary')) {
+  if (lowerName.includes('nursery')) {
+    return 'nursery';
+  }
+  if (lowerName.includes('kindergarten') || lowerName.includes('primary')) {
     return 'primary';
   }
   if (lowerName.includes('jss') || lowerName.includes('sss')) {
@@ -73,13 +79,17 @@ async function loadClasses() {
       </thead>
       <tbody>`;
     for (const cls of classes) {
+      const levelDisplay = cls.level === 'nursery' ? 'Nursery' : (cls.level === 'primary' ? 'Primary' : 'Secondary');
       tableHtml += `<tr>
         <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(cls.name)}</td>
-        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${cls.level === 'primary' ? 'Primary' : 'Secondary'}</td>
-        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;"><button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button></td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${levelDisplay}</td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">
+          <button class="btn-secondary" onclick="window.editClass('${cls.id}')">Edit</button>
+          <button class="btn-danger" onclick="window.deleteClass('${cls.id}')">Delete</button>
+        </td>
       </tr>`;
     }
-    tableHtml += `</tbody>${'赶'}`;
+    tableHtml += `</tbody>`;
     
     container.innerHTML = createScrollableWrapper(tableHtml);
     
@@ -87,8 +97,6 @@ async function loadClasses() {
       if (confirm('Delete this class permanently? This action cannot be undone.')) {
         showLoader();
         try {
-          const { deleteDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
-          const { db } = await import('./firebase-config.js');
           await deleteDoc(doc(db, 'classes', id));
           toast.success('Class deleted successfully.');
           await loadClasses();
@@ -100,6 +108,8 @@ async function loadClasses() {
         }
       }
     };
+
+    window.editClass = (id) => openEditClassModal(id);
   } catch (err) {
     console.error('Load classes error:', err);
     toast.error('Unable to load classes. Please refresh the page.');
@@ -174,7 +184,7 @@ function setupClassForm() {
         return;
       }
       if (!manualLevel) {
-        toast.error('Please select a level (Primary/Secondary) for the manual class.');
+        toast.error('Please select a level (Nursery/Primary/Secondary) for the manual class.');
         return;
       }
       className = manualValue;
@@ -189,8 +199,6 @@ function setupClassForm() {
         return;
       }
 
-      const { addDoc, collection } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
-      const { db } = await import('./firebase-config.js');
       await addDoc(collection(db, 'classes'), {
         name: className,
         level: classLevel,
@@ -206,6 +214,83 @@ function setupClassForm() {
     } finally {
       hideLoader();
     }
+  });
+}
+
+// Edit Class Modal
+function openEditClassModal(classId) {
+  service.getClassesBySchool(currentSchoolId).then(classes => {
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) {
+      toast.error('Class not found.');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'editClassModal';
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
+        <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Edit Class</h3>
+        <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">Update class details below.</p>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="editClassName">Class Name</label>
+          <input type="text" id="editClassName" value="${escapeHtml(cls.name)}" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="editClassLevel">Level</label>
+          <select id="editClassLevel" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;">
+            <option value="nursery" ${cls.level === 'nursery' ? 'selected' : ''}>Nursery</option>
+            <option value="primary" ${cls.level === 'primary' ? 'selected' : ''}>Primary</option>
+            <option value="secondary" ${cls.level === 'secondary' ? 'selected' : ''}>Secondary</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button id="updateClassBtn" style="flex:1;padding:9px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer;">Update</button>
+          <button id="cancelEditClassBtn" style="flex:1;padding:9px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById('cancelEditClassBtn').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    document.getElementById('updateClassBtn').addEventListener('click', async () => {
+      const newName = document.getElementById('editClassName').value.trim();
+      const newLevel = document.getElementById('editClassLevel').value;
+
+      if (!newName) {
+        toast.error('Class name cannot be empty.');
+        return;
+      }
+
+      showLoader();
+      try {
+        const existingClasses = await service.getClassesBySchool(currentSchoolId);
+        if (existingClasses.some(c => c.name === newName && c.id !== classId)) {
+          toast.error(`Class "${newName}" already exists. Duplicate classes are not allowed.`);
+          return;
+        }
+
+        await updateDoc(doc(db, 'classes', classId), {
+          name: newName,
+          level: newLevel,
+          updatedAt: new Date()
+        });
+        overlay.remove();
+        toast.success('Class updated successfully.');
+        await loadClasses();
+      } catch (err) {
+        console.error('Update class error:', err);
+        toast.error('Failed to update class. Please try again.');
+      } finally {
+        hideLoader();
+      }
+    });
+  }).catch(err => {
+    console.error('Error fetching class for edit:', err);
+    toast.error('Unable to load class details.');
   });
 }
 
