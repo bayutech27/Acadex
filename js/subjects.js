@@ -1,12 +1,13 @@
-// subjects.js - Manage subjects with Primary/Secondary levels, manual entry, and formatting
+// subjects.js - Manage subjects with Nursery/Primary/Secondary levels, manual entry, and formatting
 // MODIFIED: Guaranteed horizontal and vertical scrolling using inline styles.
+// NEW: Added Nursery level support and Edit functionality with modal.
 // All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support deleteSubject or addSubject – those remain as direct Firestore calls.
+// TODO: service.js does not yet support deleteSubject or updateSubject – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
 import { db } from './firebase-config.js';
-import { collection, addDoc, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import { collection, addDoc, deleteDoc, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentSchoolId } from './admin.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
@@ -26,12 +27,12 @@ export async function initSubjects() {
       document.addEventListener('DOMContentLoaded', () => {
         loadSubjects();
         setupSecondaryForm();
-        setupPrimaryForm();
+        setupNurseryPrimaryForm();
       });
     } else {
       loadSubjects();
       setupSecondaryForm();
-      setupPrimaryForm();
+      setupNurseryPrimaryForm();
     }
   } catch (error) {
     console.error('Init subjects error:', error);
@@ -64,15 +65,18 @@ async function loadSubjects() {
       </thead>
       <tbody>`;
     for (const sub of subjects) {
-      const levelDisplay = sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—');
+      const levelDisplay = sub.level === 'nursery' ? 'Nursery' : (sub.level === 'primary' ? 'Primary' : (sub.level === 'secondary' ? 'Secondary' : '—'));
       tableHtml += `<tr>
         <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(sub.name)}</td>
         <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${escapeHtml(sub.code || '-')}</td>
         <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">${levelDisplay}</td>
-        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;"><button class="btn-danger" onclick="window.deleteSubject('${sub.id}')">Delete</button></td>
+        <td style="padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid #e2e8f0;">
+          <button class="btn-secondary" onclick="window.editSubject('${sub.id}')">Edit</button>
+          <button class="btn-danger" onclick="window.deleteSubject('${sub.id}')">Delete</button>
+        </td>
       </tr>`;
     }
-    tableHtml += `</tbody>${'赶'}`;
+    tableHtml += `</tbody>`;
     
     container.innerHTML = createScrollableWrapper(tableHtml);
     
@@ -91,6 +95,8 @@ async function loadSubjects() {
         }
       }
     };
+
+    window.editSubject = (id) => openEditSubjectModal(id);
   } catch (err) {
     console.error('Load subjects error:', err);
     toast.error('Unable to load subjects. Please refresh the page.');
@@ -103,10 +109,10 @@ function formatSubjectName(rawName) {
   return trimmed.replace(/\b\w/g, char => char.toUpperCase());
 }
 
-async function isDuplicateSubject(name, level) {
+async function isDuplicateSubject(name, level, excludeId = null) {
   const normalizedName = formatSubjectName(name);
   const existing = await service.getSubjectsByLevel(currentSchoolId, level);
-  return existing.some(sub => sub.name === normalizedName);
+  return existing.some(sub => sub.name === normalizedName && sub.id !== excludeId);
 }
 
 async function addSubjectToFirestore(name, code, level) {
@@ -121,6 +127,20 @@ async function addSubjectToFirestore(name, code, level) {
     schoolId: currentSchoolId,
     level: level,
     createdAt: new Date()
+  });
+}
+
+async function updateSubjectInFirestore(id, name, code, level) {
+  const formattedName = formatSubjectName(name);
+  const duplicate = await isDuplicateSubject(formattedName, level, id);
+  if (duplicate) {
+    throw new Error(`Subject "${formattedName}" already exists for ${level} level.`);
+  }
+  await updateDoc(doc(db, 'subjects', id), {
+    name: formattedName,
+    code: code || '',
+    level: level,
+    updatedAt: new Date()
   });
 }
 
@@ -166,18 +186,25 @@ function setupSecondaryForm() {
   });
 }
 
-function setupPrimaryForm() {
-  const form = document.getElementById('primarySubjectForm');
+function setupNurseryPrimaryForm() {
+  const form = document.getElementById('nurseryPrimarySubjectForm');
   if (!form) return;
   
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const nameInput = document.getElementById('primarySubjectName');
-    const codeInput = document.getElementById('primarySubjectCode');
+    const nameInput = document.getElementById('nurseryPrimarySubjectName');
+    const levelSelect = document.getElementById('nurseryPrimaryLevel');
+    const codeInput = document.getElementById('nurseryPrimarySubjectCode');
     
     const name = nameInput ? nameInput.value.trim() : '';
+    const level = levelSelect ? levelSelect.value : '';
+    
     if (!name) {
       toast.error('Please enter a subject name.');
+      return;
+    }
+    if (!level) {
+      toast.error('Please select a level (Nursery or Primary).');
       return;
     }
     
@@ -185,16 +212,89 @@ function setupPrimaryForm() {
     
     showLoader();
     try {
-      await addSubjectToFirestore(name, code, 'primary');
+      await addSubjectToFirestore(name, code, level);
       form.reset();
-      toast.success('Primary subject added successfully.');
+      toast.success('Subject added successfully.');
       await loadSubjects();
     } catch (err) {
-      console.error('Add primary subject error:', err);
-      toast.error(err.message || 'Failed to add primary subject. Please try again.');
+      console.error('Add nursery/primary subject error:', err);
+      toast.error(err.message || 'Failed to add subject. Please try again.');
     } finally {
       hideLoader();
     }
+  });
+}
+
+// Edit Subject Modal
+function openEditSubjectModal(subjectId) {
+  // Get subject data from service or find from already loaded list
+  service.getSubjectsBySchool(currentSchoolId).then(subjects => {
+    const subject = subjects.find(s => s.id === subjectId);
+    if (!subject) {
+      toast.error('Subject not found.');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'editSubjectModal';
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
+        <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Edit Subject</h3>
+        <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">Update subject details below.</p>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="editSubjectName">Subject Name</label>
+          <input type="text" id="editSubjectName" value="${escapeHtml(subject.name)}" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="editSubjectCode">Subject Code</label>
+          <input type="text" id="editSubjectCode" value="${escapeHtml(subject.code || '')}" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <label for="editSubjectLevel">Level</label>
+          <select id="editSubjectLevel" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;">
+            <option value="nursery" ${subject.level === 'nursery' ? 'selected' : ''}>Nursery</option>
+            <option value="primary" ${subject.level === 'primary' ? 'selected' : ''}>Primary</option>
+            <option value="secondary" ${subject.level === 'secondary' ? 'selected' : ''}>Secondary</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button id="updateSubjectBtn" style="flex:1;padding:9px;border:none;border-radius:8px;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer;">Update</button>
+          <button id="cancelEditSubjectBtn" style="flex:1;padding:9px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById('cancelEditSubjectBtn').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    document.getElementById('updateSubjectBtn').addEventListener('click', async () => {
+      const newName = document.getElementById('editSubjectName').value.trim();
+      const newCode = document.getElementById('editSubjectCode').value.trim();
+      const newLevel = document.getElementById('editSubjectLevel').value;
+
+      if (!newName) {
+        toast.error('Subject name cannot be empty.');
+        return;
+      }
+
+      showLoader();
+      try {
+        await updateSubjectInFirestore(subjectId, newName, newCode, newLevel);
+        overlay.remove();
+        toast.success('Subject updated successfully.');
+        await loadSubjects();
+      } catch (err) {
+        console.error('Update subject error:', err);
+        toast.error(err.message || 'Failed to update subject. Please try again.');
+      } finally {
+        hideLoader();
+      }
+    });
+  }).catch(err => {
+    console.error('Error fetching subject for edit:', err);
+    toast.error('Unable to load subject details.');
   });
 }
 
