@@ -5,6 +5,7 @@
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 // UPDATED: Print comments now appear inline (same line as label)
+// NEW: "Enable Position" toggle – when ON, report card displays student's class position calculated from broadsheet.
 //
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
@@ -48,6 +49,9 @@ let unsubscribeSub = null;
 let currentAcademicSession = '';
 let currentAcademicTerm = '';
 
+// NEW: Position toggle state (default off)
+let positionEnabled = false;
+
 let editorState = {
   selectedStudent: null,
   term: '1',
@@ -64,8 +68,7 @@ let editorState = {
 // ------------------- Helper: Check if requested session/term is current -------------------
 function isCurrentSessionTerm(session, term) {
   if (!currentAcademicSession || !currentAcademicTerm) return false;
-  const termName = term; // term is already numeric, we compare directly because currentAcademicTerm is also numeric? Actually it's "First Term" etc.
-  // We need to convert both to comparable format. We'll use the term number for comparison.
+  const termName = term;
   const termNumFromName = (name) => ({ 'First Term': '1', 'Second Term': '2', 'Third Term': '3' }[name] || name);
   return session === currentAcademicSession && termNumFromName(term) === termNumFromName(currentAcademicTerm);
 }
@@ -267,6 +270,45 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
+// NEW: Compute class position for a student based on current term & session
+async function getStudentClassPosition(studentId, classId, term, session) {
+  if (!classId || !studentId || !term || !session) return null;
+  try {
+    const classStudents = studentsList.filter(s => s.classId === classId);
+    if (!classStudents.length) return null;
+    const classInfo = classesMap.get(classId);
+    const classLevel = classInfo?.level || 'secondary';
+    const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
+    if (relevantSubjectIds.length === 0) return null;
+    const allScores = await fetchClassScores(classId, term, session);
+    
+    // Build per-student total scores
+    const totalsMap = new Map();
+    for (const student of classStudents) {
+      let total = 0;
+      let count = 0;
+      const studentScores = allScores.filter(sc => sc.studentId === student.id && relevantSubjectIds.includes(sc.subjectId));
+      for (const score of studentScores) {
+        total += (score.ca || 0) + (score.exam || 0);
+        count++;
+      }
+      if (count > 0) totalsMap.set(student.id, { total, average: (total / (count * 100)) * 100 });
+    }
+    // Sort by average descending
+    const sorted = Array.from(totalsMap.entries())
+      .sort((a, b) => b[1].average - a[1].average);
+    let rank = 1;
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i][1].average < sorted[i-1][1].average) rank = i + 1;
+      if (sorted[i][0] === studentId) return rank;
+    }
+    return null;
+  } catch (err) {
+    console.error('Error computing class position:', err);
+    return null;
+  }
+}
+
 // ------------------- renderReportCard -------------------
 async function renderReportCard(studentId, studentName) {
   const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
@@ -326,6 +368,12 @@ async function renderReportCard(studentId, studentName) {
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
+  // NEW: Compute class position if enabled
+  let classPosition = null;
+  if (positionEnabled && classId) {
+    classPosition = await getStudentClassPosition(studentId, classId, editorState.term, editorState.session);
+  }
+
   const studentData = {
     id: studentId, name: studentName,
     classId: student.classId,
@@ -348,6 +396,8 @@ async function renderReportCard(studentId, studentName) {
     term: editorState.term, session: editorState.session, subjectStats,
     container: document.getElementById('reportCardContent'),
     attendance, isPrimary,
+    positionEnabled,          // NEW
+    position: classPosition,  // NEW
     onRatingChange:          (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
     onTeacherCommentChange:  (newComment)          => { editorState.teacherComment   = newComment; },
     onPrincipalCommentChange:(newComment)          => { editorState.principalComment = newComment; }
@@ -643,7 +693,7 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
-      const grade   = calculateGrade(average);  // using imported
+      const grade   = calculateGrade(average);
       const remark  = getGradeRemark(grade);
       const tAvg    = termAverages.get(student.id);
       studentResults.push({
@@ -947,6 +997,17 @@ export async function initResultsPage() {
   document.getElementById('editorClassSelect')?.addEventListener('change', onEditorClassChange);
   document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
   document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
+
+  // NEW: Enable Position toggle listener
+  const enablePositionToggle = document.getElementById('enablePositionToggle');
+  if (enablePositionToggle) {
+    enablePositionToggle.addEventListener('change', () => {
+      positionEnabled = enablePositionToggle.checked;
+      if (editorState.selectedStudent) {
+        renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+      }
+    });
+  }
 
   const downloadBroadsheetBtn = document.getElementById('printBroadsheetBtn');
   if (downloadBroadsheetBtn) downloadBroadsheetBtn.textContent = 'Print/Download';
