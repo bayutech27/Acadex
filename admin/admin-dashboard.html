@@ -219,7 +219,6 @@
         gap: 12px;
       }
 
-      /* Full‑width card for dashboard (active) */
       .mobile-nav-card {
         background: #fff;
         border-radius: 16px;
@@ -288,7 +287,6 @@
       }
 
       /* Color themes per card */
-      .mnc-dashboard { --card-color-a: #4361ee; --card-color-b: #7c3aed; --icon-bg: rgba(67,97,238,.1); --icon-color: #4361ee; }
       .mnc-teachers  { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
       .mnc-students  { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
       .mnc-setup     { --card-color-a: #8b5cf6; --card-color-b: #f72585; --icon-bg: rgba(139,92,246,.1); --icon-color: #8b5cf6; }
@@ -299,7 +297,6 @@
       .mobile-nav-card:nth-child(2) { animation-delay: .1s; }
       .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
       .mobile-nav-card:nth-child(4) { animation-delay: .22s; }
-      .mobile-nav-card:nth-child(5) { animation-delay: .28s; }
 
       /* Stats 2‑column on mobile */
       .stats-grid {
@@ -377,7 +374,6 @@
         display: flex !important;
         align-items: center;
         justify-content: center;
-        /* Ensure touch events go through */
         touch-action: manipulation;
       }
       .school-header-left .school-logo img {
@@ -386,7 +382,7 @@
         object-fit: cover;
         border-radius: 50%;
         display: block;
-        pointer-events: none; /* So clicks pass to the container */
+        pointer-events: none;
       }
 
       /* Ensure school name stays beside logo */
@@ -398,8 +394,6 @@
       .header-right .subscription-badge {
         display: none !important;
       }
-
-      /* Hide desktop logout on mobile (already handled globally) */
     }
 
     /* =========================================================
@@ -660,13 +654,6 @@
         </div>
         <div class="mobile-nav-grid">
 
-          <a href="admin-dashboard.html" class="mobile-nav-card mnc-dashboard active">
-            <div class="mobile-nav-icon">
-              <i class="fa-solid fa-gauge-high"></i>
-            </div>
-            <span class="mobile-nav-label">Dashboard</span>
-          </a>
-
           <a href="teachers.html" class="mobile-nav-card mnc-teachers">
             <div class="mobile-nav-icon">
               <i class="fa-solid fa-chalkboard-user"></i>
@@ -688,7 +675,7 @@
             <span class="mobile-nav-label">Subjects &amp; Classes</span>
           </a>
 
-          <a href="results.html" class="mobile-nav-card mnc-results" style="grid-column: span 2;">
+          <a href="results.html" class="mobile-nav-card mnc-results">
             <div class="mobile-nav-icon">
               <i class="fa-solid fa-chart-bar"></i>
             </div>
