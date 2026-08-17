@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Records</title>
   <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     /* ===== Filters & header styles ===== */
     .filters {
@@ -41,9 +42,9 @@
       color: #718096;
     }
     .school-address {
-      font-size: 0.8rem;
+      font-size: 0.74rem;
       color: #64748b;
-      margin-top: 4px;
+      margin-top: 3px;
     }
 
     /* Header subscription badge */
@@ -51,13 +52,54 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
-    .school-header {
+    .school-header-left {
       display: flex;
       align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+    .school-header-left .school-logo {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #e0e7ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      background: rgba(0,0,0,0.8);
     }
     .subscription-badge {
       margin-left: auto;
@@ -80,7 +122,87 @@
       color: #b91c1c;
     }
 
-    /* ===== Two‑column layout for report cards ===== */
+    /* Academic Calendar Badge */
+    .academic-badge {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: 16px;
+    }
+    .academic-badge .override-badge {
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+    }
+
+    /* Mobile responsive header */
+    @media (max-width: 768px) {
+      .header {
+        flex-wrap: nowrap;
+        gap: 8px;
+      }
+      .header-right {
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+      .school-header-left {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 8px;
+      }
+      .school-name {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .school-name h1#schoolName {
+        font-size: 0.95rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.2;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      .school-header-left .school-logo .camera-icon {
+        display: none !important;
+      }
+      .school-header-left .school-logo {
+        width: 44px !important;
+        height: 44px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        pointer-events: none;
+      }
+      .header-right .subscription-badge {
+        display: none !important;
+      }
+    }
+
+    /* Hide hamburger on desktop */
+    @media (min-width: 769px) {
+      .hamburger-menu {
+        display: none !important;
+      }
+    }
+
+    /* ========== REPORT CARD STYLES (unchanged) ========== */
     .report-editor-container {
       display: flex;
       gap: 1.5rem;
@@ -132,27 +254,6 @@
     .btn-primary { background-color: #3b82f6; color: white; }
     .btn-secondary { background-color: #64748b; color: white; }
 
-    /* Academic Calendar Badge */
-    .academic-badge {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: 16px;
-    }
-    .academic-badge .override-badge {
-      background: #f59e0b;
-      color: #000;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-size: 0.7rem;
-    }
-
     /* ========== REPORT CARD STYLES ========== */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: 8px;
@@ -175,7 +276,7 @@
     .school-name-area { flex: 1; text-align: center; }
     .school-name-report { font-size: 1.5rem; margin: 0; font-weight: 700; color: #0f172a; }
     .school-motto { font-size: 10px; color: #475569; margin-top: 2px; }
-    .school-address { font-size: 9px; color: #64748b; margin-top: 2px; }
+    .school-address-report { font-size: 9px; color: #64748b; margin-top: 2px; }
     .passport-area { width: 75px; display: flex; justify-content: center; }
     .student-passport-img { max-width: 65px; max-height: 75px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e8f0; }
     .student-details-grid {
@@ -448,45 +549,45 @@
         padding: 3px 6px;
       }
     }
-    /* Hide hamburger on desktop */
-    @media (min-width: 769px) {
-      .hamburger-menu {
-        display: none !important;
-      }
-    }
   </style>
 </head>
 <body>
 <div class="dashboard-container">
   <aside class="sidebar">
     <div class="sidebar-header">
+      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">Dashboard</a>
-      <a href="teachers.html">Teachers</a>
-      <a href="students.html">Students & Pupils</a>
-      <a href="setup.html">Subjects & Classes</a>
-      <a href="results.html">Results</a>
-      <a href="records.html" class="active">Records</a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
+    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
 
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar">&times;</button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">Dashboard</a>
-      <a href="teachers.html">Teachers</a>
-      <a href="students.html">Students & Pupils</a>
-      <a href="setup.html">Subjects & Classes</a>
-      <a href="results.html">Results</a>
-      <a href="records.html" class="active">Records</a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">Logout</button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -496,7 +597,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon">📷</div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -505,15 +606,16 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Menu">☰</button>
-        <div id="subscriptionBadge" class="subscription-badge">⏳ Loading...</div>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
     <div class="academic-badge-row">
       <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> | 
+        <i class="fa-solid fa-calendar-days"></i>
+        <span id="currentTermDisplay">Loading…</span> &nbsp;|&nbsp;
         <span id="currentSessionDisplay"></span>
       </div>
     </div>
