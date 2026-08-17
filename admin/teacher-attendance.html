@@ -49,6 +49,45 @@
       display: flex; align-items: center;
       gap: 14px; min-width: 0; flex: 1;
     }
+    .school-header-left .school-logo {
+      position: relative;
+      width: 52px; height: 52px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #e0e7ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.2s;
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      background: rgba(0,0,0,0.8);
+    }
 
     /* ---- Summary stat cards ---- */
     .attendance-summary {
@@ -212,6 +251,40 @@
 
     /* Mobile header adjustments */
     @media (max-width: 768px) {
+      .header {
+        flex-wrap: nowrap;
+        gap: 8px;
+      }
+      .header-right {
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+      .school-header-left {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 8px;
+      }
+      .school-name {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .school-name h1#schoolName {
+        font-size: 0.95rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.2;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
       .school-header-left .school-logo .camera-icon {
         display: none !important;
       }
@@ -250,30 +323,14 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html" class="active">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html" class="active"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -282,40 +339,20 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html" class="active">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html" class="active"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -328,9 +365,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon" title="Change logo">
-            <i class="fa-solid fa-camera"></i>
-          </div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -339,15 +374,9 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Open menu">
-          <i class="fa-solid fa-bars"></i>
-        </button>
-        <div id="subscriptionBadge" class="subscription-badge">
-          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…
-        </div>
-        <button id="logoutBtn" class="logout-btn">
-          <i class="fa-solid fa-right-from-bracket"></i> Logout
-        </button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i> Loading…</div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
@@ -366,10 +395,7 @@
 
       <!-- Welcome -->
       <div class="welcome-card">
-        <h1>
-          <i class="fa-solid fa-user-clock" style="opacity:.8;margin-right:8px;"></i>
-          Teachers Attendance
-        </h1>
+        <h1><i class="fa-solid fa-user-clock" style="opacity:.8;margin-right:8px;"></i> Teachers Attendance</h1>
         <p>Monitor teacher clock-in &amp; clock-out, configure geofencing, and manage attendance records.</p>
       </div>
 
@@ -430,15 +456,9 @@
         </div>
 
         <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem;align-items:center;">
-          <button id="useMyLocationBtn" class="btn-primary">
-            <i class="fa-solid fa-location-arrow"></i> Use My Current Location
-          </button>
-          <button id="saveGeofenceBtn" class="btn-success">
-            <i class="fa-solid fa-floppy-disk"></i> Save Settings
-          </button>
-          <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:#10b981;display:none;">
-            <i class="fa-solid fa-circle-check"></i> Saved!
-          </span>
+          <button id="useMyLocationBtn" class="btn-primary"><i class="fa-solid fa-location-arrow"></i> Use My Current Location</button>
+          <button id="saveGeofenceBtn" class="btn-success"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
+          <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:#10b981;display:none;"><i class="fa-solid fa-circle-check"></i> Saved!</span>
         </div>
       </div>
 
@@ -469,9 +489,7 @@
       <!-- ======== ATTENDANCE TABLE ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(16,185,129,.1);color:#10b981;">
-            <i class="fa-solid fa-table-list"></i>
-          </div>
+          <div class="section-card-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="fa-solid fa-table-list"></i></div>
           <div>
             <div class="section-card-title">Attendance Records</div>
             <div class="section-card-sub">Real-time teacher clock-in &amp; clock-out log</div>
@@ -484,12 +502,8 @@
             <label>Date</label>
             <input type="date" id="attendanceDateFilter" style="width:auto;">
           </div>
-          <button id="loadAttendanceBtn" class="btn-primary" style="margin-top:1.25rem;">
-            <i class="fa-solid fa-rotate"></i> Load
-          </button>
-          <button id="exportCsvBtn" class="btn-secondary" style="margin-top:1.25rem;">
-            <i class="fa-solid fa-file-csv"></i> Export CSV
-          </button>
+          <button id="loadAttendanceBtn" class="btn-primary" style="margin-top:1.25rem;"><i class="fa-solid fa-rotate"></i> Load</button>
+          <button id="exportCsvBtn" class="btn-secondary" style="margin-top:1.25rem;"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
         </div>
 
         <div class="attendance-table-wrapper">
@@ -521,9 +535,7 @@
       <!-- ======== ADMIN OVERRIDE ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;">
-            <i class="fa-solid fa-pen-to-square"></i>
-          </div>
+          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-pen-to-square"></i></div>
           <div>
             <div class="section-card-title">Admin Override</div>
             <div class="section-card-sub">Manually mark a teacher as present for a specific date</div>
@@ -532,9 +544,7 @@
         <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;">
           <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0;">
             <label>Select Teacher</label>
-            <select id="overrideTeacherSelect">
-              <option value="">— Select teacher —</option>
-            </select>
+            <select id="overrideTeacherSelect"><option value="">— Select teacher —</option></select>
           </div>
           <div class="form-group" style="min-width:160px;margin-bottom:0;">
             <label>Date</label>
@@ -553,9 +563,7 @@
           <label>Reason / Note</label>
           <textarea id="overrideNote" class="override-note-area" placeholder="e.g. Official assignment, medical leave..."></textarea>
         </div>
-        <button id="applyOverrideBtn" class="btn-warning" style="margin-top:.5rem;">
-          <i class="fa-solid fa-pen-ruler"></i> Apply Override
-        </button>
+        <button id="applyOverrideBtn" class="btn-warning" style="margin-top:.5rem;"><i class="fa-solid fa-pen-ruler"></i> Apply Override</button>
         <div id="overrideMsg" style="margin-top:.6rem;font-size:.82rem;font-weight:700;display:none;"></div>
       </div>
 
@@ -563,10 +571,7 @@
 
     <!-- FOOTER -->
     <footer class="app-footer">
-      <p>
-        <i class="fa-regular fa-copyright" style="margin-right:4px;"></i>
-        <span id="currentYear"></span> Acadex &mdash; All rights reserved.
-      </p>
+      <p><i class="fa-regular fa-copyright" style="margin-right:4px;"></i><span id="currentYear"></span> Acadex &mdash; All rights reserved.</p>
     </footer>
 
   </main>
@@ -583,9 +588,7 @@
   } from '../js/admin.js';
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
-  import {
-    initTeacherAttendancePage
-  } from '../js/teacher-attendance.js';
+  import { initTeacherAttendancePage } from '../js/teacher-attendance.js';
 
   const yr = new Date().getFullYear();
   document.getElementById('currentYear').innerText = yr;
