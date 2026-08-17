@@ -8,6 +8,9 @@
 // MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
 // ADDED: Nationality (all countries), State (Nigerian states), Religion, Parent Phone – mandatory fields.
 // UPDATED: Class filter buttons are now loaded dynamically from the Firestore `classes` collection.
+// NEW: Added "Nursery" level (order: Nursery, Primary, Secondary).
+// NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
+// NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
 //
 // All Firestore operations go through service.js where possible.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
@@ -21,7 +24,7 @@ import {
   collection, getDocs, query, where, doc, setDoc, serverTimestamp, updateDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { db } from './firebase-config.js';
-import { getCurrentSchoolId, protectAdminPage } from './admin.js';
+import { getCurrentSchoolId, protectAdminPage, getCurrentTerm } from './admin.js';
 import { handleNewStudentAddition } from './plan.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import * as service from './service.js';
@@ -227,6 +230,16 @@ export async function initStudentsPage() {
     });
   }
 
+  // Populate level select with new order: Nursery, Primary, Secondary
+  if (levelSelect) {
+    levelSelect.innerHTML = `
+      <option value="">-- Select Level --</option>
+      <option value="nursery">Nursery</option>
+      <option value="primary">Primary</option>
+      <option value="secondary">Secondary</option>
+    `;
+  }
+
   if (!studentForm || !modal || !surnameInput || !firstNameInput || !levelSelect || !classSelect || !subjectsSelect) {
     console.error('Required DOM elements not found');
     toast.error('Page not loaded correctly. Please refresh.');
@@ -370,7 +383,7 @@ async function loadClassesByLevel(level) {
   if (!level) return;
   showLoader();
   try {
-    const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
+    const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level.toLowerCase());
     if (!classSelect) return;
     classSelect.innerHTML = '<option value="">Select Class</option>';
     if (classes.length === 0) {
@@ -401,7 +414,7 @@ async function loadSubjectsByLevel(level) {
   if (!level) return;
   showLoader();
   try {
-    const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
+    const subjects = await service.getSubjectsByLevel(currentSchoolId, level.toLowerCase());
     if (!subjectsSelect) return;
     subjectsSelect.innerHTML = '';
     if (subjects.length === 0) {
@@ -610,6 +623,15 @@ async function loadAndDisplayStudents() {
     return;
   }
 
+  // Determine if we are in the First Term (only then show Promote button)
+  let isFirstTerm = false;
+  try {
+    const currentTerm = getCurrentTerm();
+    isFirstTerm = currentTerm?.toLowerCase() === 'first term';
+  } catch (err) {
+    console.warn('Unable to determine current term:', err);
+  }
+
   container.innerHTML = `
     <div class="table-responsive-wrapper">
       <table class="data-table">
@@ -639,7 +661,7 @@ async function loadAndDisplayStudents() {
                   </td>
                   <td>${escapeHtml(student.admissionNumber || '—')}</td>
                   <td>${escapeHtml(student.name)}</td>
-                  <td>${escapeHtml(student.email)}</td>
+                  <td>${escapeHtml(student.email || '—')}</td>
                   <td>${escapeHtml(className)}</td>
                   <td>
                   <select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
@@ -652,6 +674,7 @@ async function loadAndDisplayStudents() {
                   <td>
                   <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
                   <button class="btn-danger"    onclick="window.deleteStudent('${student.id}')">Delete</button>
+                  ${isFirstTerm ? `<button class="btn-promote" onclick="window.promoteStudent('${student.id}')">Promote</button>` : ''}
                 </td>
                 `
             }).join('')}
@@ -718,6 +741,62 @@ async function loadAndDisplayStudents() {
       hideLoader();
     }
   };
+
+  // Promote handler
+  window.promoteStudent = (id) => openPromoteModal(id);
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// PROMOTE STUDENT (move to another class)
+// ───────────────────────────────────────────────────────────────────────────────
+async function openPromoteModal(studentId) {
+  const classes = Array.from(classesMap.entries()).map(([id, data]) => ({ id, ...data }));
+  classes.sort((a, b) => a.name.localeCompare(b.name));
+
+  const overlay = document.createElement('div');
+  overlay.id = 'promoteModal';
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
+      <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Promote Student</h3>
+      <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">Select the new class for this student.</p>
+      <div style="max-height:300px;overflow-y:auto;">
+        ${classes.map(cls => `
+          <button class="promote-class-btn" data-class-id="${cls.id}" style="display:block;width:100%;padding:10px;margin:5px 0;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;text-align:left;">
+            ${escapeHtml(cls.name)} (${escapeHtml(cls.level)})
+          </button>
+        `).join('')}
+      </div>
+      <button id="closePromoteModalBtn" style="margin-top:15px;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('closePromoteModalBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  document.querySelectorAll('.promote-class-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newClassId = btn.dataset.classId;
+      await promoteStudentToClass(studentId, newClassId);
+      overlay.remove();
+    });
+  });
+}
+
+async function promoteStudentToClass(studentId, newClassId) {
+  showLoader();
+  try {
+    await updateDoc(doc(db, 'students', studentId), { classId: newClassId, updatedAt: new Date() });
+    toast.success('Student promoted successfully.');
+    await loadAndDisplayStudents();
+  } catch (err) {
+    console.error('Promote student error:', err);
+    toast.error('Failed to promote student. Please try again.');
+  } finally {
+    hideLoader();
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -774,7 +853,7 @@ async function loadStudentData(studentId) {
     if (otherNameInput) otherNameInput.value = nameParts.slice(2).join(' ') || '';
     if (emailInput)     emailInput.value     = student.email || '';
 
-    const studentLevel = student.level || 'secondary';
+    const studentLevel = (student.level || 'secondary').toLowerCase();
     if (levelSelect) levelSelect.value = studentLevel;
 
     if (studentLevel) {
@@ -836,7 +915,7 @@ async function handleStudentSubmit(e) {
   const otherName = capitalizeWords(otherNameInput?.value ?? '');
   const fullName  = formatFullName(surname, firstName, otherName);
   const email     = emailInput?.value.trim() ?? '';
-  const level     = levelSelect?.value ?? '';
+  const level     = (levelSelect?.value ?? '').toLowerCase();
   const classId   = classSelect?.value ?? '';
   const selectedSubjects = Array.from(subjectsSelect?.selectedOptions ?? []).map(o => o.value);
   const status  = statusSelect?.value ?? 'active';
@@ -849,8 +928,13 @@ async function handleStudentSubmit(e) {
   const religion = religionSelect?.value ?? '';
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
-  if (!surname || !firstName || !email || !classId || !gender || !dob || !level) {
-    toast.error('Please fill in all required fields (Surname, First Name, Email, Level, Class, Gender, Date of Birth).');
+  // Required fields validation: email is only required for Secondary level
+  if (!surname || !firstName || !classId || !gender || !dob || !level) {
+    toast.error('Please fill in all required fields (Surname, First Name, Level, Class, Gender, Date of Birth).');
+    return;
+  }
+  if (level === 'secondary' && !email) {
+    toast.error('Email is required for Secondary level students.');
     return;
   }
   if (!nationality || !state || !religion || !parentPhone) {
@@ -882,7 +966,7 @@ async function handleStudentSubmit(e) {
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email,
+    email: email, // may be empty for Nursery/Primary without email
     level,
     classId,
     subjects: selectedSubjects,
@@ -915,40 +999,55 @@ async function handleStudentSubmit(e) {
       return;
     }
 
-    const secondaryAuthInstance = getSecondaryAuth();
-    const defaultPassword = '$Acadex123';
-    let userCredential;
-    try {
-      userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
-    } catch (authError) {
-      console.error('Student Auth creation error:', authError);
-      if (authError.code === 'auth/email-already-in-use') {
-        toast.error('A user with this email already exists. Please use a different email.');
-      } else {
-        toast.error('Failed to create login account. Please check your internet connection.');
+    // Determine if we need to create an auth account.
+    // For Nursery/Primary without email, skip auth entirely.
+    const shouldCreateAuth = Boolean(email);
+
+    if (shouldCreateAuth) {
+      // Existing flow: create auth account, then student doc with UID, then user doc.
+      const secondaryAuthInstance = getSecondaryAuth();
+      const defaultPassword = '$Acadex123';
+      let userCredential;
+      try {
+        userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
+      } catch (authError) {
+        console.error('Student Auth creation error:', authError);
+        if (authError.code === 'auth/email-already-in-use') {
+          toast.error('A user with this email already exists. Please use a different email.');
+        } else {
+          toast.error('Failed to create login account. Please check your internet connection.');
+        }
+        return;
       }
-      return;
+
+      const uid = userCredential.user.uid;
+      const studentDocData = { ...studentBaseData, uid: uid };
+      await service.createStudent(uid, studentDocData);
+
+      const userDocData = {
+        uid: uid,
+        email: email,
+        role: 'student',
+        schoolId: currentSchoolId,
+        fullName: fullName,
+        studentId: uid,
+        classId: classId,
+        level: level,
+        createdAt: serverTimestamp(),
+      };
+      await setDoc(doc(db, 'users', uid), userDocData);
+
+      await handleNewStudentAddition(currentSchoolId, 1);
+      showCredentialsModal(fullName, email, defaultPassword);
+    } else {
+      // New flow: no auth account, no user document.
+      // Create student document with auto-generated ID and uid: null.
+      const newStudentRef = doc(collection(db, 'students'));
+      await setDoc(newStudentRef, { ...studentBaseData, uid: null });
+
+      // Still call the subscription handler for new student.
+      await handleNewStudentAddition(currentSchoolId, 1);
     }
-
-    const uid = userCredential.user.uid;
-    const studentDocData = { ...studentBaseData, uid: uid };
-    await service.createStudent(uid, studentDocData);
-
-    const userDocData = {
-      uid: uid,
-      email: email,
-      role: 'student',
-      schoolId: currentSchoolId,
-      fullName: fullName,
-      studentId: uid,
-      classId: classId,
-      level: level,
-      createdAt: serverTimestamp(),
-    };
-    await setDoc(doc(db, 'users', uid), userDocData);
-
-    await handleNewStudentAddition(currentSchoolId, 1);
-    showCredentialsModal(fullName, email, defaultPassword);
 
     closeModal();
     await loadAndDisplayStudents();
