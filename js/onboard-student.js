@@ -2,6 +2,11 @@
 // STRICT: Only teachers with at least one host class can use this page.
 // Supports multiple class teacher assignments (hostClassIds array).
 // Includes a dropdown to select which class to manage.
+//
+// NEW: Added "Nursery" level support (level is determined by the assigned class).
+// NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
+// NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
+// All other functionality remains unchanged.
 
 import { auth, db } from './firebase-config.js';
 import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -17,11 +22,13 @@ import {
   getDocs,
   serverTimestamp,
   getDoc,
-  setDoc
+  setDoc,
+  addDoc
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as service from './service.js';
 import { getRawSubscription } from './plan.js';
 import { toast } from './error-handler.js';
+import { getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 
 // Global state
 let currentSchoolId = null;
@@ -204,7 +211,7 @@ async function loadCurrentClassInfo() {
   const classDoc = await getDoc(doc(db, 'classes', currentClassId));
   if (!classDoc.exists()) throw new Error('Assigned class not found.');
   currentClassName = classDoc.data().name;
-  currentClassLevel = classDoc.data().level;
+  currentClassLevel = (classDoc.data().level || '').toLowerCase(); // Normalize to lowercase
 
   if (classInfoContainer) {
     classInfoContainer.innerHTML = `<i class="fa-solid fa-chalkboard"></i> Current Class: <strong>${escapeHtml(currentClassName)}</strong> (${currentClassLevel.charAt(0).toUpperCase() + currentClassLevel.slice(1)})`;
@@ -218,7 +225,7 @@ async function loadCurrentClassInfo() {
 async function loadSubjectsByLevel(level) {
   if (!level) return;
   try {
-    const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
+    const subjects = await service.getSubjectsByLevel(currentSchoolId, level.toLowerCase());
     subjectsMap.clear();
     subjects.forEach(sub => {
       subjectsMap.set(sub.id, { name: sub.name });
@@ -379,6 +386,16 @@ async function loadAndDisplayStudents() {
     studentsContainer.innerHTML = '<p>No active students found in this class.</p>';
     return;
   }
+
+  // Determine if we are in the First Term (only then show Promote button)
+  let isFirstTerm = false;
+  try {
+    const currentTerm = getCurrentTerm();
+    isFirstTerm = currentTerm?.toLowerCase() === 'first term';
+  } catch (err) {
+    console.warn('Unable to determine current term:', err);
+  }
+
   studentsContainer.innerHTML = `
     <div class="table-container">
       <table class="data-table">
@@ -400,7 +417,7 @@ async function loadAndDisplayStudents() {
               <td>${student.passport ? `<img src="${student.passport}" class="student-passport" style="width:40px;height:40px;object-fit:cover;border-radius:50%;">` : '<div class="student-passport" style="width:40px;height:40px;background:#e2e8f0;border-radius:50%;"></div>'}</td>
               <td>${escapeHtml(student.admissionNumber || '—')}</td>
               <td>${escapeHtml(student.name)}</td>
-              <td>${escapeHtml(student.email)}</td>
+              <td>${escapeHtml(student.email || '—')}</td>
               <td>${escapeHtml(currentClassName)}</td>
               <td><select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
                 <option value="active" ${(student.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
@@ -408,8 +425,11 @@ async function loadAndDisplayStudents() {
                 <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
               </select></td>
               <td>${student.locked ? 'Yes' : 'No'}</td>
-              <td><button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
-                  <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button></td>
+              <td>
+                <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
+                <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button>
+                ${isFirstTerm ? `<button class="btn-promote" onclick="window.promoteStudent('${student.id}')">Promote</button>` : ''}
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -457,6 +477,57 @@ async function loadAndDisplayStudents() {
       }
     }
   };
+
+  // Promote handler
+  window.promoteStudent = (id) => openPromoteModal(id);
+}
+
+// Promote student modal
+async function openPromoteModal(studentId) {
+  const classes = await service.getClassesBySchool(currentSchoolId);
+  classes.sort((a, b) => a.name.localeCompare(b.name));
+
+  const overlay = document.createElement('div');
+  overlay.id = 'promoteModal';
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
+      <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Promote Student</h3>
+      <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">Select the new class for this student.</p>
+      <div style="max-height:300px;overflow-y:auto;">
+        ${classes.map(cls => `
+          <button class="promote-class-btn" data-class-id="${cls.id}" style="display:block;width:100%;padding:10px;margin:5px 0;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;text-align:left;">
+            ${escapeHtml(cls.name)} (${escapeHtml(cls.level)})
+          </button>
+        `).join('')}
+      </div>
+      <button id="closePromoteModalBtn" style="margin-top:15px;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('closePromoteModalBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  document.querySelectorAll('.promote-class-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newClassId = btn.dataset.classId;
+      await promoteStudentToClass(studentId, newClassId);
+      overlay.remove();
+    });
+  });
+}
+
+async function promoteStudentToClass(studentId, newClassId) {
+  try {
+    await updateDoc(doc(db, 'students', studentId), { classId: newClassId, updatedAt: new Date() });
+    toast.success('Student promoted successfully.');
+    await loadAndDisplayStudents();
+  } catch (err) {
+    console.error('Promote student error:', err);
+    toast.error('Failed to promote student. Please try again.');
+  }
 }
 
 // Modal logic
@@ -493,6 +564,7 @@ function openModal(studentId = null) {
   }
   if (modal) modal.style.display = 'flex';
 }
+
 async function loadStudentData(studentId) {
   try {
     const studentData = await service.getStudentById(studentId);
@@ -530,6 +602,7 @@ async function loadStudentData(studentId) {
     toast.error('Failed to load student data. Please refresh.');
   }
 }
+
 function closeModal() {
   if (modal) modal.style.display = 'none';
   editingStudentId = null;
@@ -564,8 +637,13 @@ async function handleStudentSubmit(e) {
   const religion = religionSelect?.value ?? '';
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
-  if (!surname || !firstName || !email || !gender || !dob || !nationality || !state || !religion || !parentPhone) {
+  // Required fields: email only required for Secondary
+  if (!surname || !firstName || !gender || !dob || !nationality || !state || !religion || !parentPhone) {
     toast.error('Please fill all required fields (*).');
+    return;
+  }
+  if (level === 'secondary' && !email) {
+    toast.error('Email is required for Secondary level students.');
     return;
   }
   const age = calculateAge(dob);
@@ -599,7 +677,7 @@ async function handleStudentSubmit(e) {
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email,
+    email, // may be empty for Nursery/Primary without email
     level,
     classId,
     subjects: selectedSubjects,
@@ -630,36 +708,47 @@ async function handleStudentSubmit(e) {
       await loadAndDisplayStudents();
       return;
     }
-    // Create auth account for new student
-    const secondaryAuthInstance = getSecondaryAuth();
-    const defaultPassword = '$Acadex123';
-    let userCredential;
-    try {
-      userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
-    } catch (authError) {
-      if (authError.code === 'auth/email-already-in-use') {
-        toast.error('A user with this email already exists. Use a different email.');
-      } else {
-        toast.error('Failed to create login account. Please check your internet connection.');
+
+    // Determine if we need to create an auth account.
+    const shouldCreateAuth = Boolean(email);
+
+    if (shouldCreateAuth) {
+      // Create auth account for new student
+      const secondaryAuthInstance = getSecondaryAuth();
+      const defaultPassword = '$Acadex123';
+      let userCredential;
+      try {
+        userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
+      } catch (authError) {
+        if (authError.code === 'auth/email-already-in-use') {
+          toast.error('A user with this email already exists. Use a different email.');
+        } else {
+          toast.error('Failed to create login account. Please check your internet connection.');
+        }
+        return;
       }
-      return;
+      const uid = userCredential.user.uid;
+      const studentDocData = { ...studentBaseData, uid: uid };
+      await setDoc(doc(db, 'students', uid), studentDocData);
+      const userDocData = {
+        uid: uid,
+        email: email,
+        role: 'student',
+        schoolId: currentSchoolId,
+        fullName: fullName,
+        studentId: uid,
+        classId: classId,
+        level: level,
+        createdAt: serverTimestamp(),
+      };
+      await setDoc(doc(db, 'users', uid), userDocData);
+      showCredentialsModal(fullName, email, defaultPassword);
+    } else {
+      // No auth account: create student document with auto ID and uid: null
+      const newStudentRef = doc(collection(db, 'students'));
+      await setDoc(newStudentRef, { ...studentBaseData, uid: null });
     }
-    const uid = userCredential.user.uid;
-    const studentDocData = { ...studentBaseData, uid: uid };
-    await setDoc(doc(db, 'students', uid), studentDocData);
-    const userDocData = {
-      uid: uid,
-      email: email,
-      role: 'student',
-      schoolId: currentSchoolId,
-      fullName: fullName,
-      studentId: uid,
-      classId: classId,
-      level: level,
-      createdAt: serverTimestamp(),
-    };
-    await setDoc(doc(db, 'users', uid), userDocData);
-    showCredentialsModal(fullName, email, defaultPassword);
+
     closeModal();
     await loadAndDisplayStudents();
   } catch (error) {
@@ -716,6 +805,9 @@ function showAccessDenied(message) {
 // Main initializer
 export async function initOnboardStudentPage() {
   try {
+    // Initialize academic calendar to ensure getCurrentTerm works
+    await initAcademicCalendar();
+
     // Bind DOM elements
     studentForm = document.getElementById('studentForm');
     modal = document.getElementById('studentModal');
