@@ -194,6 +194,40 @@
 
     /* Mobile responsive header */
     @media (max-width: 768px) {
+      .header {
+        flex-wrap: nowrap;
+        gap: 8px;
+      }
+      .header-right {
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+      .school-header-left {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 8px;
+      }
+      .school-name {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .school-name h1#schoolName {
+        font-size: 0.95rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.2;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
       .school-header-left .school-logo .camera-icon {
         display: none !important;
       }
@@ -307,30 +341,14 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html" class="active">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html" class="active"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
   </aside>
@@ -339,40 +357,20 @@
   <div id="mobileSidebar" class="mobile-sidebar">
     <div class="mobile-sidebar-header">
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+      <button class="close-sidebar" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <nav class="sidebar-nav">
-      <a href="admin-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="teachers.html" class="active">
-        <i class="fa-solid fa-chalkboard-user"></i> Teachers
-      </a>
-      <a href="students.html">
-        <i class="fa-solid fa-users"></i> Students &amp; Pupils
-      </a>
-      <a href="setup.html">
-        <i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes
-      </a>
-      <a href="results.html">
-        <i class="fa-solid fa-chart-bar"></i> Results
-      </a>
-      <a href="teacher-attendance.html">
-        <i class="fa-solid fa-user-clock"></i> Teachers Attendance
-      </a>
-      <a href="parents.html">
-        <i class="fa-solid fa-user-group"></i> Parents
-      </a>
-      <a href="school-finance.html">
-        <i class="fa-solid fa-sack-dollar"></i> School Finance
-      </a>
+      <a href="admin-dashboard.html"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+      <a href="teachers.html" class="active"><i class="fa-solid fa-chalkboard-user"></i> Teachers</a>
+      <a href="students.html"><i class="fa-solid fa-users"></i> Students &amp; Pupils</a>
+      <a href="setup.html"><i class="fa-solid fa-book-open-reader"></i> Subjects &amp; Classes</a>
+      <a href="results.html"><i class="fa-solid fa-chart-bar"></i> Results</a>
+      <a href="teacher-attendance.html"><i class="fa-solid fa-user-clock"></i> Teachers Attendance</a>
+      <a href="parents.html"><i class="fa-solid fa-user-group"></i> Parents</a>
+      <a href="school-finance.html"><i class="fa-solid fa-sack-dollar"></i> School Finance</a>
     </nav>
     <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
+      <button class="mobile-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
@@ -383,9 +381,7 @@
       <div class="school-header-left">
         <div class="school-logo">
           <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-          <div id="cameraIcon" class="camera-icon" title="Change logo">
-            <i class="fa-solid fa-camera"></i>
-          </div>
+          <div id="cameraIcon" class="camera-icon" title="Change logo"><i class="fa-solid fa-camera"></i></div>
           <input type="file" id="logoUploadInput" accept="image/*" style="display:none">
         </div>
         <div class="school-name">
@@ -394,15 +390,9 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="hamburger-menu" aria-label="Open menu">
-          <i class="fa-solid fa-bars"></i>
-        </button>
-        <div id="subscriptionBadge" class="subscription-badge">
-          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
-        </div>
-        <button id="logoutBtn" class="logout-btn">
-          <i class="fa-solid fa-right-from-bracket"></i> Logout
-        </button>
+        <button class="hamburger-menu" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+        <div id="subscriptionBadge" class="subscription-badge"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i></div>
+        <button id="logoutBtn" class="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
