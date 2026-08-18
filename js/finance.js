@@ -16,11 +16,13 @@ import {
 import { toast } from './error-handler.js';
 import { sanitizeSession } from './service.js';
 
+// ─── FIX 1: total owed helper ───────────────────────────
 function totalOwed(feeData) {
   if (!feeData) return 0;
   return (feeData.amount || 0) + (feeData.openingBalance || 0);
 }
 
+// ─── Shared bulk recalc (FIX 7) ─────────────────────────
 async function recalculateAllFeeGates(term, session) {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
@@ -31,8 +33,10 @@ async function recalculateAllFeeGates(term, session) {
   }
 }
 
+// ─── Finance Page Init ──────────────────────────────────
 export async function initFinancePage() {
   await initAdminPage(async () => {
+    // Academic badge with rollover detection (FIX 7a)
     let lastKnownPeriod = null;
     subscribeToCalendar(async (state) => {
       const termEl = document.getElementById('currentTermDisplay');
@@ -56,6 +60,7 @@ export async function initFinancePage() {
     await loadSummaryCards();
     await loadFeeGateState();
 
+    // ─── Event listeners ──────────────────────────────
     document.getElementById('refreshFinanceBtn').addEventListener('click', refreshClassFeeTable);
     document.getElementById('financeClassSelect').addEventListener('change', refreshClassFeeTable);
     document.getElementById('financeTermSelect').addEventListener('change', refreshClassFeeTable);
@@ -64,6 +69,7 @@ export async function initFinancePage() {
 
     document.getElementById('lookupStudentBtn').addEventListener('click', lookupStudentFee);
 
+    // FIX 2a: carry studentId in payment modal
     document.getElementById('recordPaymentBtn').addEventListener('click', () => {
       document.getElementById('editPaymentId').value = '';
       document.getElementById('paymentModalTitle').innerHTML = '<i class="fa-solid fa-money-bill-wave"></i> Record Payment';
@@ -105,6 +111,7 @@ export async function initFinancePage() {
 
     document.getElementById('feeGateToggle').addEventListener('change', handleFeeGateToggle);
 
+    // FIX 7c: Recalculate All button
     document.getElementById('recalcAllGatesBtn').addEventListener('click', async () => {
       const btn = document.getElementById('recalcAllGatesBtn');
       btn.disabled = true;
@@ -121,6 +128,7 @@ export async function initFinancePage() {
       }
     });
 
+    // Modal close handlers
     document.querySelectorAll('.close-modal, [data-modal-close]').forEach(btn => {
       btn.addEventListener('click', () => {
         btn.closest('.modal').style.display = 'none';
@@ -151,6 +159,7 @@ export async function initFinancePage() {
   });
 }
 
+// ─── updatePaymentTermDisplay ──────────────────────────
 function updatePaymentTermDisplay(date) {
   const displayEl = document.getElementById('paymentTermDisplay');
   if (!displayEl || isNaN(date.getTime())) {
@@ -161,6 +170,7 @@ function updatePaymentTermDisplay(date) {
   displayEl.textContent = `Term: ${term || '—'} | Session: ${session || '—'}`;
 }
 
+// ─── addBulkRow ─────────────────────────────────────────
 function addBulkRow() {
   const container = document.getElementById('bulkPaymentRows');
   const row = document.createElement('div');
@@ -187,6 +197,7 @@ function addBulkRow() {
   container.appendChild(row);
 }
 
+// ─── loadSummaryCards (FIX 1 & FIX 3) ──────────────────
 async function loadSummaryCards() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) { toast.error('School ID not found.'); return; }
@@ -221,7 +232,7 @@ async function loadSummaryCards() {
         totalPaidSession += paid;
         if (t === term) {
           totalPaidTerm += paid;
-          totalArrears += Math.max(0, totalOwed(feeData) - paid);
+          totalArrears += Math.max(0, totalOwed(feeData) - paid); // FIX 1
         }
       }
     }
@@ -235,14 +246,22 @@ async function loadSummaryCards() {
   }
 }
 
+// ─── Fee Gate Helpers (FIX 3) ──────────────────────────
+// Default fee gate is ON (true) when the school document has not yet stored the setting.
 async function loadFeeGateState() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
   try {
     const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
-    const enabled = schoolDoc.data()?.feeGateEnabled === true;
+    // Missing field → default ON
+    const enabled = schoolDoc.data()?.feeGateEnabled !== false;
     document.getElementById('feeGateToggle').checked = enabled;
-  } catch (err) { console.error('Load fee gate state error:', err); }
+  } catch (err) {
+    console.error('Load fee gate state error:', err);
+    // Even on error, default the toggle to ON
+    const toggle = document.getElementById('feeGateToggle');
+    if (toggle) toggle.checked = true;
+  }
 }
 
 async function handleFeeGateToggle(e) {
@@ -252,21 +271,24 @@ async function handleFeeGateToggle(e) {
   try {
     await updateDoc(doc(db, 'schools', schoolId), { feeGateEnabled: enabled });
     toast.success(enabled ? 'Fee gating enabled.' : 'Fee gating disabled.');
-    await recalculateAllFeeGates(getCurrentTerm(), getCurrentSession());
+    await recalculateAllFeeGates(getCurrentTerm(), getCurrentSession()); // FIX 7
   } catch (err) {
     console.error('Fee gate toggle error:', err);
     toast.error('Failed to update fee gate setting.');
   }
 }
 
+// ─── FIXED: sanitize session in feeGateStatus field path ───
 async function recalculateFeeGateStatus(schoolId, studentId, term, session) {
   const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
-  const gateEnabled = schoolDoc.data()?.feeGateEnabled === true;
+  // Missing field → default ON
+  const gateEnabled = schoolDoc.data()?.feeGateEnabled !== false;
 
   const studentRef = doc(db, 'students', studentId);
   const studentDoc = await getDoc(studentRef);
   const studentData = studentDoc.data() || {};
 
+  // Sanitize session to avoid slashes in field path
   const safeSession = sanitizeSession(session);
   const periodKey = `${term}_${safeSession}`;
 
@@ -293,7 +315,7 @@ async function recalculateFeeGateStatus(schoolId, studentId, term, session) {
     await setBlocked(false);
     return;
   }
-  const amount = totalOwed(feeDoc.data());
+  const amount = totalOwed(feeDoc.data()); // FIX 1
   const paymentsSnap = await getDocs(collection(feeRef, 'payments'));
   let paid = 0;
   paymentsSnap.forEach(p => { if (!p.data().voided) paid += p.data().amount || 0; });
@@ -301,6 +323,7 @@ async function recalculateFeeGateStatus(schoolId, studentId, term, session) {
   await setBlocked((amount - paid) > 0);
 }
 
+// ─── Shared: derive known sessions from real fee data ──
 async function getKnownFeeSessions(schoolId, currentSession) {
   const sessions = new Set();
   try {
@@ -316,6 +339,7 @@ async function getKnownFeeSessions(schoolId, currentSession) {
   return Array.from(sessions).sort().reverse();
 }
 
+// ─── populateSessionSelects ────────────────────────────
 async function populateSessionSelects() {
   try {
     const currentSession = getCurrentSession();
@@ -366,6 +390,7 @@ async function populateSessionSelects() {
   }
 }
 
+// ─── loadClassesDropdown ────────────────────────────────
 async function loadClassesDropdown() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
@@ -386,6 +411,7 @@ async function loadClassesDropdown() {
   }
 }
 
+// ─── loadStudentLookupDropdown ──────────────────────────
 async function loadStudentLookupDropdown() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
@@ -401,6 +427,7 @@ async function loadStudentLookupDropdown() {
       opt.textContent = data.name || 'Unnamed';
       select.appendChild(opt);
     });
+    // Also populate opening balance dropdown
     const obSelect = document.getElementById('openingBalanceStudent');
     if (obSelect) {
       obSelect.innerHTML = '<option value="">Select Student</option>';
@@ -418,6 +445,7 @@ async function loadStudentLookupDropdown() {
   }
 }
 
+// ─── refreshClassFeeTable (FIX 1 & FIX 5a) ─────────────
 async function refreshClassFeeTable() {
   const classId = document.getElementById('financeClassSelect').value;
   const term = document.getElementById('financeTermSelect').value;
@@ -455,7 +483,7 @@ async function refreshClassFeeTable() {
       const paymentsSnap = await getDocs(paymentsQ);
       let totalPaid = 0;
       paymentsSnap.forEach(p => { if (!p.data().voided) totalPaid += p.data().amount || 0; });
-      const owed = totalOwed(feeData);
+      const owed = totalOwed(feeData); // FIX 1
       const balance = owed - totalPaid;
       return {
         ...student,
@@ -504,14 +532,20 @@ async function refreshClassFeeTable() {
     });
     tbody.innerHTML = html;
 
+    // Rebind button events
     document.querySelectorAll('.set-fee-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        openSetFeeModal(btn.dataset.studentId, btn.dataset.studentName);
+      btn.addEventListener('click', (e) => {
+        const studentId = btn.dataset.studentId;
+        const studentName = btn.dataset.studentName;
+        openSetFeeModal(studentId, studentName);
       });
     });
     document.querySelectorAll('.add-payment-btn').forEach(btn => {
       if (btn.disabled) return;
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        const feeId = btn.dataset.feeId;
+        const studentId = btn.dataset.studentId;
+        const studentName = btn.dataset.studentName;
         document.getElementById('editPaymentId').value = '';
         document.getElementById('paymentModalTitle').innerHTML = '<i class="fa-solid fa-money-bill-wave"></i> Record Payment';
         document.getElementById('savePaymentBtn').textContent = 'Save Payment';
@@ -519,8 +553,8 @@ async function refreshClassFeeTable() {
         document.getElementById('paymentDate').valueAsDate = new Date();
         document.getElementById('paymentMethod').value = 'cash';
         document.getElementById('paymentNote').value = '';
-        document.getElementById('paymentForm').dataset.feeId = btn.dataset.feeId;
-        document.getElementById('paymentForm').dataset.studentId = btn.dataset.studentId;
+        document.getElementById('paymentForm').dataset.feeId = feeId;
+        document.getElementById('paymentForm').dataset.studentId = studentId; // FIX 2a
         updatePaymentTermDisplay(new Date());
         document.getElementById('paymentModal').style.display = 'flex';
       });
@@ -531,6 +565,7 @@ async function refreshClassFeeTable() {
   }
 }
 
+// ─── lookupStudentFee (FIX 1 & FIX 4) ──────────────────
 async function lookupStudentFee() {
   const studentId = document.getElementById('studentLookupSelect').value;
   const term = document.getElementById('studentLookupTerm').value;
@@ -572,7 +607,7 @@ async function lookupStudentFee() {
       if (!pd.voided) totalPaid += pd.amount || 0;
     });
 
-    const owed = totalOwed(feeData);
+    const owed = totalOwed(feeData); // FIX 1
     const balance = owed - totalPaid;
     const balanceLabel = balance > 0
       ? `<span style="color:var(--danger-text);">Owing ₦${balance.toLocaleString()}</span>`
@@ -587,6 +622,7 @@ async function lookupStudentFee() {
           ${feeData.openingBalance ? `<div style="font-size:0.8rem;color:var(--text-500);">Includes ₦${feeData.openingBalance.toLocaleString()} opening balance (as of ${feeData.openingBalanceAsOf || 'migration'})</div>` : ''}
           <div><strong>Total Paid:</strong> ₦${totalPaid.toLocaleString()}</div>
           <div><strong>Balance:</strong> ${balanceLabel}</div>
+          <!-- FIX 4: Manual Override button -->
           <button type="button" class="btn-secondary btn-sm" id="openManualOverrideBtn" style="margin-top:0.75rem;">
             <i class="fa-solid fa-triangle-exclamation"></i> Manual Override (Advanced)
           </button>
@@ -633,6 +669,7 @@ async function lookupStudentFee() {
     bulkBtn.dataset.studentId = studentId;
     bulkBtn.dataset.feeId = feeId;
 
+    // FIX 4: Wire Manual Override button
     document.getElementById('openManualOverrideBtn')?.addEventListener('click', () => {
       const studentName = document.getElementById('studentLookupSelect').selectedOptions[0]?.textContent || '';
       document.getElementById('editSummaryStudentId').value = studentId;
@@ -646,16 +683,15 @@ async function lookupStudentFee() {
     });
 
     document.querySelectorAll('.edit-payment-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        openEditPaymentModal(
-          btn.dataset.paymentId,
-          btn.dataset.feeId,
-          btn.dataset.studentId,
-          parseFloat(btn.dataset.amount),
-          btn.dataset.date,
-          btn.dataset.method,
-          btn.dataset.note
-        );
+      btn.addEventListener('click', (e) => {
+        const paymentId = btn.dataset.paymentId;
+        const feeId = btn.dataset.feeId;
+        const studentId = btn.dataset.studentId;
+        const amount = parseFloat(btn.dataset.amount);
+        const date = btn.dataset.date;
+        const method = btn.dataset.method;
+        const note = btn.dataset.note;
+        openEditPaymentModal(paymentId, feeId, studentId, amount, date, method, note);
       });
     });
 
@@ -665,10 +701,11 @@ async function lookupStudentFee() {
   }
 }
 
+// ─── openEditPaymentModal (add studentId) ──────────────
 function openEditPaymentModal(paymentId, feeId, studentId, amount, date, method, note) {
   document.getElementById('editPaymentId').value = paymentId;
   document.getElementById('paymentForm').dataset.feeId = feeId;
-  document.getElementById('paymentForm').dataset.studentId = studentId;
+  document.getElementById('paymentForm').dataset.studentId = studentId; // FIX 2a
   document.getElementById('paymentModalTitle').innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Edit Payment';
   document.getElementById('savePaymentBtn').textContent = 'Update Payment';
   document.getElementById('paymentAmount').value = amount;
@@ -679,6 +716,7 @@ function openEditPaymentModal(paymentId, feeId, studentId, amount, date, method,
   document.getElementById('paymentModal').style.display = 'flex';
 }
 
+// ─── handlePaymentSubmit (FIX 2a) ──────────────────────
 async function handlePaymentSubmit(e) {
   e.preventDefault();
   const feeId = document.getElementById('paymentForm').dataset.feeId;
@@ -738,6 +776,7 @@ async function handlePaymentSubmit(e) {
     await loadSummaryCards();
     await populateHistorySessionSelect();
 
+    // FIX 2a: use dataset.studentId
     const studentId = document.getElementById('paymentForm').dataset.studentId;
     if (studentId) {
       await recalculateFeeGateStatus(schoolId, studentId, term, session);
@@ -751,6 +790,7 @@ async function handlePaymentSubmit(e) {
   }
 }
 
+// ─── handleBulkPayments (FIX 2b) ──────────────────────
 async function handleBulkPayments(e) {
   e.preventDefault();
   const feeId = document.getElementById('bulkPaymentBtn').dataset.feeId;
@@ -804,6 +844,7 @@ async function handleBulkPayments(e) {
     }
     await batch.commit();
 
+    // FIX 2b: recalc for each unique term/session
     const uniquePeriods = new Set(payments.map(p => `${p.term}||${p.session}`));
     for (const key of uniquePeriods) {
       const [t, s] = key.split('||');
@@ -827,6 +868,7 @@ async function handleBulkPayments(e) {
   }
 }
 
+// ─── handleBulkSetClassFee ─────────────────────────────
 async function handleBulkSetClassFee(e) {
   e.preventDefault();
   const classId = e.target.dataset.classId;
@@ -871,6 +913,7 @@ async function handleBulkSetClassFee(e) {
     document.getElementById('bulkSetClassFeeModal').style.display = 'none';
     await refreshClassFeeTable();
     await loadSummaryCards();
+    // Recalculate fee gate for all students in class
     for (const studentDoc of studentsSnap.docs) {
       await recalculateFeeGateStatus(schoolId, studentDoc.id, term, session);
     }
@@ -883,12 +926,14 @@ async function handleBulkSetClassFee(e) {
   }
 }
 
+// ─── openSetFeeModal ────────────────────────────────────
 function openSetFeeModal(studentId, studentName) {
   document.getElementById('setFeeStudentName').value = studentName;
   document.getElementById('setFeeForm').dataset.studentId = studentId;
   document.getElementById('setFeeModal').style.display = 'flex';
 }
 
+// ─── saveFee ─────────────────────────────────────────────
 async function saveFee(e) {
   e.preventDefault();
   const studentId = document.getElementById('setFeeForm').dataset.studentId;
@@ -937,6 +982,7 @@ async function saveFee(e) {
   }
 }
 
+// ─── populateHistorySessionSelect ──────────────────────
 async function populateHistorySessionSelect() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
@@ -969,6 +1015,7 @@ async function populateHistorySessionSelect() {
   }
 }
 
+// ─── loadFinancialHistory (FIX 1 & FIX 5b) ────────────
 async function loadFinancialHistory() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) {
@@ -1006,7 +1053,7 @@ async function loadFinancialHistory() {
       const feesSnap = await getDocs(feesQ);
       for (const feeDoc of feesSnap.docs) {
         const feeData = feeDoc.data();
-        fee += totalOwed(feeData);
+        fee += totalOwed(feeData); // FIX 1
         const paymentsQ = query(collection(feeDoc.ref, 'payments'));
         const paymentsSnap = await getDocs(paymentsQ);
         paymentsSnap.forEach(pd => {
@@ -1045,10 +1092,12 @@ async function loadFinancialHistory() {
   }
 }
 
+// ─── downloadHistoryPdf ────────────────────────────────
 function downloadHistoryPdf() {
   window.print();
 }
 
+// ─── saveSummary (audit trail) ─────────────────────────
 async function saveSummary(e) {
   e.preventDefault();
   const studentId = document.getElementById('editSummaryStudentId').value;
@@ -1098,7 +1147,8 @@ async function saveSummary(e) {
   }
 }
 
-async function handleOpeningBalance() {
+// ─── handleOpeningBalance (FIX 1 & FIX 2b) ────────────
+async function handleOpeningBalance(e) {
   const studentId = document.getElementById('openingBalanceStudent').value;
   const amount = parseFloat(document.getElementById('openingBalanceAmount').value);
   const asOfDate = document.getElementById('openingBalanceDate').value;
@@ -1119,7 +1169,7 @@ async function handleOpeningBalance() {
       studentId,
       term,
       session,
-      openingBalance: amount,
+      openingBalance: amount,          // FIX 1: separate field
       isOpeningBalance: true,
       openingBalanceAsOf: asOfDate,
       migratedBy: (await getCurrentUserData())?.email || 'admin',
@@ -1127,6 +1177,8 @@ async function handleOpeningBalance() {
       updatedAt: serverTimestamp(),
     }, { merge: true });
     toast.success('Opening balance recorded.');
+
+    // FIX 2b: recalc
     await recalculateFeeGateStatus(schoolId, studentId, term, session);
     await refreshClassFeeTable();
     await loadSummaryCards();
@@ -1136,6 +1188,7 @@ async function handleOpeningBalance() {
   }
 }
 
+// ─── handleCsvImport (FIX 2b + admissionNumber support) ──
 async function handleCsvImport() {
   const file = document.getElementById('csvImportFile').files[0];
   if (!file) { toast.error('Choose a CSV file first.'); return; }
@@ -1241,6 +1294,7 @@ async function handleCsvImport() {
   });
 }
 
+// ─── downloadCsvTemplate ──────────────────────────────────
 function downloadCsvTemplate(e) {
   e.preventDefault();
   const headers = ['admissionNumber', 'term', 'session', 'amount', 'date', 'method'];
