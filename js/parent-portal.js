@@ -1,7 +1,15 @@
 // js/parent-portal.js
 import { auth, db } from './firebase-config.js';
-import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
-import { doc, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
+import {
+  onAuthStateChanged,
+  signOut,
+} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  onSnapshot,
+} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentTerm, getCurrentSession, initAcademicCalendar, subscribeToCalendar } from './academic-calendar.js';
 import { toast } from './error-handler.js';
 import * as service from './service.js';
@@ -17,11 +25,13 @@ let currentSchoolId = null;
 let currentChild = null;
 let currentChildClassInfo = null;
 let subjectsMap = new Map();
-let feeGateEnabled = false;   // <-- NEW
+let feeGateEnabled = false;               // <-- current school setting
+let unsubscribeSchoolListener = null;    // <-- real‑time listener
 
 let cbtResults = [];
 let cbtShowAll = false;
 
+// ── Helpers ─────────────────────────────────────────────
 function totalOwed(feeData) {
   if (!feeData) return 0;
   return (feeData.amount || 0) + (feeData.openingBalance || 0);
@@ -31,7 +41,7 @@ function computeAttendanceSummary(records) {
   let present = 0, absent = 0;
   records.forEach(rec => {
     const days = rec.days || {};
-    for (const day of ['mon','tue','wed','thu','fri']) {
+    for (const day of ['mon', 'tue', 'wed', 'thu', 'fri']) {
       const sess = days[day];
       if (sess) {
         if (sess.M === true) present++;
@@ -45,6 +55,7 @@ function computeAttendanceSummary(records) {
   return { schoolOpened: total, present, absent };
 }
 
+// ── Helper to get initials from name ──────────────────
 function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -58,6 +69,7 @@ function getInitials(name) {
   return (first + last).toUpperCase();
 }
 
+// ── Compute total outstanding for a student ──────────
 async function computeStudentOutstanding(schoolId, studentId, currentTerm, currentSession) {
   const allFees = await service.getFeesByStudent(schoolId, studentId);
   if (!allFees || allFees.length === 0) {
@@ -93,6 +105,7 @@ async function computeStudentOutstanding(schoolId, studentId, currentTerm, curre
   return { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments };
 }
 
+// ── Helper: get CA max from scoring config ─────────────
 async function getCaMax(schoolId, level, term, session) {
   try {
     const configs = await service.getScoringConfig(schoolId, level);
@@ -112,6 +125,7 @@ async function getCaMax(schoolId, level, term, session) {
   }
 }
 
+// ── Main init ──────────────────────────────────────────
 export async function initParentPortal() {
   const user = await new Promise((resolve) => {
     const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u); });
@@ -126,10 +140,12 @@ export async function initParentPortal() {
   }
   currentSchoolId = userDoc.schoolId;
 
+  // ---- NEW: enforce password change ----
   try {
     await enforcePasswordChange(window.location.href);
   } catch (e) { /* redirecting */ }
 
+  // ---- NEW: disabled account check ----
   if (userDoc.disabled) {
     toast.error('Your account has been disabled. Contact the school.');
     await signOut(auth);
@@ -150,7 +166,23 @@ export async function initParentPortal() {
     document.getElementById('currentSessionDisplay').textContent = state.currentSession || '';
   });
 
-  await loadSchoolInfo();
+  // ── REAL‑TIME LISTENER on school document for feeGateEnabled ──
+  const schoolRef = doc(db, 'schools', currentSchoolId);
+  unsubscribeSchoolListener = onSnapshot(schoolRef, (snap) => {
+    if (snap.exists()) {
+      const newGateSetting = snap.data().feeGateEnabled === true;
+      // Only refresh UI if the setting actually changed
+      if (newGateSetting !== feeGateEnabled) {
+        feeGateEnabled = newGateSetting;
+        // Re‑render the fee detail for the currently selected child to update the download button
+        if (selectedChildId) {
+          renderFeeDetail(selectedChildId);
+        }
+      }
+    }
+  });
+
+  await loadSchoolInfo();       // initial load also sets feeGateEnabled
   await loadSubjectsMap();
   await renderChildren();
 
@@ -170,6 +202,11 @@ export async function initParentPortal() {
   document.getElementById('greetingText').textContent = `${greeting}, ${parentData.title || ''} ${lastName}`;
 
   document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+
+  // Clean up listener if the page is closed (optional)
+  window.addEventListener('beforeunload', () => {
+    if (unsubscribeSchoolListener) unsubscribeSchoolListener();
+  });
 }
 
 async function loadSchoolInfo() {
@@ -179,7 +216,7 @@ async function loadSchoolInfo() {
     document.getElementById('schoolAddress').textContent = school.address || '';
     const logo = document.getElementById('schoolLogoImg');
     if (school.logo) logo.src = school.logo;
-    feeGateEnabled = school.feeGateEnabled === true;   // <-- NEW
+    feeGateEnabled = school.feeGateEnabled === true;   // initial value
   }
 }
 
@@ -358,6 +395,7 @@ async function renderFeeDetail(studentId) {
     container.innerHTML = html;
 
     const downloadBtn = document.getElementById('downloadReportBtn');
+    // ── FIX: only block when the fee gate is ON and there are outstanding fees ──
     const shouldBlockReport = feeGateEnabled && totalOutstanding > 0;
     if (shouldBlockReport) {
       downloadBtn.disabled = true;
@@ -434,6 +472,7 @@ function renderCbtList() {
   }
 }
 
+// ── Subject scores → C.A This Term (with responsive wrapper) ──
 async function loadSubjectScores() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -453,6 +492,7 @@ async function loadSubjectScores() {
     const level = currentChildClassInfo?.level || 'secondary';
     const caMax = await getCaMax(currentSchoolId, level, term, session);
 
+    // Fetch scores directly, no fallback mapping
     let scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
 
     if (!scores || scores.length === 0) {
@@ -475,6 +515,7 @@ async function loadSubjectScores() {
   }
 }
 
+// ── Download Report ────────────────────────────────────
 async function downloadReport() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -489,7 +530,8 @@ async function downloadReport() {
   }
 
   const { totalOutstanding } = await computeStudentOutstanding(currentSchoolId, selectedChildId, term, session);
-  if (feeGateEnabled && totalOutstanding > 0) {   // <-- NEW: only block if fee gate is ON
+  // ── FIX: only block when the fee gate is ON and there are outstanding fees ──
+  if (feeGateEnabled && totalOutstanding > 0) {
     toast.warning('Cannot download report – outstanding fees remain.');
     return;
   }
@@ -501,6 +543,7 @@ async function downloadReport() {
     return;
   }
 
+  // Fetch scores directly, no fallback
   let scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
 
   if (!scoresRaw || scoresRaw.length === 0) {
@@ -527,6 +570,7 @@ async function downloadReport() {
     }
   }
 
+  // Get saved report, no fallback
   let report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
   const psychomotor = report?.psychomotor || getDefaultRatings();
   const teacherComment = report?.teacherComment || '';
