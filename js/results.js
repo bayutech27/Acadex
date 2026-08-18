@@ -5,15 +5,8 @@
 // MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
 // ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
 // UPDATED: Print comments now appear inline (same line as label)
-// NEW: "Enable Position" toggle – when ON, report card displays student's class position calculated from broadsheet.
-//
-// All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support scoring config save/load by docId, broadsheet save,
-// some complex queries – those remain as direct Firestore calls.
-//
-// FIXED: All user-facing errors now show toast notifications instead of alerts.
-// ADDED: Subscription restriction – if subscription is inactive, users can only view results from
-//        previous sessions/terms (not the current one). Current session/term results are blocked.
+// NEW: "Enable Position" toggle – persisted to localStorage per school. When ON,
+//      report card displays student's class position calculated from broadsheet.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
@@ -22,7 +15,6 @@ import { onSubscriptionChange } from './plan.js';
 import { getCurrentSession, getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 
-// NEW: shared grading utilities
 import {
   calculateGrade,
   getGradeRemark,
@@ -49,7 +41,8 @@ let unsubscribeSub = null;
 let currentAcademicSession = '';
 let currentAcademicTerm = '';
 
-// NEW: Position toggle state (default off)
+// NEW: Position toggle state (default off, persisted)
+const POSITION_TOGGLE_STORAGE_KEY = 'acadex_enable_position';
 let positionEnabled = false;
 
 let editorState = {
@@ -63,7 +56,24 @@ let editorState = {
   attendance: { schoolOpened: 0, present: 0, absent: 0 }
 };
 
-// Skills lists are now imported, no local definitions
+// ------------------- Helper: Position toggle persistence -------------------
+function getPositionToggleStorageKey(schoolId) {
+  return `${POSITION_TOGGLE_STORAGE_KEY}_${schoolId}`;
+}
+
+function loadPositionTogglePreference(schoolId) {
+  try {
+    return localStorage.getItem(getPositionToggleStorageKey(schoolId)) === 'true';
+  } catch (_) {
+    return false;
+  }
+}
+
+function savePositionTogglePreference(schoolId, value) {
+  try {
+    localStorage.setItem(getPositionToggleStorageKey(schoolId), String(value));
+  } catch (_) {}
+}
 
 // ------------------- Helper: Check if requested session/term is current -------------------
 function isCurrentSessionTerm(session, term) {
@@ -78,10 +88,6 @@ function canViewResult(session, term) {
   if (isSubscriptionActive) return true;
   return !isCurrentSessionTerm(session, term);
 }
-
-// ------------------- Utility Functions (removed duplicates, imports now) -------------------
-
-// No more local definitions of calculateGrade, getGradeRemark, etc.
 
 // ------------------- Firestore Helpers (via service) -------------------
 function getScoringDocId(session, term, level) {
@@ -173,17 +179,17 @@ async function loadGradingSetting(session, term, level = 'secondary') {
       const primaryGradingSelect = document.getElementById('primaryGradingSelect');
       if (primaryGradingSelect) primaryGradingSelect.value = grading;
     }
-  } catch (err) { 
-    console.error(err); 
+  } catch (err) {
+    console.error(err);
     currentGrading = { ca: 40, exam: 60 };
     toast.warning('Unable to load grading settings. Using default values.');
   }
 }
 
 async function saveGradingSetting(level = 'secondary') {
-  if (!isSubscriptionActive) { 
-    toast.error('Subscription inactive. Cannot save grading settings.'); 
-    return; 
+  if (!isSubscriptionActive) {
+    toast.error('Subscription inactive. Cannot save grading settings.');
+    return;
   }
   const gradingSelect = document.getElementById(level === 'secondary' ? 'gradingSelect' : 'primaryGradingSelect');
   if (!gradingSelect) return;
@@ -194,23 +200,26 @@ async function saveGradingSetting(level = 'secondary') {
     session = document.getElementById('broadsheetSessionSelect')?.value;
     term = document.getElementById('broadsheetTermSelect')?.value;
   }
-  if (!session || !term) { 
-    toast.error('Please select a session and term first.'); 
-    return; 
+  if (!session || !term) {
+    toast.error('Please select a session and term first.');
+    return;
   }
   const docId = getScoringDocId(session, term, level);
   const { setDoc, doc: fDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
   const { db } = await import('./firebase-config.js');
   try {
     await setDoc(fDoc(db, 'scoring', docId), { grading, schoolId: currentSchoolId, session, term, level });
-    if (level === 'secondary') { const [ca, exam] = grading.split('/').map(Number); currentGrading = { ca, exam }; }
+    if (level === 'secondary') {
+      const [ca, exam] = grading.split('/').map(Number);
+      currentGrading = { ca, exam };
+    }
     toast.success(`Grading saved for ${level} level.`);
     if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
   } catch (err) {
     if (err.code === 'permission-denied') {
       toast.error('Permission denied. Subscription required to save grading.');
-    } else { 
-      console.error(err); 
+    } else {
+      console.error(err);
       toast.error('Failed to save grading. Please try again.');
     }
   }
@@ -274,29 +283,47 @@ async function getStudentAverageForTerm(studentId, term, session) {
 async function getStudentClassPosition(studentId, classId, term, session) {
   if (!classId || !studentId || !term || !session) return null;
   try {
+    // Use the broadsheet data if it was already generated for this exact class/term/session
+    if (
+      window.currentBroadsheetData &&
+      window.currentBroadsheetData.classId === classId &&
+      window.currentBroadsheetData.session === session &&
+      window.currentBroadsheetData.term === term
+    ) {
+      const cached = window.currentBroadsheetData.studentResults?.find(s => s.studentId === studentId);
+      if (cached && typeof cached.position === 'number') return cached.position;
+    }
+
     const classStudents = studentsList.filter(s => s.classId === classId);
     if (!classStudents.length) return null;
+
     const classInfo = classesMap.get(classId);
     const classLevel = classInfo?.level || 'secondary';
     const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
-    if (relevantSubjectIds.length === 0) return null;
+    if (!relevantSubjectIds.length) return null;
+
     const allScores = await fetchClassScores(classId, term, session);
-    
-    // Build per-student total scores
+
     const totalsMap = new Map();
     for (const student of classStudents) {
       let total = 0;
       let count = 0;
-      const studentScores = allScores.filter(sc => sc.studentId === student.id && relevantSubjectIds.includes(sc.subjectId));
-      for (const score of studentScores) {
-        total += (score.ca || 0) + (score.exam || 0);
+      for (const score of allScores) {
+        if (score.studentId !== student.id) continue;
+        if (!relevantSubjectIds.includes(score.subjectId)) continue;
+        const ca = Number(score.ca || 0);
+        const exam = Number(score.exam || 0);
+        // Match report card rule: skip subjects where either CA or Exam is zero
+        if (ca === 0 || exam === 0) continue;
+        total += ca + exam;
         count++;
       }
-      if (count > 0) totalsMap.set(student.id, { total, average: (total / (count * 100)) * 100 });
+      if (count > 0) {
+        totalsMap.set(student.id, { total, average: (total / (count * 100)) * 100 });
+      }
     }
-    // Sort by average descending
-    const sorted = Array.from(totalsMap.entries())
-      .sort((a, b) => b[1].average - a[1].average);
+
+    const sorted = Array.from(totalsMap.entries()).sort((a, b) => b[1].average - a[1].average);
     let rank = 1;
     for (let i = 0; i < sorted.length; i++) {
       if (i > 0 && sorted[i][1].average < sorted[i-1][1].average) rank = i + 1;
@@ -313,7 +340,6 @@ async function getStudentClassPosition(studentId, classId, term, session) {
 async function renderReportCard(studentId, studentName) {
   const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   const requestedTermNum = editorState.term || document.getElementById('editorTermSelect')?.value || '1';
-  // No conversion needed anymore; term is already numeric and that's what we store
 
   if (!canViewResult(requestedSession, requestedTermNum)) {
     const container = document.getElementById('reportCardContent');
@@ -396,16 +422,16 @@ async function renderReportCard(studentId, studentName) {
     term: editorState.term, session: editorState.session, subjectStats,
     container: document.getElementById('reportCardContent'),
     attendance, isPrimary,
-    positionEnabled,          // NEW
-    position: classPosition,  // NEW
+    positionEnabled,
+    position: classPosition,
     onRatingChange:          (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
     onTeacherCommentChange:  (newComment)          => { editorState.teacherComment   = newComment; },
     onPrincipalCommentChange:(newComment)          => { editorState.principalComment = newComment; }
   });
-  
+
   const actions = document.getElementById('reportActions');
   if (actions) actions.style.display = 'flex';
-  
+
   if (!isSubscriptionActive) {
     const saveBtn = document.getElementById('saveReportBtn');
     if (saveBtn) {
@@ -425,11 +451,9 @@ async function renderReportCard(studentId, studentName) {
 
 // ── FIX: load report without fallback (term is already numeric) ──
 async function loadExistingEditorReport(studentId) {
-  // Use imported getDefaultRatings
   editorState.psychomotor = getDefaultRatings();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
 
-  // term is numeric (e.g., '1') as stored in scores
   const report = await service.getReportByStudent(studentId, currentSchoolId, editorState.term, editorState.session);
   if (report) {
     if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
@@ -444,9 +468,9 @@ async function loadExistingEditorReport(studentId) {
 
 // ── Save: term is numeric, we store that ──
 async function saveEditorReport() {
-  if (!isSubscriptionActive) { 
-    toast.error('Cannot save report – subscription inactive.'); 
-    return; 
+  if (!isSubscriptionActive) {
+    toast.error('Cannot save report – subscription inactive.');
+    return;
   }
   if (!editorState.selectedStudent) {
     toast.error('Please select a student first.');
@@ -464,7 +488,7 @@ async function saveEditorReport() {
     studentId: editorState.selectedStudent.id,
     classId: document.getElementById('editorClassSelect')?.value,
     schoolId: currentSchoolId,
-    term: editorState.term,   // numeric
+    term: editorState.term,
     session: editorState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: editorState.psychomotor,
@@ -477,8 +501,8 @@ async function saveEditorReport() {
   } catch (error) {
     if (error.code === 'permission-denied') {
       toast.error('Permission denied. Subscription required to save reports.');
-    } else { 
-      console.error(error); 
+    } else {
+      console.error(error);
       toast.error('Failed to save report. Please try again.');
     }
   }
@@ -504,9 +528,9 @@ function handlePrint() {
 
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { 
-    toast.error('Please allow pop-ups to print the report.'); 
-    return; 
+  if (!printWindow) {
+    toast.error('Please allow pop-ups to print the report.');
+    return;
   }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
@@ -581,7 +605,7 @@ function sendToWhatsApp() {
   }
 
   let digits = phone.replace(/\D/g, '');
-  
+
   if (digits.length === 10 && digits.startsWith('8')) {
     digits = '234' + digits;
   } else if (digits.length === 11 && digits.startsWith('0')) {
@@ -596,7 +620,7 @@ function sendToWhatsApp() {
     toast.error('Invalid phone number format. Please update the parent phone number.');
     return;
   }
-  
+
   if (!digits.startsWith('234')) {
     toast.error('Phone number must start with Nigeria country code (234).');
     return;
@@ -605,7 +629,7 @@ function sendToWhatsApp() {
     toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).');
     return;
   }
-  
+
   const message = `Please find attached the report card for ${editorState.selectedStudent.name}.`;
   const whatsappUrl = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
   window.open(whatsappUrl, '_blank');
@@ -622,9 +646,9 @@ async function generateBroadsheet() {
   const classId = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
   const term    = document.getElementById('broadsheetTermSelect')?.value;
-  if (!classId || !session || !term) { 
-    toast.error('Please select Class, Session and Term'); 
-    return; 
+  if (!classId || !session || !term) {
+    toast.error('Please select Class, Session and Term');
+    return;
   }
 
   const classInfo     = classesMap.get(classId);
@@ -743,13 +767,13 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionActive) { 
-    toast.error('Cannot save broadsheet – subscription inactive.'); 
-    return; 
+  if (!isSubscriptionActive) {
+    toast.error('Cannot save broadsheet – subscription inactive.');
+    return;
   }
-  if (!window.currentBroadsheetData) { 
-    toast.error('No broadsheet data to save. Generate first.'); 
-    return; 
+  if (!window.currentBroadsheetData) {
+    toast.error('No broadsheet data to save. Generate first.');
+    return;
   }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
@@ -770,8 +794,8 @@ async function saveBroadsheetToFirestore() {
   } catch (err) {
     if (err.code === 'permission-denied') {
       toast.error('Permission denied. Subscription required to save broadsheets.');
-    } else { 
-      console.error(err); 
+    } else {
+      console.error(err);
       toast.error('Failed to save broadsheet. Please try again.');
     }
   }
@@ -779,16 +803,16 @@ async function saveBroadsheetToFirestore() {
 
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) { 
-    toast.error('No broadsheet to download.'); 
-    return; 
+  if (!container || !container.innerHTML.trim()) {
+    toast.error('No broadsheet to download.');
+    return;
   }
   const originalContent = container.cloneNode(true);
   const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
   const printWindow = window.open('', '_blank');
-  if (!printWindow) { 
-    toast.error('Please allow pop-ups to print.'); 
-    return; 
+  if (!printWindow) {
+    toast.error('Please allow pop-ups to print.');
+    return;
   }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
@@ -832,7 +856,6 @@ async function onEditorClassChange() {
   if (firstStudent) {
     const firstEl = document.querySelector('.student-list-item');
     if (firstEl) firstEl.classList.add('active');
-    // resetRatingsToDefaults() - no longer needed as it's done inside render
     await renderReportCard(firstStudent.id, firstStudent.name);
   }
   document.querySelectorAll('.student-list-item').forEach(el => {
@@ -932,10 +955,13 @@ export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
   currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) { 
-    toast.error('School ID missing. Please log out and log in again.'); 
-    return; 
+  if (!currentSchoolId) {
+    toast.error('School ID missing. Please log out and log in again.');
+    return;
   }
+
+  // Restore saved position toggle preference
+  positionEnabled = loadPositionTogglePreference(currentSchoolId);
 
   await initAcademicCalendar();
   currentAcademicSession = getCurrentSession();
@@ -956,9 +982,9 @@ export async function initResultsPage() {
   try {
     await loadClassesAndSubjects();
     await loadAllStudents();
-  } catch (err) { 
-    console.error('Data loading failed', err); 
-    return; 
+  } catch (err) {
+    console.error('Data loading failed', err);
+    return;
   }
 
   const classSelects = ['broadsheetClassSelect', 'editorClassSelect'];
@@ -1001,8 +1027,10 @@ export async function initResultsPage() {
   // NEW: Enable Position toggle listener
   const enablePositionToggle = document.getElementById('enablePositionToggle');
   if (enablePositionToggle) {
+    enablePositionToggle.checked = positionEnabled;
     enablePositionToggle.addEventListener('change', () => {
       positionEnabled = enablePositionToggle.checked;
+      savePositionTogglePreference(currentSchoolId, positionEnabled);
       if (editorState.selectedStudent) {
         renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
       }
