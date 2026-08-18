@@ -3,31 +3,13 @@
 // Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
 // All Firestore operations now go through service.js (cache + offline queue).
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// NEW: Accepts positionEnabled and position; displays position in details band when enabled.
 
 import { toast } from './error-handler.js';
 import * as service from './service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIVATE HELPER — accurate single-student attendance calculation
-//
-// Why we query the WHOLE class instead of just the student:
-//   A "holiday / school closure" day is defined as one where NO student in
-//   the class has any mark (M or A).  If we only fetch the one student's docs,
-//   a day the student was absent looks identical to a holiday — we cannot tell
-//   them apart.  Fetching all class records lets us reproduce the exact
-//   holiday-detection logic used in attendance.js:
-//
-//     isHoliday(week, day) → no student has M=true or A=true for that slot
-//
-//   Each confirmed open school day contributes 2 to "schoolOpened"
-//   (morning + afternoon), matching the attendance engine's MAX 10/week rule.
-//
-// @param {string}      studentId
-// @param {string}      schoolId
-// @param {string|null} classId    — student.classId (preferred); null = skip filter
-// @param {string}      term
-// @param {string}      session
-// @returns {Promise<{schoolOpened:number, present:number, absent:number}>}
 // ─────────────────────────────────────────────────────────────────────────────
 async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, session) {
   const fallback = { schoolOpened: 0, present: 0, absent: 0 };
@@ -35,12 +17,10 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
 
   const DAYS_LIST = ['mon', 'tue', 'wed', 'thu', 'fri'];
 
-  // ── Normalise term ──────────────────────────────────────────────────────────
   const TERM_MAP = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
   const queryTerm = TERM_MAP[String(term).trim()] || term;
 
   try {
-    // Use service.getAttendanceByClass to fetch all attendance records for the class
     if (!classId) {
       console.warn('[reportCardRenderer] Missing classId, cannot compute holidays.');
       return fallback;
@@ -50,9 +30,7 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
 
     if (!attendanceRecords || attendanceRecords.length === 0) return fallback;
 
-    // openDayKeys  — Set<string>: "w{week}_{day}" confirmed as a school day
     const openDayKeys = new Set();
-    // studentMarks — Map<string, {M:bool, A:bool}>: this student's marks only
     const studentMarks = new Map();
 
     for (const record of attendanceRecords) {
@@ -65,12 +43,10 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
 
         const key = `w${weekNumber}_${day}`;
 
-        // Any student with a mark → this day was a real school day (not holiday)
         if (dayData.M === true || dayData.A === true) {
           openDayKeys.add(key);
         }
 
-        // Capture this student's individual marks
         if (docStudentId === studentId) {
           studentMarks.set(key, {
             M: dayData.M === true,
@@ -80,12 +56,11 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
       }
     }
 
-    // ── Tally using only confirmed open-school days ─────────────────────────
     let schoolOpened = 0;
     let present = 0;
 
     for (const key of openDayKeys) {
-      schoolOpened += 2; // morning + afternoon per open day
+      schoolOpened += 2;
       const marks = studentMarks.get(key);
       if (marks) {
         if (marks.M) present++;
@@ -109,7 +84,9 @@ export async function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
   isPrimary = false,
-  skipLiveAttendanceFetch = false,   // <-- NEW: skip class‑wide query for parent flow
+  skipLiveAttendanceFetch = false,
+  positionEnabled = false,
+  position = null,
   onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
 }) {
   if (!container) {
@@ -118,18 +95,15 @@ export async function renderReportCardUI({
     return;
   }
 
-  // ── Resolve attendance from Firestore (or use provided) ──────────────
   let attendanceData = { schoolOpened: 0, present: 0, absent: 0 };
 
   if (skipLiveAttendanceFetch) {
-    // Use the attendance object passed by the caller (parent portal)
     attendanceData = {
       schoolOpened: attendance.schoolOpened || 0,
       present: attendance.present || 0,
       absent: attendance.absent || 0,
     };
   } else {
-    // Admin flow: fetch from Firestore via class-wide query
     try {
       const schoolId =
         school?.id ||
@@ -184,7 +158,6 @@ export async function renderReportCardUI({
     return str.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
   }
 
-  // ----- Grading scales -----
   function calculateGradePrimary(total) {
     if (total >= 90) return 'A+';
     if (total >= 80) return 'A';
@@ -261,7 +234,6 @@ export async function renderReportCardUI({
       const ca = Number(score.ca || 0);
       const exam = Number(score.exam || 0);
 
-      // ⚠️ Skip any subject where either CA or Exam is zero
       if (ca === 0 || exam === 0) continue;
 
       const subjectName = score.subjectName || score.subjectId;
@@ -311,13 +283,11 @@ export async function renderReportCardUI({
   const overallGrade    = calculateGrade(parseFloat(percentageAvg));
   const overallRemark   = getGradeRemark(overallGrade);
 
-  // ── Subject table ────────────────────────────────────────────────────────────
   const subjectTableHeader = isPrimary
     ? `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>`
     : `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th><th>Pos.</th><th>Cls Avg</th></tr></thead>`;
   const subjectTableHtml = `<table class="rc-subject-table">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
-  // ── Summary table ────────────────────────────────────────────────────────────
   const summaryHtml = `
     <div class="rc-section-title">📊 Summary of Performance</div>
     <table class="rc-summary-table">
@@ -329,7 +299,6 @@ export async function renderReportCardUI({
       <tr><th>Remark</th><td>${overallRemark}</td></tr>
     </table>`;
 
-  // ── Attendance table ──────────────────────────────────────────────────────────
   const attendanceHtml = `
     <div class="rc-section-title">📅 Attendance Record</div>
     <table class="rc-attendance-table">
@@ -358,7 +327,6 @@ export async function renderReportCardUI({
       </tbody>
     </table>`;
 
-  // ── Skills tables ────────────────────────────────────────────────────────────
   let psychomotorRows = '';
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
@@ -388,7 +356,6 @@ export async function renderReportCardUI({
     </table>
     <div class="rc-rating-guide">1: Poor &nbsp; 2: Fair &nbsp; 3: Good &nbsp; 4: Very Good &nbsp; 5: Excellent</div>`;
 
-  // ── Header ─────────────────────────────────────────────────────────────────
   const headerHtml = `
     <div class="rc-header">
       <div class="rc-header-logo">${school.logo ? `<img src="${school.logo}" alt="Logo">` : ''}</div>
@@ -401,8 +368,10 @@ export async function renderReportCardUI({
       <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
     </div>`;
 
-  // ── Student details band ─────────────────────────────────────────────────────
   const age = student.dob ? calculateAge(student.dob) : '—';
+  const positionCell = positionEnabled && position
+    ? `<div class="rc-details-cell"><strong>Position:</strong> ${position}${position===1?'st':position===2?'nd':position===3?'rd':'th'}</div>`
+    : '';
   const detailsBand = `
     <div class="rc-details-band">
       <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
@@ -413,9 +382,9 @@ export async function renderReportCardUI({
       <div class="rc-details-cell"><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
       <div class="rc-details-cell"><strong>Session:</strong> ${session}</div>
       <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
+      ${positionCell}
     </div>`;
 
-  // ── Comments ─────────────────────────────────────────────────────────────────
   const commentOptions = (() => {
     const general = [
       'Keep up the great work!','Your effort is commendable.','Consistent practice will yield even better results.',
@@ -454,7 +423,6 @@ export async function renderReportCardUI({
       </div>
     </div>`;
 
-  // ── STYLES ───────────────────────────────────────────────────────────────────
   const styles = `
     <style>
       *, *::before, *::after {
@@ -645,7 +613,6 @@ export async function renderReportCardUI({
       }
     </style>`;
 
-  // ── Final HTML assembly ───────────────────────────────────────────────────────
   const cardHtml = `
     ${styles}
     <div class="rc-wrapper">
@@ -670,7 +637,6 @@ export async function renderReportCardUI({
   const finalHtml = `<div class="rc-scroll-outer" style="overflow-x:auto;">${cardHtml}</div>`;
   container.innerHTML = finalHtml;
 
-  // ── Attach interactive rating ticks ──────────────────────────────────────────
   container.querySelectorAll('.rc-rating-cell').forEach(el => {
     const key = el.dataset.skillKey;
     if (!key) return;
@@ -694,7 +660,6 @@ export async function renderReportCardUI({
     el.appendChild(tickRow);
   });
 
-  // ── Attendance live sync ──────────────────────────────────────────────────────
   container.querySelectorAll('.rc-att-input').forEach(inp => {
     inp.addEventListener('input', () => {
       const spanClass = '.' + inp.classList[1] + '-value';
@@ -703,7 +668,6 @@ export async function renderReportCardUI({
     });
   });
 
-  // ── Comment selects / textareas ───────────────────────────────────────────────
   const teacherSelect   = document.getElementById('teacherCommentSelect');
   const teacherText     = document.getElementById('teacherCommentText');
   const principalSelect = document.getElementById('principalCommentSelect');
