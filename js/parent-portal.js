@@ -9,20 +9,19 @@ import { logoutUser } from './auth.js';
 import { initMobileMenu } from './menu.js';
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { getDefaultRatings, escapeHtml } from './report-utils.js';
-import { enforcePasswordChange } from './security.js';   // NEW
+import { enforcePasswordChange } from './security.js';
 
 let parentData = null;
 let selectedChildId = null;
 let currentSchoolId = null;
 let currentChild = null;
-let currentChildClassInfo = null;   // for class level (primary/secondary)
-let subjectsMap = new Map();        // subjectId -> {name, level}
+let currentChildClassInfo = null;
+let subjectsMap = new Map();
+let feeGateEnabled = false;   // <-- NEW
 
-// ── CBT pagination state ──────────────────────────────
 let cbtResults = [];
 let cbtShowAll = false;
 
-// ── Helpers ─────────────────────────────────────────────
 function totalOwed(feeData) {
   if (!feeData) return 0;
   return (feeData.amount || 0) + (feeData.openingBalance || 0);
@@ -46,7 +45,6 @@ function computeAttendanceSummary(records) {
   return { schoolOpened: total, present, absent };
 }
 
-// ── Helper to get initials from name ──────────────────
 function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -60,7 +58,6 @@ function getInitials(name) {
   return (first + last).toUpperCase();
 }
 
-// ── Compute total outstanding for a student ──────────
 async function computeStudentOutstanding(schoolId, studentId, currentTerm, currentSession) {
   const allFees = await service.getFeesByStudent(schoolId, studentId);
   if (!allFees || allFees.length === 0) {
@@ -96,7 +93,6 @@ async function computeStudentOutstanding(schoolId, studentId, currentTerm, curre
   return { totalOutstanding, totalArrears, currentBalance, currentFeeAmount, currentPayments };
 }
 
-// ── Helper: get CA max from scoring config ─────────────
 async function getCaMax(schoolId, level, term, session) {
   try {
     const configs = await service.getScoringConfig(schoolId, level);
@@ -116,7 +112,6 @@ async function getCaMax(schoolId, level, term, session) {
   }
 }
 
-// ── Main init ──────────────────────────────────────────
 export async function initParentPortal() {
   const user = await new Promise((resolve) => {
     const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u); });
@@ -131,12 +126,10 @@ export async function initParentPortal() {
   }
   currentSchoolId = userDoc.schoolId;
 
-  // ---- NEW: enforce password change ----
   try {
     await enforcePasswordChange(window.location.href);
   } catch (e) { /* redirecting */ }
 
-  // ---- NEW: disabled account check ----
   if (userDoc.disabled) {
     toast.error('Your account has been disabled. Contact the school.');
     await signOut(auth);
@@ -186,6 +179,7 @@ async function loadSchoolInfo() {
     document.getElementById('schoolAddress').textContent = school.address || '';
     const logo = document.getElementById('schoolLogoImg');
     if (school.logo) logo.src = school.logo;
+    feeGateEnabled = school.feeGateEnabled === true;   // <-- NEW
   }
 }
 
@@ -364,7 +358,8 @@ async function renderFeeDetail(studentId) {
     container.innerHTML = html;
 
     const downloadBtn = document.getElementById('downloadReportBtn');
-    if (totalOutstanding > 0) {
+    const shouldBlockReport = feeGateEnabled && totalOutstanding > 0;
+    if (shouldBlockReport) {
       downloadBtn.disabled = true;
       downloadBtn.title = 'Report unavailable – outstanding fees';
       downloadBtn.style.opacity = '0.5';
@@ -439,7 +434,6 @@ function renderCbtList() {
   }
 }
 
-// ── Subject scores → C.A This Term (with responsive wrapper) ──
 async function loadSubjectScores() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -459,7 +453,6 @@ async function loadSubjectScores() {
     const level = currentChildClassInfo?.level || 'secondary';
     const caMax = await getCaMax(currentSchoolId, level, term, session);
 
-    // Fetch scores directly, no fallback mapping
     let scores = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
 
     if (!scores || scores.length === 0) {
@@ -482,7 +475,6 @@ async function loadSubjectScores() {
   }
 }
 
-// ── Download Report ────────────────────────────────────
 async function downloadReport() {
   const term = getCurrentTerm();
   const session = getCurrentSession();
@@ -497,7 +489,7 @@ async function downloadReport() {
   }
 
   const { totalOutstanding } = await computeStudentOutstanding(currentSchoolId, selectedChildId, term, session);
-  if (totalOutstanding > 0) {
+  if (feeGateEnabled && totalOutstanding > 0) {   // <-- NEW: only block if fee gate is ON
     toast.warning('Cannot download report – outstanding fees remain.');
     return;
   }
@@ -509,7 +501,6 @@ async function downloadReport() {
     return;
   }
 
-  // Fetch scores directly, no fallback
   let scoresRaw = await service.getScoresByStudent(selectedChildId, currentSchoolId, term, session);
 
   if (!scoresRaw || scoresRaw.length === 0) {
@@ -536,7 +527,6 @@ async function downloadReport() {
     }
   }
 
-  // Get saved report, no fallback
   let report = await service.getReportByStudent(selectedChildId, currentSchoolId, term, session);
   const psychomotor = report?.psychomotor || getDefaultRatings();
   const teacherComment = report?.teacherComment || '';
