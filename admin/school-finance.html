@@ -307,6 +307,52 @@
       .hamburger-menu { display: none !important; }
     }
 
+    /* Toggle switch */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 26px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .3s;
+      border-radius: 34px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #3b82f6;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(24px);
+    }
+
     /* Print styles */
     @media print {
       .no-print { display: none !important; }
@@ -393,12 +439,14 @@
     </div>
 
     <div class="content">
-      <!-- Fee Gate Toggle + Recalc All (FIX 7c) -->
+      <!-- Fee Gate Toggle + Recalc All -->
       <div style="margin-bottom:1rem; display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-        <div class="form-group" style="display:flex;align-items:center;gap:0.75rem; margin:0;">
-          <label style="margin:0;">
-            <input type="checkbox" id="feeGateToggle" /> Withhold report cards for students with unpaid fees
+        <div class="toggle-container">
+          <label class="toggle-switch">
+            <input type="checkbox" id="feeGateToggle" />
+            <span class="toggle-slider"></span>
           </label>
+          <span style="font-weight:600;">Withhold report cards for unpaid fees</span>
         </div>
         <button id="recalcAllGatesBtn" class="btn-secondary btn-sm">
           <i class="fa-solid fa-rotate"></i> Recalculate All Now
@@ -434,11 +482,10 @@
           <label for="statusFilterSelect">Filter:</label>
           <select id="statusFilterSelect"><option value="all">All</option><option value="paid">Paid</option><option value="unpaid">Not Paid</option></select>
         </div>
-        <!-- Bulk Set Fee for Class (FIX 6) -->
         <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
       </div>
 
-      <!-- class fee table (FIX 4: removed Arrears column, kept Balance) -->
+      <!-- class fee table -->
       <div class="table-container" id="classFeeTableContainer">
         <table class="data-table" id="classFeeTable">
           <thead><tr><th>Student</th><th>Fee Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
@@ -462,7 +509,7 @@
         </div>
       </div>
 
-      <!-- ===== FINANCIAL HISTORY ===== -->
+      <!-- FINANCIAL HISTORY -->
       <div class="history-section">
         <h3>📊 School Financial History</h3>
         <div class="history-controls">
@@ -495,7 +542,7 @@
         </div>
       </div>
 
-      <!-- ===== MIGRATION TOOLS (FIX 7) ===== -->
+      <!-- MIGRATION TOOLS -->
       <div class="migration-section">
         <h3>📥 Migrate Existing Records</h3>
         <p style="color:var(--text-500);font-size:0.9rem;">
@@ -535,6 +582,7 @@
   </main>
 </div>
 
+<!-- Modals (unchanged, omitted for brevity but present in original) -->
 <!-- ====== SET FEE MODAL ====== -->
 <div id="setFeeModal" class="modal">
   <div class="modal-content">
@@ -616,7 +664,7 @@
   </div>
 </div>
 
-<!-- ====== BULK SET CLASS FEE MODAL (FIX 6) ====== -->
+<!-- ====== BULK SET CLASS FEE MODAL ====== -->
 <div id="bulkSetClassFeeModal" class="modal">
   <div class="modal-content" style="max-width: 450px;">
     <div class="modal-header">
@@ -638,7 +686,7 @@
   </div>
 </div>
 
-<!-- ====== EDIT SUMMARY MODAL (deprecated, kept for compatibility) ====== -->
+<!-- ====== EDIT SUMMARY MODAL ====== -->
 <div id="editSummaryModal" class="modal">
   <div class="modal-content" style="max-width: 450px;">
     <div class="modal-header">
