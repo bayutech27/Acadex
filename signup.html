@@ -5,28 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Acadex - Create your school</title>
 
-  <!-- 
-    ========== MODERN, RESPONSIVE CSS (preserves all existing classes/IDs) ==========
-    - New visual design: clean card, soft shadows, better readability.
-    - Keeps all existing classes like .suggestion-chip, .password-wrapper, .toggle-password, .form-group, etc.
-    - Adds modal styling.
-  -->
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
   <style>
-    /* ----- RESET & GLOBAL ----- */
+    /* ========== RESET & BASE ========== */
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
 
+    :root {
+      --deep-purple: #1a0b2e;
+      --purple-dark: #2D033B;
+      --purple-mid: #6A11CB;
+      --purple-light: #9D4EDD;
+      --magenta: #E100FF;
+      --gold: #FFD700;
+      --gold-dark: #D4A017;
+      --white: #FFFFFF;
+      --off-white: #F8F7FF;
+      --text-dark: #111827;
+      --text-muted: #6B7280;
+      --shadow-sm: 0 2px 12px rgba(106,17,203,0.12);
+      --shadow-md: 0 10px 30px rgba(106,17,203,0.18);
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Nunito', sans-serif;
+      --radius: 16px;
+    }
+
     body {
-      background: linear-gradient(145deg, #e9f0f5 0%, #d9e2ec 100%);
-      font-family: system-ui, 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-      padding: 2rem 1.25rem;
+      font-family: var(--font-body);
+      background-color: #ffffff;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 2rem 1.25rem;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
 
     .container {
@@ -35,204 +58,250 @@
       margin: 0 auto;
     }
 
-    /* card – modern redesign */
     .card {
       background: #ffffff;
       border-radius: 2rem;
-      box-shadow: 0 25px 45px -12px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.02);
+      box-shadow: 0 20px 45px -12px rgba(106,17,203,0.25), 0 2px 6px rgba(0, 0, 0, 0.02);
       padding: 2rem 1.8rem;
+      border: 1px solid rgba(106,17,203,0.1);
       transition: all 0.2s ease;
     }
 
-    /* branding */
+    /* ========== ACADEX BRAND / LOGO ========== */
+    .brand-header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 0.5rem;
+    }
+
+    .brand-header .logo-icon {
+      width: 42px;
+      height: 42px;
+      background: linear-gradient(135deg, var(--purple-mid), var(--magenta));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      color: var(--white);
+      box-shadow: 0 4px 14px rgba(106,17,203,0.25);
+    }
+
+    .brand-header .acadex-brand {
+      font-family: var(--font-heading);
+      font-weight: 900;
+      font-size: 1.8rem;
+      letter-spacing: -0.02em;
+      color: var(--purple-dark);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .brand-header .acadex-a {
+      background: linear-gradient(135deg, var(--gold) 0%, var(--magenta) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
     h1 {
       text-align: center;
       margin-bottom: 0.25rem;
+      font-family: var(--font-heading);
+      font-weight: 900;
+      font-size: 1.6rem;
+      color: var(--purple-dark);
     }
-    .acadex-brand {
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      background: linear-gradient(135deg, #1f5e3a, #2b9b5c);
-      background-clip: text;
-      -webkit-background-clip: text;
-      color: transparent;
-    }
-    .acadex-a {
-      background: none;
-      color: #1f5e3a;
-    }
+
     h2 {
       text-align: center;
-      font-size: 1.5rem;
-      font-weight: 600;
-      color: #1e2f3f;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-muted);
       margin-bottom: 1.5rem;
       letter-spacing: -0.2px;
     }
 
-    /* form groups – preserved structure but nicer spacing */
+    /* ========== BACK TO HOME BUTTON ========== */
+    .back-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      background: #ffffff;
+      color: var(--purple-mid);
+      border: 2px solid var(--purple-mid);
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(106,17,203,0.08);
+      margin-bottom: 1.2rem;
+      cursor: pointer;
+    }
+
+    .back-home:hover {
+      background: var(--purple-mid);
+      color: #ffffff;
+      border-color: var(--purple-mid);
+      transform: translateX(-2px);
+      box-shadow: 0 6px 18px rgba(106,17,203,0.25);
+    }
+
+    .back-home i {
+      font-size: 0.85rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* ========== FORM ========== */
     .form-group {
       margin-bottom: 1.25rem;
     }
+
     .form-group label {
       display: block;
-      font-weight: 600;
-      font-size: 0.85rem;
-      margin-bottom: 0.4rem;
-      color: #1f3b4c;
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+      color: var(--text-dark);
     }
+
     input, textarea {
       width: 100%;
-      padding: 0.8rem 1rem;
+      padding: 12px 16px;
       font-size: 0.95rem;
-      border: 1.5px solid #e2edf2;
-      border-radius: 1.2rem;
-      background: #fefefe;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      background: #ffffff;
       transition: all 0.2s;
       font-family: inherit;
     }
+
     input:focus, textarea:focus {
       outline: none;
-      border-color: #2b7a4b;
-      box-shadow: 0 0 0 3px rgba(43, 122, 75, 0.15);
+      border-color: var(--purple-mid);
+      box-shadow: 0 0 0 3px rgba(106,17,203,0.15);
     }
+
     textarea {
-      border-radius: 1.2rem;
       resize: vertical;
     }
+
     button[type="submit"] {
       width: 100%;
-      background: #1f5e3a;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
       border: none;
-      padding: 0.85rem;
+      padding: 14px 24px;
       font-size: 1rem;
-      font-weight: 600;
-      color: white;
-      border-radius: 2rem;
+      font-weight: 800;
+      color: var(--deep-purple);
+      border-radius: 999px;
       cursor: pointer;
       margin-top: 0.5rem;
-      transition: background 0.2s, transform 0.05s;
-      font-family: inherit;
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-    }
-    button[type="submit"]:hover {
-      background: #144f2f;
-    }
-    button[type="submit"]:active {
-      transform: scale(0.98);
-    }
-
-    /* suggestions & chips (preserved layout, enhanced colors) */
-    .suggestions-label {
-      font-size: 0.8rem;
-      color: #2c5a6e;
-      margin-top: 6px;
-      margin-bottom: 4px;
-      font-weight: 500;
-    }
-    .suggestions-list {
-      display: flex;
-      flex-wrap: wrap;
+      transition: all 0.3s ease;
+      font-family: var(--font-body);
+      box-shadow: 0 6px 18px rgba(255,215,0,0.35);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       gap: 8px;
-      margin-bottom: 12px;
-    }
-    .suggestion-chip {
-      background: #eef2f7;
-      border: none;
-      border-radius: 2rem;
-      padding: 6px 14px;
-      font-size: 0.8rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      color: #1f3b4c;
-    }
-    .suggestion-chip:hover:not(.taken) {
-      background: #d4e0e9;
-      transform: scale(0.97);
-    }
-    .suggestion-chip.taken {
-      background: #ffe3e3;
-      color: #b91c1c;
-      cursor: not-allowed;
-      opacity: 0.7;
-    }
-    small {
-      font-size: 0.7rem;
-      color: #5a7184;
-      display: block;
-      margin-top: 0.25rem;
     }
 
-    /* password wrapper (preserved) */
+    button[type="submit"]:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px rgba(255,215,0,0.5);
+    }
+
+    .links {
+      text-align: center;
+      margin-top: 1.2rem;
+    }
+
+    .links a {
+      color: var(--purple-mid);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .links a:hover {
+      color: var(--magenta);
+      text-decoration: underline;
+    }
+
+    .terms-agreement {
+      margin-top: 1.5rem;
+      padding-top: 0.5rem;
+      text-align: center;
+      font-size: 0.85rem;
+      border-top: 1px solid #e2e8f0;
+      color: var(--text-muted);
+    }
+
+    .terms-agreement a {
+      color: var(--purple-mid);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 1px dotted #9D4EDD;
+      cursor: pointer;
+    }
+
+    .terms-agreement a:hover {
+      border-bottom: 1px solid var(--purple-mid);
+    }
+
+    /* ========== PASSWORD TOGGLE ========== */
     .password-wrapper {
       position: relative;
       display: flex;
       align-items: center;
     }
+
     .password-wrapper input {
-      padding-right: 45px;
+      padding-right: 48px;
     }
+
     .toggle-password {
       position: absolute;
       right: 12px;
       background: none;
       border: none;
       cursor: pointer;
-      padding: 0;
-      display: inline-flex;
+      padding: 4px;
+      display: flex;
       align-items: center;
       justify-content: center;
-      color: #6c86a3;
+      color: #64748b;
       transition: color 0.2s;
+      line-height: 0;
     }
+
     .toggle-password:hover {
-      color: #1f5e3a;
+      color: var(--purple-mid);
     }
+
     .toggle-password svg {
       width: 20px;
       height: 20px;
     }
 
-    /* links area & terms row */
-    .links {
+    .message {
+      margin-top: 1rem;
+      font-size: 0.9rem;
       text-align: center;
-      margin-top: 1.2rem;
-    }
-    .links a {
-      color: #1f5e3a;
-      text-decoration: none;
-      font-weight: 500;
-      font-size: 0.85rem;
-      border-bottom: 1px solid transparent;
-      transition: border 0.2s;
-    }
-    .links a:hover {
-      border-bottom: 1px solid #1f5e3a;
-    }
-
-    /* NEW: terms agreement row (bottom of form, above .links) */
-    .terms-agreement {
-      margin-top: 1.5rem;
-      padding-top: 0.5rem;
-      text-align: center;
-      font-size: 0.85rem;
-      border-top: 1px solid #e2edf2;
-      color: #2c5068;
-    }
-    .terms-agreement a {
-      color: #1f5e3a;
       font-weight: 600;
-      text-decoration: none;
-      border-bottom: 1px dotted #8bbf9f;
-      cursor: pointer;
-    }
-    .terms-agreement a:hover {
-      border-bottom: 1px solid #1f5e3a;
     }
 
-    /* ----- MODAL (TERMS & CONDITIONS) ----- */
+    /* ========== MODAL ========== */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -249,10 +318,12 @@
       opacity: 0;
       transition: visibility 0.2s, opacity 0.2s ease;
     }
+
     .modal-overlay.active {
       visibility: visible;
       opacity: 1;
     }
+
     .modal-container {
       background: #ffffff;
       width: 90%;
@@ -265,10 +336,12 @@
       overflow: hidden;
       animation: modalFadeIn 0.25s ease;
     }
+
     @keyframes modalFadeIn {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
     .modal-header {
       display: flex;
       justify-content: space-between;
@@ -277,14 +350,15 @@
       border-bottom: 1px solid #e9f0f3;
       background: #ffffff;
     }
+
     .modal-header h2 {
       font-size: 1.5rem;
       margin: 0;
       font-weight: 700;
-      color: #1f5e3a;
-      background: none;
+      color: var(--purple-dark);
       text-align: left;
     }
+
     .close-modal {
       background: none;
       border: none;
@@ -295,9 +369,11 @@
       transition: color 0.2s;
       padding: 0 6px;
     }
+
     .close-modal:hover {
       color: #b91c1c;
     }
+
     .modal-body {
       padding: 1.5rem 2rem;
       overflow-y: auto;
@@ -307,63 +383,99 @@
       color: #1f2e3a;
       background: #fcfdfe;
     }
-    /* terms content styling */
+
     .modal-body h1 {
       font-size: 1.7rem;
       margin-top: 0;
       margin-bottom: 0.25rem;
-      color: #1c482e;
+      color: var(--purple-dark);
+      background: none;
+      text-align: left;
     }
+
     .modal-body h2 {
       font-size: 1.25rem;
       margin: 1.2rem 0 0.4rem;
-      color: #1f5e3a;
-      border-left: 4px solid #2b7a4b;
+      color: var(--purple-mid);
+      border-left: 4px solid var(--purple-mid);
       padding-left: 0.8rem;
+      text-align: left;
     }
+
     .modal-body p, .modal-body li {
       margin-bottom: 0.6rem;
     }
+
     .modal-body ul, .modal-body ol {
       margin: 0.3rem 0 0.8rem 1.5rem;
     }
+
     .modal-footer {
       padding: 0.9rem 2rem;
       border-top: 1px solid #eef2f7;
       background: #ffffff;
       text-align: right;
     }
+
     .btn-close-modal {
       background: #eef2f7;
       border: none;
       padding: 0.5rem 1.5rem;
       border-radius: 2rem;
-      font-weight: 500;
+      font-weight: 700;
+      color: var(--text-dark);
       cursor: pointer;
       transition: background 0.2s;
+      font-family: inherit;
     }
+
     .btn-close-modal:hover {
       background: #dee5ed;
     }
 
-    /* message area */
-    .message {
-      margin-top: 1rem;
-      font-size: 0.85rem;
-      text-align: center;
-    }
-
-    /* responsive */
+    /* ========== MOBILE RESPONSIVE ========== */
     @media (max-width: 550px) {
       .card {
-        padding: 1.5rem;
+        padding: 1.5rem 1.25rem;
+        border-radius: 20px;
       }
+
+      .brand-header .logo-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1.1rem;
+      }
+
+      .brand-header .acadex-brand {
+        font-size: 1.5rem;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+      }
+
+      h2 {
+        font-size: 1rem;
+      }
+
+      input, textarea {
+        padding: 10px 14px;
+        font-size: 0.9rem;
+      }
+
+      button[type="submit"] {
+        padding: 12px 20px;
+        font-size: 0.95rem;
+      }
+
       .modal-body {
         padding: 1rem;
       }
+
       .modal-header h2 {
         font-size: 1.3rem;
       }
+
       .modal-body h1 {
         font-size: 1.4rem;
       }
@@ -371,207 +483,206 @@
   </style>
 </head>
 <body>
-<div class="container">
-  <div class="card">
-    <h1><span class="acadex-brand"><span class="acadex-a">A</span>cadex</span></h1>
-    <h2>Create your school</h2>
+  <div class="container">
+    <div class="card">
+      <!-- Acadex Logo & Name -->
+      <div class="brand-header">
+        <span class="logo-icon"><i class="fa-solid fa-graduation-cap"></i></span>
+        <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
+      </div>
 
-    <!-- ORIGINAL FORM: IDs, classes, fields completely untouched -->
-    <form id="signupForm">
-      <div class="form-group">
-        <label for="schoolName">School Name *</label>
-        <input type="text" id="schoolName" placeholder="e.g., Excel International School" required>
+      <!-- Back to Home button -->
+      <div class="card-header">
+        <a href="index.html" class="back-home">
+          <i class="fa-solid fa-arrow-left"></i> Back to Home
+        </a>
       </div>
-      <div class="form-group">
-        <label for="username">Username *</label>
-        <input type="text" id="username" placeholder="e.g., excel-school" required>
-        <div id="usernameSuggestions"></div>
-        <small>Your unique identifier for the school dashboard URL. Lowercase letters, numbers, and hyphens only.</small>
-      </div>
-      <div class="form-group">
-        <label for="schoolPhone">Phone Number</label>
-        <input type="tel" id="schoolPhone" placeholder="e.g., +234 801 234 5678">
-      </div>
-      <div class="form-group">
-        <label for="schoolAddress">School Address *</label>
-        <textarea id="schoolAddress" placeholder="street, city, state, country" rows="3" required></textarea>
-      </div>
-      <div class="form-group">
-        <label for="email">Admin Email *</label>
-        <input type="email" id="email" placeholder="admin@school.com" required>
-      </div>
-      <div class="form-group">
-        <label for="password">Password *</label>
-        <div class="password-wrapper">
-          <input type="password" id="password" placeholder="At least 6 characters" required>
-          <button type="button" class="toggle-password" aria-label="Toggle password visibility">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eye-icon">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
+
+      <h1>Create your school</h1>
+
+      <form id="signupForm">
+        <div class="form-group">
+          <label for="schoolName">School Name *</label>
+          <input type="text" id="schoolName" placeholder="e.g., Excel International School" required>
         </div>
+        <div class="form-group">
+          <label for="username">Username *</label>
+          <input type="text" id="username" placeholder="e.g., excel-school" required>
+          <div id="usernameSuggestions"></div>
+          <small style="font-size:0.8rem;color:var(--text-muted);">Your unique identifier for the school dashboard URL. Lowercase letters, numbers, and hyphens only.</small>
+        </div>
+        <div class="form-group">
+          <label for="schoolPhone">Phone Number</label>
+          <input type="tel" id="schoolPhone" placeholder="e.g., +234 801 234 5678">
+        </div>
+        <div class="form-group">
+          <label for="schoolAddress">School Address *</label>
+          <textarea id="schoolAddress" placeholder="street, city, state, country" rows="3" required></textarea>
+        </div>
+        <div class="form-group">
+          <label for="email">Admin Email *</label>
+          <input type="email" id="email" placeholder="admin@school.com" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password *</label>
+          <div class="password-wrapper">
+            <input type="password" id="password" placeholder="At least 6 characters" required>
+            <button type="button" class="toggle-password" aria-label="Toggle password visibility">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eye-icon">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button type="submit">Create School</button>
+      </form>
+
+      <div class="terms-agreement">
+        <span>📖 By creating an account, you agree to our </span>
+        <a id="openTermsModalLink" style="cursor:pointer;">Terms and Conditions</a><span>.</span>
       </div>
-      <button type="submit">Create School</button>
-    </form>
 
-    <!-- NEW TERMS LINK (added exactly as required: bottom of the form, notifying agreement) -->
-    <div class="terms-agreement">
-      <span>📖 By creating an account, you agree to our </span>
-      <a id="openTermsModalLink" style="cursor:pointer;">Terms and Conditions</a><span>.</span>
-    </div>
-
-    <div class="links">
-      <a href="index.html">Already have an account? Login</a>
-    </div>
-    <div id="message" class="message"></div>
-  </div>
-</div>
-
-<!-- MODAL (Terms & Conditions) – exact legal text from Acadex -->
-<div id="termsModal" class="modal-overlay">
-  <div class="modal-container">
-    <div class="modal-header">
-      <h2>📄 Terms & Conditions</h2>
-      <button class="close-modal" id="closeModalBtn" aria-label="Close">&times;</button>
-    </div>
-    <div class="modal-body" id="termsModalBody">
-      <!-- full terms injected via JS (ensures exact copy & readability) -->
-    </div>
-    <div class="modal-footer">
-      <button class="btn-close-modal" id="modalFooterCloseBtn">Close</button>
+      <div class="links">
+        <a href="login.html">Already have an account? Login</a>
+      </div>
+      <div id="message" class="message"></div>
     </div>
   </div>
-</div>
 
-<!-- 
-  EXISTING SCRIPT (module) – untouched, loads initSignupPage from './js/auth.js'
-  Additionally we add a small inline script for modal control (does not interfere with existing JS)
--->
-<script type="module">
-  import { initSignupPage } from './js/auth.js';
-  // preserve original initialisation exactly as it was
-  initSignupPage();
-</script>
+  <div id="termsModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2>📄 Terms & Conditions</h2>
+        <button class="close-modal" id="closeModalBtn" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="termsModalBody">
+      </div>
+      <div class="modal-footer">
+        <button class="btn-close-modal" id="modalFooterCloseBtn">Close</button>
+      </div>
+    </div>
+  </div>
 
-<script>
-  (function() {
-    // ----- FULL TERMS AND CONDITIONS (exact text from Acadex, as provided) -----
-    const termsHTML = `
-      <h1>Acadex Terms and Conditions</h1>
-      <p><strong>Effective Date:</strong> May 4, 2026</p>
-      <p>These Terms and Conditions (“Terms”) govern the access to and use of the Acadex platform and related services by schools, educational institutions, administrators, staff, teachers, and authorized users (“Customer”, “School”, “You”, or “Your”).</p>
-      <p>By creating an account, subscribing to, accessing, or using Acadex, you agree to be legally bound by these Terms.</p>
-      <p>If you do not agree to these Terms, you must not use the platform.</p>
-      
-      <h2>1. Definitions</h2>
-      <p>For the purpose of these Terms:</p>
-      <ul><li><strong>Acadex</strong> refers to the software platform, website, services, systems, APIs, databases, and related products operated by the Company.</li><li><strong>Company</strong> refers to the legal owner and operator of Acadex.</li><li><strong>Customer / School</strong> refers to any school, institution, organization, administrator, or authorized representative using the platform.</li><li><strong>User</strong> refers to any person authorized by the School to access the platform, including teachers, administrators, staff, students, or parents.</li><li><strong>Subscription</strong> refers to any paid or unpaid access plan offered by Acadex.</li><li><strong>Content/Data</strong> refers to all information uploaded, entered, generated, or stored on the platform.</li></ul>
-      
-      <h2>2. Eligibility and Authority</h2>
-      <p>By registering for Acadex, you confirm that:</p><ol><li>You are authorized to act on behalf of your school or institution.</li><li>All information provided during registration is accurate and truthful.</li><li>You have the legal authority to bind your institution to these Terms.</li><li>You will keep account information updated and accurate.</li></ol><p>Providing false information may result in account suspension or termination.</p>
-      
-      <h2>3. Nature of Service</h2>
-      <p>Acadex provides a cloud-based school management and academic reporting platform which may include: Student management, Teacher management, Class and subject management, Score entry and grading, Report card generation, Broadsheet generation, Academic calendar management, Subscription management, Data storage and related educational services. Acadex may modify, improve, suspend, or discontinue features at any time without prior notice.</p>
-      
-      <h2>4. Account Responsibility</h2>
-      <p>The School is fully responsible for: all activity performed under its account, maintaining password confidentiality, managing user access permissions, preventing unauthorized access, monitoring staff usage. Acadex is not liable for losses caused by weak passwords, shared credentials, unauthorized internal access, user negligence, phishing attacks, or compromised devices. The School must immediately notify Acadex if unauthorized access is suspected.</p>
-      
-      <h2>5. Data Ownership and Responsibility</h2>
-      <p>The School retains ownership of the educational records and data uploaded to the platform. However, the School is solely responsible for accuracy of uploaded data, legality of stored content, obtaining necessary parental or legal consent, and maintaining independent backups of important records. Acadex does not verify the accuracy or legality of uploaded information.</p>
-      
-      <h2>6. Data Loss Disclaimer</h2>
-      <p>While Acadex implements reasonable technical and security measures, the Company does not guarantee that data loss, corruption, interruption, or accidental deletion will never occur. The School acknowledges that cloud systems are subject to technical failures and risks. To the maximum extent permitted by law, Acadex and the Company shall not be liable for data loss, data corruption, service interruption, accidental deletion, unauthorized access, hardware failures, third-party infrastructure failures, internet outages, force majeure events, including any direct, indirect, incidental, consequential, or financial damages.</p>
-      
-      <h2>7. Security</h2>
-      <p>Acadex uses commercially reasonable security measures. However, no online platform can guarantee absolute security. The School understands that internet transmissions are not completely secure; cyberattacks may occur. Acadex is not responsible for breaches resulting from user negligence, shared passwords, malware, third-party integrations, or weak internal security practices.</p>
-      
-      <h2>8. Subscription and Payment Terms</h2>
-      <p>Certain services require payment before access. By subscribing you agree to pay all applicable fees. Subscription fees must be paid in advance; failure to pay may result in suspension. Acadex reserves the right to change pricing, modify plans, introduce new fees, or discontinue promotional pricing. Reasonable notice may be provided.</p>
-      
-      <h2>9. No Refund Policy</h2>
-      <p><strong>ALL PAYMENTS MADE TO ACADEX ARE FINAL AND NON-REFUNDABLE.</strong> This includes subscription payments, renewal payments, upgrade fees, setup fees, administrative charges, customization fees. Refunds will not be issued for partial usage periods, failure to use the service, user error, change of mind, account suspension, school closure, staff changes, or failure to cancel before renewal.</p>
-      
-      <h2>10. Acceptable Use</h2>
-      <p>The School and its users agree not to: use Acadex for unlawful purposes, upload malicious software, attempt unauthorized access, interfere with operations, abuse the service, store illegal content, circumvent subscription restrictions, or bypass security. Violation may result in immediate suspension or termination.</p>
-      
-      <h2>11. Intellectual Property</h2>
-      <p>Acadex (software, source code, UI, logos, databases, branding) remains exclusive property of the Company. The School is granted a limited, non-transferable, non-exclusive right to use the platform during an active subscription. The School may not copy, resell, reverse engineer, remove branding, or create derivative products without written permission.</p>
-      
-      <h2>12. Service Availability</h2>
-      <p>Acadex aims for reliable service but does not guarantee uninterrupted operation. The platform may experience maintenance downtime, server interruptions, network outages, third-party issues. Acadex shall not be liable for losses caused by temporary unavailability.</p>
-      
-      <h2>13. Third-Party Services</h2>
-      <p>Acadex may rely on third-party providers (cloud hosting, Firebase, payment processors, etc.). Acadex is not responsible for failures, outages, delays, or security incidents originating from third-party providers.</p>
-      
-      <h2>14. Suspension and Termination</h2>
-      <p>Acadex reserves the right to suspend or terminate accounts without prior notice if Terms are violated, fraud suspected, payment unmet, security risks detected, illegal usage, or abuse identified. Termination may result in data removal and permanent deletion. Acadex is not obligated to restore deleted data after termination.</p>
-      
-      <h2>15. Limitation of Liability</h2>
-      <p>To the fullest extent permitted by law: Acadex and the Company shall not be liable for indirect damages, consequential damages, loss of profits, data loss, reputation damage, operational disruption, examination errors, or academic decisions made using the platform. The School assumes full responsibility for verifying academic records. Maximum liability of Acadex shall not exceed the amount paid by the School within the preceding subscription period.</p>
-      
-      <h2>16. Indemnification</h2>
-      <p>The School agrees to indemnify Acadex, the Company, its directors, employees, and affiliates from any claims, damages, or expenses arising from misuse of the platform, violation of these Terms, unauthorized data usage, educational disputes, uploaded content, or legal violations by the School.</p>
-      
-      <h2>17. Privacy</h2>
-      <p>Acadex may collect and process data necessary for operation. By using the service, the School consents to collection, storage, and processing for legitimate operational purposes. Acadex may use aggregated anonymized data for analytics, system improvement, and security monitoring. Acadex will not intentionally sell confidential school records to third parties.</p>
-      
-      <h2>18. Changes to Terms</h2>
-      <p>Acadex reserves the right to update these Terms at any time. Updated Terms become effective once published. Continued use constitutes acceptance of the revised Terms.</p>
-      
-      <h2>19. Governing Law</h2>
-      <p>These Terms shall be governed by the laws applicable within the jurisdiction where the Company operates. Any disputes shall be subject to the exclusive jurisdiction of the competent courts within that jurisdiction.</p>
-      
-      <h2>20. Entire Agreement</h2>
-      <p>These Terms constitute the complete agreement between the School and Acadex regarding use of the platform and supersede prior discussions or agreements relating to the service.</p>
-      
-      <h2>21. Contact Information</h2>
-      <p>For support or legal communication, schools may contact Acadex through official support channels on the platform or website.</p>
-      
-      <p><strong>Agreement</strong><br>By checking the agreement box during signup or by using the Acadex platform, you acknowledge that: 1) You have read and understood these Terms and Conditions. 2) You agree to be legally bound by them. 3) You are authorized to act on behalf of your institution. 4) Your institution accepts full responsibility for its users and data.</p>
-    `;
-    const modalBody = document.getElementById('termsModalBody');
-    if (modalBody) modalBody.innerHTML = termsHTML;
+  <script type="module">
+    import { initSignupPage } from './js/auth.js';
+    initSignupPage();
+  </script>
 
-    // modal elements
-    const modalOverlay = document.getElementById('termsModal');
-    const openLink = document.getElementById('openTermsModalLink');
-    const closeBtns = [document.getElementById('closeModalBtn'), document.getElementById('modalFooterCloseBtn')];
+  <script>
+    (function() {
+      const termsHTML = `
+        <h1>Acadex Terms and Conditions</h1>
+        <p><strong>Effective Date:</strong> May 4, 2026</p>
+        <p>These Terms and Conditions ("Terms") govern the access to and use of the Acadex platform and related services by schools, educational institutions, administrators, staff, teachers, and authorized users ("Customer", "School", "You", or "Your").</p>
+        <p>By creating an account, subscribing to, accessing, or using Acadex, you agree to be legally bound by these Terms.</p>
+        <p>If you do not agree to these Terms, you must not use the platform.</p>
+        
+        <h2>1. Definitions</h2>
+        <p>For the purpose of these Terms:</p>
+        <ul><li><strong>Acadex</strong> refers to the software platform, website, services, systems, APIs, databases, and related products operated by the Company.</li><li><strong>Company</strong> refers to the legal owner and operator of Acadex.</li><li><strong>Customer / School</strong> refers to any school, institution, organization, administrator, or authorized representative using the platform.</li><li><strong>User</strong> refers to any person authorized by the School to access the platform, including teachers, administrators, staff, students, or parents.</li><li><strong>Subscription</strong> refers to any paid or unpaid access plan offered by Acadex.</li><li><strong>Content/Data</strong> refers to all information uploaded, entered, generated, or stored on the platform.</li></ul>
+        
+        <h2>2. Eligibility and Authority</h2>
+        <p>By registering for Acadex, you confirm that:</p><ol><li>You are authorized to act on behalf of your school or institution.</li><li>All information provided during registration is accurate and truthful.</li><li>You have the legal authority to bind your institution to these Terms.</li><li>You will keep account information updated and accurate.</li></ol><p>Providing false information may result in account suspension or termination.</p>
+        
+        <h2>3. Nature of Service</h2>
+        <p>Acadex provides a cloud-based school management and academic reporting platform which may include: Student management, Teacher management, Class and subject management, Score entry and grading, Report card generation, Broadsheet generation, Academic calendar management, Subscription management, Data storage and related educational services. Acadex may modify, improve, suspend, or discontinue features at any time without prior notice.</p>
+        
+        <h2>4. Account Responsibility</h2>
+        <p>The School is fully responsible for: all activity performed under its account, maintaining password confidentiality, managing user access permissions, preventing unauthorized access, monitoring staff usage. Acadex is not liable for losses caused by weak passwords, shared credentials, unauthorized internal access, user negligence, phishing attacks, or compromised devices. The School must immediately notify Acadex if unauthorized access is suspected.</p>
+        
+        <h2>5. Data Ownership and Responsibility</h2>
+        <p>The School retains ownership of the educational records and data uploaded to the platform. However, the School is solely responsible for accuracy of uploaded data, legality of stored content, obtaining necessary parental or legal consent, and maintaining independent backups of important records. Acadex does not verify the accuracy or legality of uploaded information.</p>
+        
+        <h2>6. Data Loss Disclaimer</h2>
+        <p>While Acadex implements reasonable technical and security measures, the Company does not guarantee that data loss, corruption, interruption, or accidental deletion will never occur. The School acknowledges that cloud systems are subject to technical failures and risks. To the maximum extent permitted by law, Acadex and the Company shall not be liable for data loss, data corruption, service interruption, accidental deletion, unauthorized access, hardware failures, third-party infrastructure failures, internet outages, force majeure events, including any direct, indirect, incidental, consequential, or financial damages.</p>
+        
+        <h2>7. Security</h2>
+        <p>Acadex uses commercially reasonable security measures. However, no online platform can guarantee absolute security. The School understands that internet transmissions are not completely secure; cyberattacks may occur. Acadex is not responsible for breaches resulting from user negligence, shared passwords, malware, third-party integrations, or weak internal security practices.</p>
+        
+        <h2>8. Subscription and Payment Terms</h2>
+        <p>Certain services require payment before access. By subscribing you agree to pay all applicable fees. Subscription fees must be paid in advance; failure to pay may result in suspension. Acadex reserves the right to change pricing, modify plans, introduce new fees, or discontinue promotional pricing. Reasonable notice may be provided.</p>
+        
+        <h2>9. No Refund Policy</h2>
+        <p><strong>ALL PAYMENTS MADE TO ACADEX ARE FINAL AND NON-REFUNDABLE.</strong> This includes subscription payments, renewal payments, upgrade fees, setup fees, administrative charges, customization fees. Refunds will not be issued for partial usage periods, failure to use the service, user error, change of mind, account suspension, school closure, staff changes, or failure to cancel before renewal.</p>
+        
+        <h2>10. Acceptable Use</h2>
+        <p>The School and its users agree not to: use Acadex for unlawful purposes, upload malicious software, attempt unauthorized access, interfere with operations, abuse the service, store illegal content, circumvent subscription restrictions, or bypass security. Violation may result in immediate suspension or termination.</p>
+        
+        <h2>11. Intellectual Property</h2>
+        <p>Acadex (software, source code, UI, logos, databases, branding) remains exclusive property of the Company. The School is granted a limited, non-transferable, non-exclusive right to use the platform during an active subscription. The School may not copy, resell, reverse engineer, remove branding, or create derivative products without written permission.</p>
+        
+        <h2>12. Service Availability</h2>
+        <p>Acadex aims for reliable service but does not guarantee uninterrupted operation. The platform may experience maintenance downtime, server interruptions, network outages, third-party issues. Acadex shall not be liable for losses caused by temporary unavailability.</p>
+        
+        <h2>13. Third-Party Services</h2>
+        <p>Acadex may rely on third-party providers (cloud hosting, Firebase, payment processors, etc.). Acadex is not responsible for failures, outages, delays, or security incidents originating from third-party providers.</p>
+        
+        <h2>14. Suspension and Termination</h2>
+        <p>Acadex reserves the right to suspend or terminate accounts without prior notice if Terms are violated, fraud suspected, payment unmet, security risks detected, illegal usage, or abuse identified. Termination may result in data removal and permanent deletion. Acadex is not obligated to restore deleted data after termination.</p>
+        
+        <h2>15. Limitation of Liability</h2>
+        <p>To the fullest extent permitted by law: Acadex and the Company shall not be liable for indirect damages, consequential damages, loss of profits, data loss, reputation damage, operational disruption, examination errors, or academic decisions made using the platform. The School assumes full responsibility for verifying academic records. Maximum liability of Acadex shall not exceed the amount paid by the School within the preceding subscription period.</p>
+        
+        <h2>16. Indemnification</h2>
+        <p>The School agrees to indemnify Acadex, the Company, its directors, employees, and affiliates from any claims, damages, or expenses arising from misuse of the platform, violation of these Terms, unauthorized data usage, educational disputes, uploaded content, or legal violations by the School.</p>
+        
+        <h2>17. Privacy</h2>
+        <p>Acadex may collect and process data necessary for operation. By using the service, the School consents to collection, storage, and processing for legitimate operational purposes. Acadex may use aggregated anonymized data for analytics, system improvement, and security monitoring. Acadex will not intentionally sell confidential school records to third parties.</p>
+        
+        <h2>18. Changes to Terms</h2>
+        <p>Acadex reserves the right to update these Terms at any time. Updated Terms become effective once published. Continued use constitutes acceptance of the revised Terms.</p>
+        
+        <h2>19. Governing Law</h2>
+        <p>These Terms shall be governed by the laws applicable within the jurisdiction where the Company operates. Any disputes shall be subject to the exclusive jurisdiction of the competent courts within that jurisdiction.</p>
+        
+        <h2>20. Entire Agreement</h2>
+        <p>These Terms constitute the complete agreement between the School and Acadex regarding use of the platform and supersede prior discussions or agreements relating to the service.</p>
+        
+        <h2>21. Contact Information</h2>
+        <p>For support or legal communication, schools may contact Acadex through official support channels on the platform or website.</p>
+        
+        <p><strong>Agreement</strong><br>By checking the agreement box during signup or by using the Acadex platform, you acknowledge that: 1) You have read and understood these Terms and Conditions. 2) You agree to be legally bound by them. 3) You are authorized to act on behalf of your institution. 4) Your institution accepts full responsibility for its users and data.</p>
+      `;
+      const modalBody = document.getElementById('termsModalBody');
+      if (modalBody) modalBody.innerHTML = termsHTML;
 
-    function openModal() {
-      modalOverlay.classList.add('active');
-      document.body.style.overflow = 'hidden';
-    }
-    function closeModal() {
-      modalOverlay.classList.remove('active');
-      document.body.style.overflow = '';
-    }
-    if (openLink) openLink.addEventListener('click', (e) => { e.preventDefault(); openModal(); });
-    closeBtns.forEach(btn => { if(btn) btn.addEventListener('click', closeModal); });
-    modalOverlay.addEventListener('click', (e) => { if(e.target === modalOverlay) closeModal(); });
-    document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalOverlay.classList.contains('active')) closeModal(); });
-  })();
-</script>
-<script>
-  // Unregister any existing service worker, then clear all its caches.
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      for (let registration of registrations) {
-        registration.unregister();
+      const modalOverlay = document.getElementById('termsModal');
+      const openLink = document.getElementById('openTermsModalLink');
+      const closeBtns = [document.getElementById('closeModalBtn'), document.getElementById('modalFooterCloseBtn')];
+
+      function openModal() {
+        modalOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
       }
-    }).catch(function(err) {
-      console.log('Service Worker unregistration failed: ', err);
-    });
-
-    // Also delete all caches just in case.
-    if (window.caches) {
-      caches.keys().then(function(cacheNames) {
-        cacheNames.forEach(function(cacheName) {
-          caches.delete(cacheName);
-        });
+      function closeModal() {
+        modalOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+      if (openLink) openLink.addEventListener('click', (e) => { e.preventDefault(); openModal(); });
+      closeBtns.forEach(btn => { if(btn) btn.addEventListener('click', closeModal); });
+      modalOverlay.addEventListener('click', (e) => { if(e.target === modalOverlay) closeModal(); });
+      document.addEventListener('keydown', (e) => { if(e.key === 'Escape' && modalOverlay.classList.contains('active')) closeModal(); });
+    })();
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (let registration of registrations) {
+          registration.unregister();
+        }
+      }).catch(function(err) {
+        console.log('Service Worker unregistration failed: ', err);
       });
+
+      if (window.caches) {
+        caches.keys().then(function(cacheNames) {
+          cacheNames.forEach(function(cacheName) {
+            caches.delete(cacheName);
+          });
+        });
+      }
     }
-  }
-</script>
+  </script>
 </body>
 </html>
