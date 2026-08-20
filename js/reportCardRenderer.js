@@ -4,6 +4,7 @@
 // All Firestore operations now go through service.js (cache + offline queue).
 // All user-facing errors now show clear, friendly messages without technical jargon.
 // NEW: Accepts positionEnabled and position; displays position in details band when enabled.
+// NEW: Deduplicates subjects with the same name, keeping only the newest score record.
 
 import { toast } from './error-handler.js';
 import * as service from './service.js';
@@ -75,6 +76,50 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
     toast.warning('Unable to load attendance data. Using default values.');
     return fallback;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIVATE HELPER — deduplicate scores by subject name and keep newest
+// ─────────────────────────────────────────────────────────────────────────────
+function _parseScoreDate(score) {
+  const candidates = [score.updatedAt, score.createdAt, score.date, score.timestamp];
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    try {
+      if (candidate.toDate) return candidate.toDate().getTime();
+      if (candidate.seconds) return candidate.seconds * 1000;
+      const time = new Date(candidate).getTime();
+      if (!Number.isNaN(time)) return time;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function dedupeScores(scores) {
+  if (!Array.isArray(scores)) return [];
+
+  const seen = new Map();
+
+  for (const score of scores) {
+    if (!score) continue;
+    const name = (score.subjectName || score.subjectId || '').trim().toLowerCase();
+    if (!name) continue;
+
+    const existing = seen.get(name);
+    if (!existing) {
+      seen.set(name, score);
+      continue;
+    }
+
+    const existingDate = _parseScoreDate(existing);
+    const newDate = _parseScoreDate(score);
+
+    if (newDate !== null && (existingDate === null || newDate > existingDate)) {
+      seen.set(name, score);
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,13 +269,16 @@ export async function renderReportCardUI({
   const affectiveSkillsList   = ['Attentiveness','Neatness','Honesty','Politeness','Punctuality','Self-control/Calmness','Obedience','Reliability','Relationship with others','Leadership'];
   function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
 
+  // ── Deduplicate scores: keep only newest subject record by name ──────────────
+  const uniqueScores = dedupeScores(scores);
+
   // ── Subject table rows ───────────────────────────────────────────────────────
   let tableRows = '';
   let totalScore = 0;
   let subjectCount = 0;
 
-  if (scores && scores.length) {
-    for (const score of scores) {
+  if (uniqueScores && uniqueScores.length) {
+    for (const score of uniqueScores) {
       const ca = Number(score.ca || 0);
       const exam = Number(score.exam || 0);
 
