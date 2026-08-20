@@ -1,6 +1,7 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
 // MODIFIED: Supports multiple class teacher assignments (hostClassIds array).
 // FIXED: loadTeacherHostClasses now uses auth.currentUser.uid instead of teacherData.uid.
+// NEW: fetchScores now includes createdAt/updatedAt for duplicate subject resolution.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
@@ -9,7 +10,6 @@ import { initAcademicCalendar, getCurrentTerm, getCurrentSession } from './acade
 import { renderReportCardUI } from './reportCardRenderer.js';
 import { auth } from './firebase-config.js';
 
-// NEW: shared grading utilities
 import {
   calculateGrade,
   getGradeRemark,
@@ -26,8 +26,8 @@ import {
 
 let currentSchoolId = null;
 let teacherData = null;
-let currentClassId = null;          // Currently selected class ID (for report card)
-let hostClassIds = [];              // Array of class IDs where teacher is class teacher
+let currentClassId = null;
+let hostClassIds = [];
 let classNameCache = '';
 let currentGrading = { ca: 40, exam: 60 };
 let classesMap = new Map();
@@ -50,13 +50,11 @@ let reportState = {
   savedReportId: null
 };
 
-// Initialize ratings with defaults
 [...psychomotorSkillsList_local, ...affectiveSkillsList_local].forEach(skill => {
   const key = getSkillKey(skill);
   reportState.psychomotor[key] = 3;
 });
 
-// ------------------- Subscription check via service -------------------
 async function checkSubscription() {
   try {
     const subData = await service.getSubscription(currentSchoolId);
@@ -117,10 +115,6 @@ function enableSubscriptionFeatures() {
   if (warning) warning.remove();
 }
 
-// ------------------- Helper Functions (now using imports) -------------------
-// Removed local definitions of calculateGrade, getGradeRemark, etc.
-
-// ------------------- DATA LOADING -------------------
 async function loadTeacherHostClasses() {
   try {
     const user = auth.currentUser;
@@ -261,10 +255,17 @@ async function loadStudentsList() {
   }
 }
 
+// UPDATED: Preserve createdAt/updatedAt for duplicate subject resolution
 async function fetchScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
-    return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
+    return scores.map(s => ({
+      subjectId: s.subjectId,
+      ca: s.ca,
+      exam: s.exam,
+      createdAt: s.createdAt || null,
+      updatedAt: s.updatedAt || null
+    }));
   } catch (err) {
     console.error('Scores fetch error:', err);
     toast.error('Unable to load student scores. Please refresh the page.');
@@ -324,7 +325,6 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   }
 }
 
-// ==================== REPORT CARD LOADING ====================
 async function loadReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -371,7 +371,9 @@ async function loadReportCard(studentId, studentName) {
       subjectId:   score.subjectId,
       subjectName: subjectsMap.get(score.subjectId) || score.subjectId,
       ca:   score.ca,
-      exam: score.exam
+      exam: score.exam,
+      createdAt: score.createdAt,
+      updatedAt: score.updatedAt
     }));
 
     const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
@@ -474,7 +476,6 @@ async function saveReportCard() {
   }
 }
 
-// ========== PRINT HANDLER (unchanged except using escapeHtml from import) ==========
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
   const printTeacher   = document.getElementById('printTeacherComment');
@@ -554,7 +555,6 @@ function handlePrint() {
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
-// ========== WHATSAPP SHARE FUNCTION (unchanged) ==========
 function sendToWhatsApp() {
   if (!reportState.selectedStudent) {
     toast.error('Please select a student first.');
@@ -596,7 +596,6 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ========== BROADSHEET FUNCTIONS (unchanged) ==========
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -686,7 +685,7 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average  = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
-      const grade    = calculateGrade(average); // using imported
+      const grade    = calculateGrade(average);
       const remark   = getGradeRemark(grade);
       const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
       const combinedAvg = termValues.length ? (termValues.reduce((a,b)=>a+b,0)/termValues.length).toFixed(1) : null;
@@ -796,7 +795,6 @@ function printBroadsheet() {
   printWindow.print();
 }
 
-// ==================== CLASS STUDENTS & SELECTION ====================
 async function loadClassStudents() {
   if (!currentClassId) return;
   
@@ -849,7 +847,6 @@ async function onClassChange() {
 }
 
 async function populateClassSelectors() {
-  // Populate broadsheet class select
   const broadsheetSelect = document.getElementById('broadsheetClassSelect');
   if (broadsheetSelect) {
     broadsheetSelect.innerHTML = '<option value="">-- Select Class --</option>';
@@ -867,7 +864,6 @@ async function populateClassSelectors() {
     }
   }
 
-  // Populate report card class selector (if more than one class)
   const reportClassWrapper = document.getElementById('classSelectorWrapper');
   const reportClassSelect = document.getElementById('reportClassSelect');
   if (reportClassWrapper && reportClassSelect) {
@@ -895,7 +891,6 @@ async function populateClassSelectors() {
   await loadClassStudents();
 }
 
-// ------------------- Initialisation -------------------
 export async function initClassReportPage() {
   teacherData = getTeacherData();
   if (!teacherData) return;
