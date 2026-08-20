@@ -7,6 +7,7 @@
 // UPDATED: Print comments now appear inline (same line as label)
 // NEW: "Enable Position" toggle – persisted to localStorage per school. When ON,
 //      report card displays student's class position calculated from broadsheet.
+// NEW: fetchStudentScores now includes createdAt/updatedAt for duplicate subject resolution.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
@@ -151,10 +152,17 @@ async function fetchClassScores(classId, term, session) {
   }
 }
 
+// UPDATED: Preserve createdAt/updatedAt for duplicate subject resolution
 async function fetchStudentScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
-    return scores.map(s => ({ subjectId: s.subjectId, ca: s.ca, exam: s.exam }));
+    return scores.map(s => ({
+      subjectId: s.subjectId,
+      ca: s.ca,
+      exam: s.exam,
+      createdAt: s.createdAt || null,
+      updatedAt: s.updatedAt || null
+    }));
   } catch (err) {
     console.error('Failed to fetch student scores:', err);
     toast.warning('Unable to load student scores. Please refresh the page.');
@@ -283,7 +291,6 @@ async function getStudentAverageForTerm(studentId, term, session) {
 async function getStudentClassPosition(studentId, classId, term, session) {
   if (!classId || !studentId || !term || !session) return null;
   try {
-    // Use the broadsheet data if it was already generated for this exact class/term/session
     if (
       window.currentBroadsheetData &&
       window.currentBroadsheetData.classId === classId &&
@@ -313,7 +320,6 @@ async function getStudentClassPosition(studentId, classId, term, session) {
         if (!relevantSubjectIds.includes(score.subjectId)) continue;
         const ca = Number(score.ca || 0);
         const exam = Number(score.exam || 0);
-        // Match report card rule: skip subjects where either CA or Exam is zero
         if (ca === 0 || exam === 0) continue;
         total += ca + exam;
         count++;
@@ -387,14 +393,15 @@ async function renderReportCard(studentId, studentName) {
     subjectId:   score.subjectId,
     subjectName: subjectsMap.get(score.subjectId)?.name || score.subjectId,
     ca:   score.ca,
-    exam: score.exam
+    exam: score.exam,
+    createdAt: score.createdAt,
+    updatedAt: score.updatedAt
   }));
 
   let subjectStats = new Map();
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
   await loadExistingEditorReport(studentId);
 
-  // NEW: Compute class position if enabled
   let classPosition = null;
   if (positionEnabled && classId) {
     classPosition = await getStudentClassPosition(studentId, classId, editorState.term, editorState.session);
@@ -508,7 +515,7 @@ async function saveEditorReport() {
   }
 }
 
-// ==================== PRINT, WHATSAPP, BROADSHEET ETC. (unchanged except removed duplicate helpers) ====================
+// ==================== PRINT, WHATSAPP, BROADSHEET ETC. ====================
 
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
@@ -635,7 +642,7 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
-// ------------------- Broadsheet Functions (unchanged, just imports used) -------------------
+// ------------------- Broadsheet Functions -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -960,7 +967,6 @@ export async function initResultsPage() {
     return;
   }
 
-  // Restore saved position toggle preference
   positionEnabled = loadPositionTogglePreference(currentSchoolId);
 
   await initAcademicCalendar();
@@ -1024,7 +1030,6 @@ export async function initResultsPage() {
   document.getElementById('editorSessionSelect')?.addEventListener('change', onEditorFilterChange);
   document.getElementById('editorTermSelect')?.addEventListener('change', onEditorFilterChange);
 
-  // NEW: Enable Position toggle listener
   const enablePositionToggle = document.getElementById('enablePositionToggle');
   if (enablePositionToggle) {
     enablePositionToggle.checked = positionEnabled;
