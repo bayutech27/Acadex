@@ -240,16 +240,6 @@
       }
     }
 
-    /* WhatsApp button style */
-    .btn-whatsapp {
-      background-color: #25D366 !important;
-      color: white !important;
-    }
-    .btn-whatsapp:hover {
-      background-color: #128C7E !important;
-      transform: translateY(-2px);
-    }
-
     @media print {
       .print-hide, .rating-tick, .tick, .comment-controls, button, select, textarea,
       .action-buttons, .attendance-input {
@@ -439,7 +429,6 @@
   </div>
   <div id="overlay" class="overlay"></div>
 
-  
   <main class="main-content">
     <!-- Header -->
     <header class="header">
@@ -504,7 +493,6 @@
       <div class="class-report-container">
         <div class="student-list-sidebar print-hide">
           <div class="term-session-sidebar">
-            <!-- NEW: Class selector for report card (only appears if teacher has multiple host classes) -->
             <div id="classSelectorWrapper" style="display: none;">
               <label>🏫 Class:</label>
               <select id="reportClassSelect"></select>
@@ -520,8 +508,6 @@
           <div id="reportCardContent" class="report-card"><p style="text-align:center; padding:2rem;">Select a student</p></div>
           <div class="action-buttons print-hide" id="reportActions" style="display: none;">
             <button id="saveReportBtn" class="btn-primary">💾 Save Report</button>
-            <button id="printReportBtn" class="btn-secondary">🖨️ Print / PDF</button>
-            <button id="whatsappReportBtn" class="btn-secondary btn-whatsapp">📱 Send to WhatsApp</button>
           </div>
         </div>
       </div>
