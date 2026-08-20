@@ -4,6 +4,10 @@
 //          to bypass any stale client-side cache and ensure new subjects appear.
 // All other operations (students, grading) still use service.js.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// NEW: Guarantees only one score record per student/subject/term/session.
+//      New scores are created with a deterministic document ID.
+//      Edited scores are updated in place with the current date/time in updatedAt.
+//      Any existing duplicate score documents are deleted automatically.
 
 import { auth } from './firebase-config.js';
 import {
@@ -240,9 +244,39 @@ async function loadStudentsForClass(classId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// fetchExistingScores – direct Firestore query (bypass cache)
+// New helpers for duplicate-safe score handling
 // ─────────────────────────────────────────────────────────────────────────────
-async function fetchExistingScores(studentId, subjectId, term, session) {
+
+/**
+ * Convert a Firestore timestamp or JavaScript Date value to milliseconds.
+ * Returns 0 when no valid date is found.
+ */
+function _scoreDateMs(score) {
+  const candidates = [score.updatedAt, score.createdAt];
+  for (const val of candidates) {
+    if (!val) continue;
+    try {
+      if (val.toDate) return val.toDate().getTime();
+      if (val.seconds) return val.seconds * 1000;
+      const parsed = new Date(val).getTime();
+      if (!Number.isNaN(parsed)) return parsed;
+    } catch (_) {}
+  }
+  return 0;
+}
+
+/**
+ * Sanitize a session string for use in a Firestore document ID.
+ */
+function sanitizeForDocId(value) {
+  return String(value || '').replace(/[^\w-]/g, '_');
+}
+
+/**
+ * Return every score document that matches the student, subject, term and session.
+ * This deliberately bypasses the service cache.
+ */
+async function getAllExistingScoreDocs(studentId, subjectId, term, session) {
   try {
     const q = query(
       collection(db, 'scores'),
@@ -253,44 +287,92 @@ async function fetchExistingScores(studentId, subjectId, term, session) {
       where('session', '==', session)
     );
     const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docSnap = snap.docs[0];
-      return { id: docSnap.id, ...docSnap.data() };
-    }
-    return null;
+    const docs = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+
+    // Put the newest document first, so [0] is always the canonical score.
+    docs.sort((a, b) => _scoreDateMs(b) - _scoreDateMs(a));
+    return docs;
   } catch (err) {
-    console.error('Fetch existing scores error:', err);
+    console.error('Get all existing score docs error:', err);
     toast.warning('Unable to load existing scores. Please refresh.');
-    return null;
+    return [];
   }
 }
 
+/**
+ * Return only the newest existing score document for a student/subject/term/session,
+ * or null when none exists.
+ */
+async function fetchExistingScores(studentId, subjectId, term, session) {
+  const allExisting = await getAllExistingScoreDocs(studentId, subjectId, term, session);
+  return allExisting.length > 0 ? allExisting[0] : null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// saveAllScores – use direct Firestore batch with proper existing ID lookup
+// saveAllScores – duplicate‑safe score upsert
 // ─────────────────────────────────────────────────────────────────────────────
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
   if (scoresData.length === 0) return;
 
   const batch = writeBatch(db);
+
   for (const score of scoresData) {
-    const existing = await fetchExistingScores(score.studentId, score.subjectId, selectedTerm, selectedSession);
-    const scoreRef = existing ? doc(db, 'scores', existing.id) : doc(collection(db, 'scores'));
+    const allExisting = await getAllExistingScoreDocs(
+      score.studentId,
+      score.subjectId,
+      selectedTerm,
+      selectedSession
+    );
+
     const subjectName = subjectsMap.get(score.subjectId) || '';
-    const data = {
-      studentId: score.studentId,
-      subjectId: score.subjectId,
-      subjectName: subjectName,
-      schoolId: currentSchoolId,
-      term: selectedTerm,
-      session: selectedSession,
-      ca: score.ca,
-      exam: score.exam,
-      updatedAt: new Date()
-    };
-    if (!existing) data.createdAt = new Date();
-    batch.set(scoreRef, data, { merge: true });
+    const now = new Date(); // current date and time, used for every updated record
+
+    let scoreRef;
+
+    if (allExisting.length === 0) {
+      // No existing score. Use a deterministic document ID so the same
+      // student/subject/term/session can never exist twice.
+      const deterministicId = `${score.studentId}_${score.subjectId}_${selectedTerm}_${sanitizeForDocId(selectedSession)}`;
+      scoreRef = doc(db, 'scores', deterministicId);
+      batch.set(scoreRef, {
+        studentId: score.studentId,
+        subjectId: score.subjectId,
+        subjectName: subjectName,
+        schoolId: currentSchoolId,
+        term: selectedTerm,
+        session: selectedSession,
+        ca: score.ca,
+        exam: score.exam,
+        createdAt: now,
+        updatedAt: now
+      });
+    } else {
+      // One or more existing scores. Keep the newest as the canonical record
+      // and update it in place. Delete any older duplicates.
+      const canonical = allExisting[0];
+      const extras = allExisting.slice(1);
+
+      scoreRef = doc(db, 'scores', canonical.id);
+      batch.set(scoreRef, {
+        studentId: score.studentId,
+        subjectId: score.subjectId,
+        subjectName: subjectName,
+        schoolId: currentSchoolId,
+        term: selectedTerm,
+        session: selectedSession,
+        ca: score.ca,
+        exam: score.exam,
+        updatedAt: now
+      }, { merge: true });
+
+      for (const extra of extras) {
+        const extraRef = doc(db, 'scores', extra.id);
+        batch.delete(extraRef);
+      }
+    }
   }
+
   await batch.commit();
 
   // Invalidate scores cache so that any cached reads see the updated data
