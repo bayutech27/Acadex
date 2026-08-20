@@ -2,6 +2,7 @@
 // MODIFIED: Supports multiple class teacher assignments (hostClassIds array).
 // FIXED: loadTeacherHostClasses now uses auth.currentUser.uid instead of teacherData.uid.
 // NEW: fetchScores now includes createdAt/updatedAt for duplicate subject resolution.
+//       Student list selection highlights the active student.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
@@ -255,7 +256,6 @@ async function loadStudentsList() {
   }
 }
 
-// UPDATED: Preserve createdAt/updatedAt for duplicate subject resolution
 async function fetchScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
