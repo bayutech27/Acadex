@@ -5,6 +5,7 @@
 // All user-facing errors now show clear, friendly messages without technical jargon.
 // FIXED: Signup now reliably creates Firestore documents (no batch write issues)
 // FIXED: Login retries Firestore reads to handle eventual consistency
+// UPDATED: New school document is created with status = 'expired' to match security rules.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -177,13 +178,14 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     const nowTimestamp = new Date();
 
     // 1. Create school document
+    // NOTE: status must be 'expired' initially so it matches Firestore security rules.
     const schoolRef = doc(db, 'schools', schoolId);
     await setDoc(schoolRef, {
       name:           schoolName,
       slug:           username,
       phone:          phone || '',
       address:        address || '',
-      status:         'active',
+      status:         'expired',
       createdAt:      nowTimestamp,
       currentSession: currentSession,
       currentTerm:    currentTerm,
@@ -247,7 +249,8 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     } else if (error.code === 'auth/weak-password') {
       errorMessage = 'Password is too weak. Please use at least 6 characters.';
     } else if (error.code === 'permission-denied') {
-      errorMessage = 'Permission denied. Please check your Firestore security rules.';
+      // User-friendly message without Firestore/security details
+      errorMessage = 'Unable to create your school at the moment. Please try again later.';
     } else if (error.message === 'User document was not saved properly') {
       errorMessage = 'Account created but setup incomplete. Please contact support.';
     } else {
