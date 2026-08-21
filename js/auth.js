@@ -3,9 +3,10 @@
 // MODIFIED: Student redirect points to /student/student-portal.html (inside student folder).
 // All existing admin and teacher functionality remains fully intact.
 // All user-facing errors now show clear, friendly messages without technical jargon.
-// FIXED: Signup now reliably creates Firestore documents (no batch write issues)
-// FIXED: Login retries Firestore reads to handle eventual consistency
+// FIXED: Signup now reliably creates Firestore documents using a batch write.
+// FIXED: Login retries Firestore reads to handle eventual consistency.
 // UPDATED: New school document is created with status = 'expired' to match security rules.
+// UPDATED: New subscription document is also created with status = 'expired' and locked = true.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -30,13 +31,10 @@ import { getUserData, getSchoolById } from './app.js';
 import { showNotification, handleError, showLoader, hideLoader, toast } from './error-handler.js';
 import { calculateTermAndSessionFromDate } from './academic-calendar.js';
 
-// NEW: security imports
 import { enforcePasswordChange } from './security.js';
 
-// ---------- VALID ROLES ----------
 const VALID_ROLES = ['super-admin', 'admin', 'teacher', 'student', 'parent'];
 
-// ---------- ROLE → REDIRECT MAP ----------
 const ROLE_REDIRECTS = {
   'super-admin': '/super-admin.html',
   'admin':       '/admin/admin-dashboard.html',
@@ -45,16 +43,6 @@ const ROLE_REDIRECTS = {
   'parent':      '/parent/parent-portal.html',
 };
 
-// ---------- Notification helper ----------
-function showMessage(message, isError = true) {
-  if (isError) {
-    toast.error(message);
-  } else {
-    toast.success(message);
-  }
-}
-
-// ---------- Helper: redirect an authenticated user based on their role ----------
 function redirectByRole(role) {
   const destination = ROLE_REDIRECTS[role];
   if (destination) {
@@ -62,7 +50,6 @@ function redirectByRole(role) {
   }
 }
 
-// ---------- Helper: slugify a string ----------
 function slugify(text) {
   if (!text) return '';
   return text
@@ -76,7 +63,6 @@ function slugify(text) {
     .replace(/-+$/, '');
 }
 
-// ---------- Check if a username (slug) already exists ----------
 async function isUsernameTaken(username) {
   try {
     const schoolsRef = collection(db, 'schools');
@@ -90,7 +76,6 @@ async function isUsernameTaken(username) {
   }
 }
 
-// ---------- Generate username suggestions based on school name ----------
 async function generateUsernameSuggestions(schoolName) {
   const base = slugify(schoolName);
   if (!base) return [];
@@ -118,7 +103,6 @@ async function isEmailAlreadyRegistered(email) {
   }
 }
 
-// ---------- Helper: get term start/end dates using central calendar ----------
 function getTermStartEndDates(term, session) {
   const sessionYear = parseInt(session.split('/')[0]);
   const year = sessionYear;
@@ -140,9 +124,6 @@ function getTermStartEndDates(term, session) {
   return { startDate, endDate };
 }
 
-// =============================================================================
-// SIGNUP - FIXED: Individual document writes with verification
-// =============================================================================
 export async function signupSchool(schoolName, username, address, phone, email, password) {
   if (!username) {
     toast.error('Please enter a username.');
@@ -151,23 +132,20 @@ export async function signupSchool(schoolName, username, address, phone, email, 
 
   showLoader();
   let userCredential = null;
-  
+
   try {
-    // Check username availability
     const usernameTaken = await isUsernameTaken(username);
     if (usernameTaken) {
       toast.error('This username is already taken. Please choose another.');
       return;
     }
 
-    // Check email availability
     const emailRegistered = await isEmailAlreadyRegistered(email);
     if (emailRegistered) {
       toast.error('This email is already registered. Please log in or use a different email.');
       return;
     }
 
-    // Create auth user
     userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     const schoolId = user.uid;
@@ -177,10 +155,14 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     const { startDate, endDate } = getTermStartEndDates(currentTerm, currentSession);
     const nowTimestamp = new Date();
 
-    // 1. Create school document
-    // NOTE: status must be 'expired' initially so it matches Firestore security rules.
     const schoolRef = doc(db, 'schools', schoolId);
-    await setDoc(schoolRef, {
+    const userRef = doc(db, 'users', user.uid);
+    const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+
+    const batch = writeBatch(db);
+
+    // School document: expired by default
+    batch.set(schoolRef, {
       name:           schoolName,
       slug:           username,
       phone:          phone || '',
@@ -193,20 +175,17 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       ownerId:        user.uid,
     });
 
-    // 2. Create user document
-    const userRef = doc(db, 'users', user.uid);
-    await setDoc(userRef, {
+    batch.set(userRef, {
       role:      'admin',
       schoolId:  schoolId,
       email:     email,
       createdAt: nowTimestamp,
     });
 
-    // 3. Create subscription document
-    const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
-    await setDoc(subRef, {
-      status:                      'active',
-      locked:                      false,
+    // Subscription document: also expired and locked
+    batch.set(subRef, {
+      status:                      'expired',
+      locked:                      true,
       term:                        currentTerm,
       session:                     currentSession,
       startDate:                   startDate,
@@ -222,20 +201,19 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       autoExpired:                 false,
     });
 
-    // Verify data was written by reading back the user document
+    await batch.commit();
+
     const verifyUser = await getDoc(userRef);
     if (!verifyUser.exists()) {
       throw new Error('User document was not saved properly');
     }
 
-    // Store school slug in localStorage for redirect
     localStorage.setItem('schoolSlug', username);
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', 'admin');
     
     toast.success('Account created successfully! Redirecting to your dashboard...');
     
-    // Small delay to ensure Firestore has committed the writes
     setTimeout(() => {
       window.location.href = `/admin/admin-dashboard.html?school=${username}`;
     }, 1500);
@@ -249,7 +227,6 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     } else if (error.code === 'auth/weak-password') {
       errorMessage = 'Password is too weak. Please use at least 6 characters.';
     } else if (error.code === 'permission-denied') {
-      // User-friendly message without Firestore/security details
       errorMessage = 'Unable to create your school at the moment. Please try again later.';
     } else if (error.message === 'User document was not saved properly') {
       errorMessage = 'Account created but setup incomplete. Please contact support.';
@@ -259,7 +236,6 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     
     toast.error(errorMessage);
     
-    // Clean up: delete the auth user if Firestore write failed
     if (userCredential && error.message !== 'User document was not saved properly') {
       try {
         await userCredential.user.delete();
@@ -272,23 +248,18 @@ export async function signupSchool(schoolName, username, address, phone, email, 
   }
 }
 
-// =============================================================================
-// LOGIN - FIXED: Retry mechanism for Firestore eventual consistency
-// =============================================================================
 export async function loginUser(email, password) {
   showLoader();
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // Add a retry mechanism for Firestore read (handles eventual consistency)
     let userDocSnap = null;
     let retries = 0;
     const maxRetries = 3;
     
     while (retries < maxRetries && !userDocSnap?.exists()) {
       if (retries > 0) {
-        // Wait longer on each retry (1s, 2s, 3s)
         await new Promise(resolve => setTimeout(resolve, 1000 * retries));
       }
       userDocSnap = await getDoc(doc(db, 'users', user.uid));
@@ -306,14 +277,12 @@ export async function loginUser(email, password) {
     const role     = userData.role;
     const schoolId = userData.schoolId;
 
-    // ======= NEW: must change password =======
     if (userData.mustChangePassword) {
       localStorage.setItem('mustChangePassword', 'true');
       window.location.href = `change-password.html?redirect=${encodeURIComponent(ROLE_REDIRECTS[role])}`;
       return;
     }
 
-    // ======= NEW: disabled account =======
     if (userData.disabled) {
       toast.error('Your account has been disabled. Contact the school.');
       await signOut(auth);
@@ -332,7 +301,6 @@ export async function loginUser(email, password) {
       return;
     }
 
-    // Verify school exists for non-super-admin users
     if (role !== 'super-admin') {
       const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
       if (!schoolDoc.exists()) {
@@ -376,9 +344,6 @@ export async function loginUser(email, password) {
   }
 }
 
-// =============================================================================
-// LOGOUT
-// =============================================================================
 export async function logoutUser() {
   try {
     localStorage.removeItem('userSchoolId');
@@ -395,9 +360,6 @@ export async function logoutUser() {
   }
 }
 
-// =============================================================================
-// PASSWORD RESET
-// =============================================================================
 export async function resetPassword(email) {
   showLoader();
   try {
@@ -417,9 +379,6 @@ export async function resetPassword(email) {
   }
 }
 
-// =============================================================================
-// SHARED onAuthStateChanged GUARD
-// =============================================================================
 function handleAlreadyLoggedIn(user, onNotLoggedIn) {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -440,10 +399,6 @@ function handleAlreadyLoggedIn(user, onNotLoggedIn) {
     if (typeof onNotLoggedIn === 'function') onNotLoggedIn();
   });
 }
-
-// =============================================================================
-// PAGE INITIALISERS
-// =============================================================================
 
 export function initLoginPage() {
   handleAlreadyLoggedIn(null, () => {
@@ -570,10 +525,6 @@ export function getCurrentTeacherSchoolId() {
   return localStorage.getItem('userSchoolId');
 }
 
-// =============================================================================
-// PORTAL PAGE GUARDS
-// =============================================================================
-
 export function initStudentPortal() {
   onAuthStateChanged(auth, async (user) => {
     if (!user) { window.location.href = '/'; return; }
@@ -591,10 +542,8 @@ export function initStudentPortal() {
         return;
       }
 
-      // ======= NEW: enforce password change =======
       await enforcePasswordChange(window.location.href);
 
-      // ======= NEW: disabled account check =======
       if (userData.disabled) {
         toast.error('Your account has been disabled. Contact the school.');
         await signOut(auth);
@@ -636,10 +585,8 @@ export function initParentPortal() {
         return;
       }
 
-      // ======= NEW: enforce password change =======
       await enforcePasswordChange(window.location.href);
 
-      // ======= NEW: disabled account check =======
       if (userData.disabled) {
         toast.error('Your account has been disabled. Contact the school.');
         await signOut(auth);
@@ -664,9 +611,6 @@ export function initParentPortal() {
   }
 }
 
-// =============================================================================
-// PASSWORD VISIBILITY TOGGLES
-// =============================================================================
 function setupPasswordToggles() {
   document.querySelectorAll('.toggle-password').forEach(button => {
     button.removeEventListener('click', togglePasswordVisibility);
