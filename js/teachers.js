@@ -2,6 +2,7 @@
 // All Firestore operations go through service.js where possible.
 // MODIFIED: Removed Subjects column from teacher list.
 // MODIFIED: Fixed malformed HTML table cells.
+// MODIFIED: Added Nursery level support. When selected, saved as "nursery".
 // All other functionality unchanged.
 
 import { db, auth, functions } from './firebase-config.js';
@@ -247,7 +248,6 @@ async function loadTeachers() {
       return;
     }
 
-    // Build table HTML – note proper <td> tags with closing angle brackets.
     const html = `
       <div class="table-responsive-wrapper">
         <table class="data-table">
@@ -277,8 +277,7 @@ async function loadTeachers() {
               const hostClassNames = (teacher.hostClassIds || [])
                 .map(classId => classesMap.get(classId)?.name || classId)
                 .join(', ') || '-';
-              const levelDisplay = teacher.level === 'primary' ? 'Primary' : (teacher.level === 'secondary' ? 'Secondary' : '—');
-              // IMPORTANT: Each <td> must be closed properly, and the whole row must be valid.
+              const levelDisplay = teacher.level === 'nursery' ? 'Nursery' : (teacher.level === 'primary' ? 'Primary' : (teacher.level === 'secondary' ? 'Secondary' : '—'));
               return `
                 <tr>
                   <td>${escapeHtml(teacher.name)}</td>
@@ -409,7 +408,6 @@ function closeModal() {
   currentTeacherLevel = null;
 }
 
-// No subject conflict check – teachers can share subjects.
 async function checkClassTeacherConflict(hostClassIds, level, excludeTeacherId = null) {
   if (!hostClassIds || hostClassIds.length === 0) return null;
   
