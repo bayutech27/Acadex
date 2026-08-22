@@ -18,32 +18,42 @@
     /* Additional styles for the assigned tests table */
     .assigned-tests-table-wrapper {
       overflow-x: auto;
+      overflow-y: auto;
+      max-height: 60vh;
       margin-top: 1rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(0,0,0,0.2);
+      -webkit-overflow-scrolling: touch;
     }
     .assigned-tests-table {
       width: 100%;
+      min-width: 700px;
       border-collapse: collapse;
       font-size: 0.875rem;
-      background: white;
+      color: #f8fafc;
+      background: rgba(255,255,255,0.03);
       border-radius: 12px;
       overflow: hidden;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .assigned-tests-table th {
-      background: #f8fafc;
+      background: #1e293b;
       padding: 12px;
       text-align: left;
       font-weight: 600;
-      color: #1e293b;
-      border-bottom: 1px solid #e2e8f0;
+      color: #f8fafc;
+      border-bottom: 1px solid #475569;
+      white-space: nowrap;
     }
     .assigned-tests-table td {
       padding: 12px;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid #334155;
       vertical-align: middle;
+      color: #e2e8f0;
     }
     .assigned-tests-table tr:hover {
-      background: #f8f9ff;
+      background: rgba(255,255,255,0.08);
     }
     .take-test-btn {
       background: #10b981;
@@ -52,12 +62,12 @@
       padding: 6px 12px;
       border-radius: 6px;
       cursor: pointer;
-      font-weight: 500;
+      font-weight: 600;
       font-size: 0.8rem;
       transition: opacity 0.2s;
     }
     .take-test-btn:disabled {
-      background: #cbd5e1;
+      background: #64748b;
       cursor: not-allowed;
       opacity: 0.6;
     }
@@ -66,20 +76,20 @@
       padding: 4px 10px;
       border-radius: 20px;
       font-size: 0.7rem;
-      font-weight: 600;
+      font-weight: 700;
       text-transform: uppercase;
     }
     .status-started {
-      background: #d1fae5;
-      color: #065f46;
+      background: #065f46;
+      color: #d1fae5;
     }
     .status-pending {
-      background: #fef3c7;
-      color: #92400e;
+      background: #92400e;
+      color: #fef3c7;
     }
     .status-expired {
-      background: #fee2e2;
-      color: #991b1b;
+      background: #991b1b;
+      color: #fee2e2;
     }
     @media (max-width: 640px) {
       .assigned-tests-table th,
@@ -91,6 +101,16 @@
         padding: 4px 8px;
         font-size: 0.7rem;
       }
+    }
+    /* Subscription notice */
+    .subscription-notice {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 12px 20px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      display: none;
     }
   </style>
 </head>
@@ -148,7 +168,10 @@ if ('serviceWorker' in navigator) {
 
 <main class="dashboard">
   <div class="dashboard-container">
-    
+
+    <!-- Subscription notice -->
+    <div id="subscriptionNotice" class="subscription-notice"></div>
+
     <!-- Welcome Section (Student name and class only) -->
     <section class="welcome-section">
       <div class="welcome-content" style="justify-content: flex-start;">
