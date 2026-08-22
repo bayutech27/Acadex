@@ -8,6 +8,8 @@
 // real-time listeners for assigned CBT tests (array-contains-any), or getCbtById
 // for starting a test – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// NEW: Added subscription check. If school subscription is expired/not active,
+//      all CBT buttons are disabled and a notice is displayed.
 
 import { auth, db } from '../../js/firebase-config.js';
 import { 
@@ -90,6 +92,7 @@ let currentSchoolId = null;
 let unsubscribeRecentTests = null;
 let lastVisibleRecentDoc = null;
 let unsubscribeAssignedTests = null;
+let cbtAccessEnabled = false; // NEW: subscription access state
 
 // ========== HELPER FUNCTIONS (existing, unchanged) ==========
 function convertTimestamp(value) {
@@ -134,6 +137,52 @@ function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// ========== NEW: Subscription check and UI control ==========
+async function checkSubscriptionStatus() {
+    if (!currentSchoolId) return;
+    const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
+    try {
+        const subSnap = await getDoc(subRef);
+        let status = 'expired';
+        if (subSnap.exists()) {
+            status = subSnap.data().status || 'expired';
+        }
+        cbtAccessEnabled = status === 'active';
+    } catch (err) {
+        console.warn('Failed to load subscription status:', err);
+        cbtAccessEnabled = false;
+    }
+    applySubscriptionUI();
+}
+
+function applySubscriptionUI() {
+    const noticeEl = document.getElementById('subscriptionNotice');
+
+    if (!cbtAccessEnabled) {
+        if (noticeEl) {
+            noticeEl.style.display = 'block';
+            noticeEl.innerHTML = '<strong>⚠️ Your school does not currently have an active subscription.</strong> The CBT system is unavailable. Please contact your administrator to renew.';
+        }
+    } else {
+        if (noticeEl) noticeEl.style.display = 'none';
+    }
+
+    // Disable/enable all buttons inside the dashboard container.
+    const dashboardContainer = document.querySelector('.dashboard-container');
+    if (dashboardContainer) {
+        dashboardContainer.querySelectorAll('button').forEach(btn => {
+            btn.disabled = !cbtAccessEnabled;
+        });
+    }
+
+    // Also re-apply to any dynamic take-test buttons after rendering.
+    if (assignedTestsWrapper) {
+        assignedTestsWrapper.querySelectorAll('.take-test-btn').forEach(btn => {
+            btn.disabled = !cbtAccessEnabled;
+        });
+    }
+}
+
 // ========== STUDENT DATA (using service) ==========
 async function loadStudentProfile(userId) {
     try {
@@ -143,6 +192,10 @@ async function loadStudentProfile(userId) {
         currentStudentId = userId;
         currentSchoolId = currentStudentData.schoolId || localStorage.getItem('userSchoolId');
         if (!currentSchoolId) throw new Error('School ID missing');
+
+        // Check subscription immediately after school ID is known
+        await checkSubscriptionStatus();
+
         userName.textContent = currentStudentData.name || 'Student';
         const classId = currentStudentData.classId;
         let className = classId || 'Not assigned';
@@ -253,7 +306,7 @@ async function loadMoreRecentTests(userId) {
         console.error("Error loading more tests:", error);
         toast.error('Failed to load more tests. Please try again.');
     } finally {
-        if (loadMoreBtn) { loadMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More'; loadMoreBtn.disabled = false; }
+        if (loadMoreBtn) { loadMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More'; loadMoreBtn.disabled = !cbtAccessEnabled; }
     }
 }
 
@@ -404,6 +457,7 @@ function subscribeToAssignedTests() {
             tests.push(test);
         });
         renderAssignedTestsTable(tests);
+        applySubscriptionUI();
     }, (err) => {
         console.error('Error listening to assigned tests:', err);
         toast.warning('Unable to load assigned tests. Please refresh the page.');
@@ -449,7 +503,7 @@ function renderAssignedTestsTable(tests) {
                 <thead>
                     <tr>
                         <th>Type</th><th>Subject</th><th>Questions</th><th>Duration</th><th>Scheduled Date</th><th>Status</th><th>Action</th>
-                    </table>
+                    </tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
@@ -458,13 +512,18 @@ function renderAssignedTestsTable(tests) {
 
     document.querySelectorAll('.take-test-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
+            if (!cbtAccessEnabled) return;
             const cbtId = btn.dataset.id;
             await startAssignedTest(cbtId);
         });
     });
+
+    // Ensure dynamic buttons reflect subscription state
+    applySubscriptionUI();
 }
 
 async function startAssignedTest(cbtId) {
+    if (!cbtAccessEnabled) return;
     try {
         const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
         if (!cbtDoc.exists()) {
@@ -523,6 +582,7 @@ async function startAssignedTest(cbtId) {
 
 // ========== EXISTING TEST LAUNCHERS (using service.getQuestions) ==========
 async function startQuickTest() {
+    if (!cbtAccessEnabled) return;
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
     if (!selectedExam || !selectedSubject) {
@@ -564,6 +624,7 @@ async function startQuickTest() {
 }
 
 async function startJambDrill() {
+    if (!cbtAccessEnabled) return;
     const selectedCheckboxes = document.querySelectorAll('.jamb-subject-checkbox:checked');
     if (selectedCheckboxes.length !== 3) {
         toast.error('Please select exactly 3 additional subjects.');
@@ -615,6 +676,7 @@ async function startJambDrill() {
 }
 
 async function startWaecNecoDrill() {
+    if (!cbtAccessEnabled) return;
     const selectedSubject = waecNecoSubjectSelect.value;
     if (!selectedSubject) {
         toast.error('Please select a subject.');
@@ -797,6 +859,8 @@ async function initCBTDashboard() {
             setupRecentTests(currentStudentId);
             await updateBasicStats(currentStudentId);
             createTabs();
+            // Apply subscription UI after all elements are set up.
+            applySubscriptionUI();
         } else {
             console.error('Missing school or student ID');
             toast.error('Unable to load dashboard. School or student information missing.');
