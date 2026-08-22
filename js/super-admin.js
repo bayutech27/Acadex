@@ -2,6 +2,7 @@
 // FIX 4: Activation uses rolling 3-month end date (no more hardcoded term dates that could immediately expire).
 // FIX 5: Activation sets status=active, locked=false, and a real future endDate — nothing else reverts this.
 // FIX 9: endDate is now always the end of the current term from the academic calendar.
+// NEW: School names are clickable and open a detail modal with school information.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db, auth } from './firebase-config.js';
@@ -215,7 +216,7 @@ function renderTable(schools) {
 
     return `
       <tr data-school-id="${s.id}">
-        <td>${escapeHtml(s.name || '—')}</td>
+        <td><button class="school-link" data-id="${s.id}">${escapeHtml(s.name || '—')}</button></td>
         <td>${escapeHtml(s.adminEmail)}</td>
         <td>${phoneDisplay}</td>
         <td><span class="status-badge status-${statusClass}">${status}</span></td>
@@ -232,11 +233,66 @@ function renderTable(schools) {
     `;
   }).join('');
 
+  // Add event listeners
   document.querySelectorAll('.approve-extra').forEach(btn => btn.addEventListener('click', () => openApproveModal(btn.dataset.id)));
   document.querySelectorAll('.toggle-subscription').forEach(btn => {
     btn.removeEventListener('click', handleToggle);
     btn.addEventListener('click', handleToggle);
   });
+  document.querySelectorAll('.school-link').forEach(btn => {
+    btn.addEventListener('click', () => openSchoolDetailsModal(btn.dataset.id));
+  });
+}
+
+// Open school details modal
+async function openSchoolDetailsModal(schoolId) {
+  const school = schoolsData.find(s => s.id === schoolId);
+  if (!school) return;
+
+  const modal = document.getElementById('schoolDetailsModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const body = document.getElementById('schoolDetailsBody');
+  body.innerHTML = '<p>Loading school details...</p>';
+
+  // Fetch additional counts
+  let teacherCount = 0, parentCount = 0, subjectCount = 0;
+  try {
+    const [teachersSnap, parentsSnap, subjectsSnap] = await Promise.all([
+      getDocs(query(collection(db, 'teachers'), where('schoolId', '==', schoolId))),
+      getDocs(query(collection(db, 'parents'), where('schoolId', '==', schoolId))),
+      getDocs(query(collection(db, 'subjects'), where('schoolId', '==', schoolId)))
+    ]);
+    teacherCount = teachersSnap.size;
+    parentCount = parentsSnap.size;
+    subjectCount = subjectsSnap.size;
+  } catch (err) {
+    console.error('Failed to load school details:', err);
+  }
+
+  const sub = school.subscription || {};
+  const status = sub.status || 'expired';
+  const expiryDisplay = sub.endDate
+    ? new Date(sub.endDate.toDate ? sub.endDate.toDate() : sub.endDate).toLocaleDateString()
+    : '—';
+
+  body.innerHTML = `
+    <div class="detail-row"><span class="detail-label">School Name:</span><span class="detail-value">${escapeHtml(school.name || '—')}</span></div>
+    <div class="detail-row"><span class="detail-label">Admin Email:</span><span class="detail-value">${escapeHtml(school.adminEmail)}</span></div>
+    <div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">${escapeHtml(school.phone || '—')}</span></div>
+    <div class="detail-row"><span class="detail-label">Status:</span><span class="detail-value">${escapeHtml(status)}</span></div>
+    <div class="detail-row"><span class="detail-label">Plan:</span><span class="detail-value">${escapeHtml(sub.plan || 'basic')}</span></div>
+    <div class="detail-row"><span class="detail-label">Total Students:</span><span class="detail-value">${school.totalStudents || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">Active Students:</span><span class="detail-value">${school.activeStudents || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">Pending Extra:</span><span class="detail-value">${school.lockedCount || 0}</span></div>
+    <div class="detail-row"><span class="detail-label">Teachers:</span><span class="detail-value">${teacherCount}</span></div>
+    <div class="detail-row"><span class="detail-label">Parents:</span><span class="detail-value">${parentCount}</span></div>
+    <div class="detail-row"><span class="detail-label">Subjects:</span><span class="detail-value">${subjectCount}</span></div>
+    <div class="detail-row"><span class="detail-label">Expires:</span><span class="detail-value">${expiryDisplay}</span></div>
+  `;
+
+  document.getElementById('schoolDetailsTitle').textContent = school.name || 'School Details';
 }
 
 // FIX 4 & 5 & 9: Activation now uses the current term's end date from the academic calendar.
@@ -337,6 +393,12 @@ async function openApproveModal(schoolId) {
   const closeBtn = document.getElementById('closeApproveModal');
   if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
 }
+
+// School details modal close
+document.getElementById('closeSchoolDetailsModal')?.addEventListener('click', () => {
+  const modal = document.getElementById('schoolDetailsModal');
+  if (modal) modal.style.display = 'none';
+});
 
 // Event listeners
 document.getElementById('searchSchool')?.addEventListener('input', debouncedLoadSchools);
