@@ -35,7 +35,7 @@
     .btn-danger { background: #ef4444; color: white; }
     .btn-warning { background: #f59e0b; color: white; }
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
-    .modal-content { background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 500px; }
+    .modal-content { background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
     .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 2000; }
     .academic-badge {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -49,6 +49,21 @@
       gap: 8px;
       margin-right: 16px;
     }
+    .school-link {
+      color: #3b82f6;
+      text-decoration: underline;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      font-weight: 600;
+      font-size: inherit;
+    }
+    .school-link:hover { color: #1d4ed8; }
+    .detail-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { font-weight: 600; color: #475569; }
+    .detail-value { text-align: right; }
     @media (max-width: 768px) { .sidebar { display: none; } .stats-grid { grid-template-columns: 1fr; } th, td { font-size: 0.8rem; } }
   </style>
 </head>
@@ -138,6 +153,17 @@
     <input type="number" id="approveCount" min="0">
     <button id="confirmApproveBtn" class="btn-primary">Approve</button>
     <button id="closeApproveModal">Cancel</button>
+  </div>
+</div>
+
+<!-- School Details Modal -->
+<div id="schoolDetailsModal" class="modal">
+  <div class="modal-content">
+    <h3 id="schoolDetailsTitle">School Details</h3>
+    <div id="schoolDetailsBody">
+      <p>Loading details...</p>
+    </div>
+    <button id="closeSchoolDetailsModal" class="btn-secondary">Close</button>
   </div>
 </div>
 
