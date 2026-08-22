@@ -3,6 +3,8 @@
 // TODO: service.js does not yet support teacher class list retrieval, test_results queries,
 // manual start/end test status updates, notification creation – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
+// NEW: Added subscription check. If school subscription is expired, all CBT buttons are disabled
+//      and a notification is shown at the top of the page.
 
 import * as service from './service.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -31,6 +33,9 @@ let expirationTimers = {};
 let currentTeacherId = null;
 let currentSchoolId = null;
 let teacherData = null;
+
+// NEW: Whether CBT features are allowed (school subscription active)
+let cbtAccessEnabled = false;
 
 // ==============================
 // DOM REFERENCES (existing CBT)
@@ -180,6 +185,47 @@ async function loadSubjects() {
 }
 
 // ==============================
+// NEW: Check school subscription status and update UI
+// ==============================
+async function checkSubscriptionStatus() {
+  if (!currentSchoolId) return;
+  const subRef = doc(db, 'schools', currentSchoolId, 'subscription', 'current');
+  const subSnap = await getDoc(subRef);
+  let status = 'expired';
+  if (subSnap.exists()) {
+    status = subSnap.data().status || 'expired';
+  }
+  cbtAccessEnabled = status === 'active';
+  applySubscriptionUI();
+}
+
+function applySubscriptionUI() {
+  const noticeEl = document.getElementById('subscriptionNotice');
+  const contentEl = document.querySelector('.cbt-page-content');
+
+  if (!cbtAccessEnabled) {
+    if (noticeEl) {
+      noticeEl.style.display = 'block';
+      noticeEl.innerHTML = '<strong>⚠️ Your school does not currently have an active subscription.</strong> The CBT system is unavailable. Please contact your administrator to renew.';
+      noticeEl.style.cssText = 'background:#fee2e2;color:#991b1b;padding:12px 20px;margin-bottom:16px;border-radius:8px;font-weight:600;';
+    }
+  } else {
+    if (noticeEl) noticeEl.style.display = 'none';
+  }
+
+  // Disable/enable all buttons inside the main CBT page content.
+  if (contentEl) {
+    contentEl.querySelectorAll('button').forEach(btn => {
+      btn.disabled = !cbtAccessEnabled;
+    });
+  }
+
+  // Also ensure modal buttons are handled if modal is open later.
+  if (createTestBtn) createTestBtn.disabled = !cbtAccessEnabled;
+  if (getScoresBtn) getScoresBtn.disabled = !cbtAccessEnabled;
+}
+
+// ==============================
 // REAL-TIME TEST LISTENER (using service.subscribeToTeacherCbt)
 // ==============================
 function subscribeToTests() {
@@ -194,6 +240,8 @@ function subscribeToTests() {
     tests = testsList;
     checkAndExpireTests(tests);
     renderTestsTable(tests);
+    // After rendering dynamic buttons, re-apply UI state.
+    applySubscriptionUI();
   });
 }
 
@@ -283,6 +331,7 @@ async function expireTest(testId) {
 }
 
 async function endTest(testId) {
+  if (!cbtAccessEnabled) return;
   if (!confirm('End this test early? Students will no longer be able to take it.')) return;
   try {
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
@@ -294,6 +343,7 @@ async function endTest(testId) {
 }
 
 async function startTest(testId) {
+  if (!cbtAccessEnabled) return;
   if (!confirm('Activate this test? Students will be able to take it immediately.')) return;
   try {
     showLoader();
@@ -307,6 +357,7 @@ async function startTest(testId) {
 }
 
 async function confirmDeleteTest(testId) {
+  if (!cbtAccessEnabled) return;
   if (!confirm('Permanently delete this test? This cannot be undone.')) return;
   try {
     showLoader();
@@ -324,6 +375,7 @@ async function confirmDeleteTest(testId) {
 // MODAL: CREATE / EDIT (using service for create/update)
 // ==============================
 async function openCreateModal() {
+  if (!cbtAccessEnabled) return;
   if (!currentTeacherId || !currentSchoolId) {
     toast.error('Teacher data not loaded. Please refresh the page.');
     return;
@@ -337,6 +389,7 @@ async function openCreateModal() {
 }
 
 async function openEditModal(testId) {
+  if (!cbtAccessEnabled) return;
   const test = tests.find(t => t.id === testId);
   if (!test) return;
 
@@ -641,6 +694,8 @@ function setCsvStatus(msg, type = 'success') {
 // SAVE TEST TO FIRESTORE (using service.createCbt / service.updateCbt)
 // ==============================
 async function saveTestToFirestore() {
+  if (!cbtAccessEnabled) return;
+
   const type        = testType.value;
   const subjectId   = testSubjectSel.value;
   const classId     = testClassSel.value;
@@ -1027,6 +1082,7 @@ const cbtScoresModule = (() => {
   }
 
   async function handleGetScores() {
+    if (!cbtAccessEnabled) return;
     if (_isFetching) return;
     const classEl = classFilterEl();
     const subjectEl = subjectFilterEl();
@@ -1077,7 +1133,7 @@ const cbtScoresModule = (() => {
     } finally {
       hideLoader();
       _isFetching = false;
-      if (btn) btn.disabled = false;
+      if (btn) btn.disabled = !cbtAccessEnabled;
     }
   }
 
@@ -1111,6 +1167,10 @@ async function initializeTeacherContext() {
       currentSchoolId = userData.schoolId;
       if (!currentSchoolId) throw new Error("School ID missing.");
       await initAcademicCalendar();
+
+      // NEW: Check subscription status before enabling CBT features.
+      await checkSubscriptionStatus();
+
       let teacher = await service.getTeacherById(user.uid);
       if (!teacher) {
         console.warn("Teacher document missing – creating minimal record.");
@@ -1125,6 +1185,9 @@ async function initializeTeacherContext() {
       await loadSchoolInfo();
       subscribeToTests();
       await cbtScoresModule.init();
+
+      // Apply subscription UI once more after all dynamic elements are ready.
+      applySubscriptionUI();
     } catch (err) { 
       console.error("Initialization error:", err); 
       toast.error('Failed to load teacher data. Please refresh the page.');
@@ -1145,11 +1208,16 @@ export async function initTeacherCBT(teacherId, schoolId) {
     if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">Invalid teacher or school information. Please refresh.</p>';
     return; 
   }
+
+  await checkSubscriptionStatus();
+
   teacherClasses = await loadTeacherClasses();
   subjectsList = await loadSubjects();
   subscribeToTests();
   await loadSchoolInfo();
   await cbtScoresModule.init();
+
+  applySubscriptionUI();
 }
 
 // ==============================
