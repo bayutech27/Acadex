@@ -143,6 +143,55 @@
     .summary-card:nth-child(3) { animation-delay: .15s; }
     .summary-card:nth-child(4) { animation-delay: .2s; }
 
+    /* Part-time summary card */
+    .part-time-summary-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
+      border: 1px solid rgba(67,97,238,.07);
+      animation: fadeSlideUp .4s ease .25s both;
+    }
+    .part-time-summary-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0d1b2a;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .part-time-summary-title i { color: #8b5cf6; }
+    .part-time-stats-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .part-time-stat {
+      flex: 1;
+      min-width: 100px;
+      text-align: center;
+      background: #f8faff;
+      border-radius: 10px;
+      padding: 0.75rem 0.5rem;
+    }
+    .part-time-stat .stat-number {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .part-time-stat .stat-label {
+      color: #64748b;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+    }
+
     /* ---- Section cards ---- */
     .section-card {
       background: #fff; border-radius: 16px; padding: 1.5rem;
@@ -326,6 +375,7 @@
       }
       .attendance-summary { grid-template-columns: repeat(2, 1fr); gap: 10px; }
       .summary-number { font-size: 1.8rem; }
+      .part-time-stats-row { flex-direction: column; }
       .geofence-form { flex-direction: column; }
       .geofence-form .form-group { min-width: unset; }
       .filter-row { flex-direction: column; align-items: stretch; }
@@ -487,7 +537,7 @@
         </div>
       </div>
 
-      <!-- ======== TODAY SUMMARY ======== -->
+      <!-- ======== TODAY SUMMARY (Overall) ======== -->
       <div class="attendance-summary">
         <div class="summary-card">
           <div class="summary-icon"><i class="fa-solid fa-circle-check"></i></div>
@@ -508,6 +558,31 @@
           <div class="summary-icon"><i class="fa-solid fa-chalkboard-user"></i></div>
           <div class="summary-number" id="countTotal">—</div>
           <div class="summary-label">Expected Teachers</div>
+        </div>
+      </div>
+
+      <!-- ======== PART-TIME SUMMARY ======== -->
+      <div class="part-time-summary-card">
+        <div class="part-time-summary-title">
+          <i class="fa-solid fa-user-clock"></i> Part-Time Teachers Summary
+        </div>
+        <div class="part-time-stats-row">
+          <div class="part-time-stat">
+            <div class="stat-number" id="ptPresent">0</div>
+            <div class="stat-label">Present</div>
+          </div>
+          <div class="part-time-stat">
+            <div class="stat-number" id="ptLate">0</div>
+            <div class="stat-label">Late</div>
+          </div>
+          <div class="part-time-stat">
+            <div class="stat-number" id="ptAbsent">0</div>
+            <div class="stat-label">Absent</div>
+          </div>
+          <div class="part-time-stat">
+            <div class="stat-number" id="ptExpected">0</div>
+            <div class="stat-label">Expected</div>
+          </div>
         </div>
       </div>
 
