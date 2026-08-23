@@ -422,7 +422,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
     attSnap.forEach(d => {
       const data = d.data();
       if (data.uid) recordsByUid[data.uid] = { id: d.id, ...data };
-      // Also store by teacherDbId if available
       if (data.teacherDbId) recordsByUid[data.teacherDbId] = { id: d.id, ...data };
     });
 
@@ -435,7 +434,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
     let countPresent = 0, countLate = 0, countAbsent = 0, expectedCount = 0;
 
-    // ── Full-time rows ──
+    // Full-time rows
     const fullTimeRows = fullTimeTeachers.map((teacher, i) => {
       expectedCount++;
       const rec = findRecord(teacher);
@@ -490,7 +489,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       ? fullTimeRows.join('')
       : `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">No full-time teachers found.</td></tr>`;
 
-    // ── Part-time rows ──
+    // Part-time rows
     const partTimeRows = partTimeTeachers.map((teacher, i) => {
       const assignedDays = teacher.partTimeDays || [];
       const assignedDayMatch = assignedDays.includes(dayName);
