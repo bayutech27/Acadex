@@ -28,7 +28,7 @@
  */
 
 import * as service from './service.js';
-import { db } from './firebase-config.js';
+import { db, auth } from './firebase-config.js';
 import {
   collection, query, where, getDocs, getDoc,
   doc, updateDoc, addDoc, serverTimestamp
@@ -57,7 +57,7 @@ function haversineMetres(lat1, lon1, lat2, lon2) {
 function computeTeacherStatus(clockIn, officialResumeTime, lateAfterMinutes) {
   if (!clockIn) return 'absent';
   const [h, m] = officialResumeTime.split(':').map(Number);
-  const clockInDate = clockIn.toDate();
+  const clockInDate = clockIn.toDate ? clockIn.toDate() : new Date(clockIn);
   const cutoff = new Date(clockInDate);
   cutoff.setHours(h, m, 0, 0);
   cutoff.setMinutes(cutoff.getMinutes() + lateAfterMinutes);
@@ -594,7 +594,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
     document.querySelectorAll('.override-trigger').forEach(btn => {
       btn.addEventListener('click', () => {
         const uid = btn.dataset.uid;
-        const name = btn.dataset.name;
         const sel = document.getElementById('overrideTeacherSelect');
         if (sel) {
           for (const opt of sel.options) {
