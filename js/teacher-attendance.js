@@ -75,6 +75,15 @@ function getDayName(dateStr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Determine if a date is a weekend (Saturday or Sunday)
+// ─────────────────────────────────────────────────────────────────────────────
+function isWeekend(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay(); // 0 = Sunday, 6 = Saturday
+  return day === 0 || day === 6;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HELPER: escape HTML
 // ─────────────────────────────────────────────────────────────────────────────
 function escapeHtml(str) {
@@ -350,14 +359,14 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   }
 
   // Reset summary
-  document.getElementById('countPresent').textContent = 0;
-  document.getElementById('countLate').textContent = 0;
-  document.getElementById('countAbsent').textContent = 0;
-  document.getElementById('countTotal').textContent = 0;
-  document.getElementById('ptPresent').textContent = 0;
-  document.getElementById('ptLate').textContent = 0;
-  document.getElementById('ptAbsent').textContent = 0;
-  document.getElementById('ptExpected').textContent = 0;
+  document.getElementById('countPresent').textContent = '—';
+  document.getElementById('countLate').textContent = '—';
+  document.getElementById('countAbsent').textContent = '—';
+  document.getElementById('countTotal').textContent = '—';
+  document.getElementById('ptPresent').textContent = '—';
+  document.getElementById('ptLate').textContent = '—';
+  document.getElementById('ptAbsent').textContent = '—';
+  document.getElementById('ptExpected').textContent = '—';
 
   // Set loading states
   fullTimeBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:1.5rem;">
@@ -369,6 +378,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   const officialResumeTime = settings?.officialResumeTime || '08:00';
   const lateAfterMinutes   = settings?.lateAfterMinutes ?? 30;
   const dayName = getDayName(dateStr);
+  const weekend = isWeekend(dateStr);
 
   try {
     const teachers = await service.getTeachersBySchool(schoolId);
@@ -441,7 +451,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       return { isPresent, isLate, isAbsent };
     }
 
-    // Counters for full-time and part-time
+    // Counters
     let ftPresent = 0, ftLate = 0, ftAbsent = 0, ftExpected = 0;
     let ptPresent = 0, ptLate = 0, ptAbsent = 0, ptExpected = 0;
 
@@ -508,7 +518,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       const startTime = teacher.partTimeStartTime || officialResumeTime;
       const rec = assignedDayMatch ? findRecord(teacher) : null;
 
-      if (!assignedDayMatch) {
+      if (!assignedDayMatch || weekend) {
         return `
           <tr>
             <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
@@ -596,7 +606,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           Status: summary.isAbsent ? 'Absent' : (summary.isLate ? 'Late' : 'Present'),
         };
       }),
-      ...partTimeTeachers.filter(t => (t.partTimeDays || []).includes(dayName)).map(t => {
+      ...partTimeTeachers.filter(t => !weekend && (t.partTimeDays || []).includes(dayName)).map(t => {
         const rec = findRecord(t);
         const startTime = t.partTimeStartTime || officialResumeTime;
         const summary = getAttendanceSummary(rec, startTime);
