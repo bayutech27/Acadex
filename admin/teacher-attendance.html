@@ -250,6 +250,30 @@
       50% { opacity: .35; }
     }
 
+    /* Part-time schedule table */
+    .part-time-schedule-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .84rem;
+      background: #fff;
+      min-width: 700px;
+    }
+    .part-time-schedule-table th {
+      background: #f8faff; font-weight: 700; font-size: .74rem;
+      color: #475569; text-transform: uppercase; letter-spacing: .05em;
+      padding: .75rem 1rem; text-align: left;
+      border-bottom: 1px solid #f1f5f9; white-space: nowrap;
+    }
+    .part-time-schedule-table td {
+      padding: .75rem 1rem; border-bottom: 1px solid #f8fafc;
+      vertical-align: middle; color: #334155;
+    }
+    .part-time-schedule-table tr:hover td { background: #fafbff; }
+    .part-time-schedule-table tr:last-child td { border-bottom: none; }
+    .pt-day-checkbox {
+      margin-right: 0.4rem;
+    }
+
     /* Mobile header adjustments */
     @media (max-width: 768px) {
       .header {
@@ -533,7 +557,39 @@
         </div>
       </div>
 
-      <!-- ======== PART-TIME TEACHER LIST ======== -->
+      <!-- ======== PART-TIME TEACHER SCHEDULE MANAGEMENT ======== -->
+      <div class="section-card">
+        <div class="section-card-header">
+          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-calendar-check"></i></div>
+          <div>
+            <div class="section-card-title">Part-Time Teacher Schedule Management</div>
+            <div class="section-card-sub">Assign working days and start time for each part-time teacher</div>
+          </div>
+        </div>
+
+        <div class="attendance-table-wrapper">
+          <table class="part-time-schedule-table">
+            <thead>
+              <tr>
+                <th>Teacher</th>
+                <th>Working Days</th>
+                <th>Start Time</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="partTimeScheduleBody">
+              <tr>
+                <td colspan="4" style="text-align:center;color:#94a3b8;padding:2rem;">
+                  <i class="fa-solid fa-spinner fa-spin" style="margin-right:.5rem;"></i>
+                  Loading…
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ======== PART-TIME ATTENDANCE TABLE ======== -->
       <div class="section-card">
         <div class="section-card-header">
           <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-user-clock"></i></div>
