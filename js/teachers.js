@@ -3,6 +3,7 @@
 // MODIFIED: Removed Subjects column from teacher list.
 // MODIFIED: Fixed malformed HTML table cells.
 // MODIFIED: Added Nursery level support. When selected, saved as "nursery".
+// NEW: Added "Type" dropdown (full-time/part-time) to teacher form and save it in Firestore.
 // All other functionality unchanged.
 
 import { db, auth, functions } from './firebase-config.js';
@@ -22,7 +23,7 @@ let classesMap = new Map();
 let editingTeacherId = null;
 let unsubscribeSub = null;
 
-let teacherForm, modal, nameInput, emailInput, levelSelect, subjectsSelect, classesSelect, classTeacherSelect;
+let teacherForm, modal, nameInput, emailInput, typeSelect, levelSelect, subjectsSelect, classesSelect, classTeacherSelect;
 let currentTeacherLevel = null;
 
 let secondaryAuth = null;
@@ -41,12 +42,13 @@ export async function initTeachersPage() {
   modal = document.getElementById('teacherModal');
   nameInput = document.getElementById('teacherName');
   emailInput = document.getElementById('teacherEmail');
+  typeSelect = document.getElementById('teacherType');  // NEW
   levelSelect = document.getElementById('teacherLevel');
   subjectsSelect = document.getElementById('teacherSubjects');
   classesSelect = document.getElementById('teacherClasses');
   classTeacherSelect = document.getElementById('teacherClassTeacher');
 
-  if (!teacherForm || !modal || !nameInput || !emailInput || !levelSelect || !subjectsSelect || !classesSelect || !classTeacherSelect) {
+  if (!teacherForm || !modal || !nameInput || !emailInput || !typeSelect || !levelSelect || !subjectsSelect || !classesSelect || !classTeacherSelect) {
     console.error('Required DOM elements not found');
     toast.error('Page not loaded correctly. Please refresh.');
     return;
@@ -347,6 +349,7 @@ function openModal(teacherId = null) {
   classTeacherSelect.disabled = true;
   
   levelSelect.value = '';
+  typeSelect.value = ''; // NEW
   currentTeacherLevel = null;
   
   if (teacherId) {
@@ -366,6 +369,7 @@ async function loadTeacherData(teacherId) {
     if (teacher) {
       if (nameInput) nameInput.value = teacher.name;
       if (emailInput) emailInput.value = teacher.email;
+      if (typeSelect) typeSelect.value = teacher.type || ''; // NEW
       
       const teacherLevel = teacher.level || 'secondary';
       if (levelSelect) levelSelect.value = teacherLevel;
@@ -443,6 +447,7 @@ async function handleTeacherSubmit(e) {
   e.preventDefault();
   const name = nameInput ? nameInput.value.trim() : '';
   const email = emailInput ? emailInput.value.trim() : '';
+  const type = typeSelect ? typeSelect.value : ''; // NEW
   const level = levelSelect ? levelSelect.value : '';
   const selectedSubjectIds = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const selectedClassIds = classesSelect ? Array.from(classesSelect.selectedOptions).map(opt => opt.value) : [];
@@ -453,8 +458,8 @@ async function handleTeacherSubmit(e) {
     : [];
   const isClassTeacher = selectedHostClassIds.length > 0;
 
-  if (!name || !email || !level) {
-    toast.error('Please fill in all required fields (Name, Email, Level).');
+  if (!name || !email || !type || !level) {
+    toast.error('Please fill in all required fields (Name, Email, Type, Level).');
     return;
   }
 
@@ -466,6 +471,7 @@ async function handleTeacherSubmit(e) {
   const teacherDataObj = {
     name,
     email,
+    type, // NEW
     level,
     subjectIds: selectedSubjectIds,
     classIds: selectedClassIds,
@@ -507,6 +513,7 @@ async function handleTeacherSubmit(e) {
         role: 'teacher',
         schoolId: currentSchoolId,
         level,
+        type, // NEW
         subjects: selectedSubjectIds,
         classId: selectedClassIds.length === 1 ? selectedClassIds[0] : null,
         isClassTeacher: isClassTeacher,
