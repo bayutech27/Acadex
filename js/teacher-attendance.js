@@ -8,7 +8,6 @@
  *   • Summary stats (present / late / absent / total expected)
  *   • Separate handling for full-time and part-time teachers
  *   • Part-time teacher schedule management (working days + start time)
- *   • Weekends (Saturday/Sunday) are excluded from attendance processing
  *   • Exporting attendance to CSV
  *   • Admin override (manually mark a teacher's status)
  *
@@ -34,7 +33,7 @@ import {
   doc, updateDoc, addDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentUser, getCurrentUserData, getCurrentSchoolId } from './admin.js';
-import { handleError, showNotification, showLoader, hideLoader, toast } from './error-handler.js';
+import { showLoader, hideLoader, toast } from './error-handler.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HAVERSINE – distance between two GPS points in metres (unchanged)
@@ -62,15 +61,6 @@ function computeTeacherStatus(clockIn, officialResumeTime, lateAfterMinutes) {
   cutoff.setHours(h, m, 0, 0);
   cutoff.setMinutes(cutoff.getMinutes() + lateAfterMinutes);
   return clockInDate <= cutoff ? 'present' : 'late';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER: Determine if a date is a weekend (Saturday or Sunday)
-// ─────────────────────────────────────────────────────────────────────────────
-function isWeekend(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const day = d.getDay(); // 0 = Sunday, 6 = Saturday
-  return day === 0 || day === 6;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,17 +117,8 @@ function statusPill(status) {
   return `<span class="status-pill ${cls}">${icon} ${label}</span>`;
 }
 
-function showMsg(el, text, type = 'success') {
-  if (!el) return;
-  const colors = { success: '#065f46', error: '#991b1b', info: '#0369a1' };
-  el.style.display = 'block';
-  el.style.color = colors[type] || colors.success;
-  el.innerHTML = text;
-  setTimeout(() => { el.style.display = 'none'; }, 4000);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// GEOFENCE & ATTENDANCE SETTINGS (using service.getSchoolById + service.updateGeofence)
+// GEOFENCE & ATTENDANCE SETTINGS
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAttendanceSettings(schoolId) {
@@ -361,22 +342,16 @@ async function loadPartTimeScheduleManagement(schoolId) {
 async function loadAttendanceForDate(schoolId, dateStr) {
   const fullTimeBody = document.getElementById('attendanceTableBody');
   const partTimeBody = document.getElementById('partTimeAttendanceTableBody');
-  if (!fullTimeBody || !partTimeBody) return;
+  if (!fullTimeBody || !partTimeBody) {
+    console.error('Required attendance table bodies missing.');
+    return;
+  }
 
   // Reset summary
   document.getElementById('countPresent').textContent = 0;
   document.getElementById('countLate').textContent = 0;
   document.getElementById('countAbsent').textContent = 0;
   document.getElementById('countTotal').textContent = 0;
-
-  if (isWeekend(dateStr)) {
-    const message = 'Weekend — No school. Attendance is not processed on Saturday or Sunday.';
-    fullTimeBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
-      <i class="fa-solid fa-calendar-xmark"></i> ${message}</td></tr>`;
-    partTimeBody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">
-      <i class="fa-solid fa-calendar-xmark"></i> ${message}</td></tr>`;
-    return;
-  }
 
   // Set loading states
   fullTimeBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:1.5rem;">
@@ -436,7 +411,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
     // Full-time rows
     const fullTimeRows = fullTimeTeachers.map((teacher, i) => {
-      expectedCount++;
       const rec = findRecord(teacher);
       let status = 'absent';
 
@@ -450,6 +424,10 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           }
         }
       }
+
+      // For full-time, count every teacher as expected (Monday–Friday only,
+      // but admin can still view weekend records if they exist)
+      expectedCount++;
 
       if (status === 'present' || status === 'override') countPresent++;
       else if (status === 'late') countLate++;
@@ -615,7 +593,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPORT CSV (unchanged)
+// EXPORT CSV
 // ─────────────────────────────────────────────────────────────────────────────
 function exportToCSV(data, filename) {
   if (!data || !data.length) {
@@ -734,6 +712,7 @@ async function setupOverrideUI(schoolId) {
 export async function initTeacherAttendancePage() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) {
+    console.error('School ID not found');
     toast.error('School ID not found. Please log in again.');
     return;
   }
