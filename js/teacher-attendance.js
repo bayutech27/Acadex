@@ -7,7 +7,7 @@
  *   • Viewing real‑time teacher attendance records from Firestore
  *   • Summary stats (present / late / absent / total expected)
  *   • Separate handling for full-time and part-time teachers
- *   • Part-time teachers are expected ONLY on their assigned days (Mon‑Fri)
+ *   • Part-time teacher schedule management (working days + start time)
  *   • Weekends (Saturday/Sunday) are excluded from attendance processing
  *   • Exporting attendance to CSV
  *   • Admin override (manually mark a teacher's status)
@@ -31,7 +31,7 @@ import * as service from './service.js';
 import { db } from './firebase-config.js';
 import {
   collection, query, where, getDocs, getDoc,
-  doc, updateDoc, addDoc, serverTimestamp, orderBy
+  doc, updateDoc, addDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { getCurrentUser, getCurrentUserData, getCurrentSchoolId } from './admin.js';
 import { handleError, showNotification, showLoader, hideLoader, toast } from './error-handler.js';
@@ -80,6 +80,14 @@ function getDayName(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   return days[d.getDay()];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: escape HTML
+// ─────────────────────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,6 +269,93 @@ function setupSettingsUI(schoolId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PART-TIME TEACHER SCHEDULE MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadPartTimeScheduleManagement(schoolId) {
+  const tbody = document.getElementById('partTimeScheduleBody');
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:1.5rem;">
+    <i class="fa-solid fa-spinner fa-spin"></i> Loading…</td></tr>`;
+
+  try {
+    const teachers = await service.getTeachersBySchool(schoolId);
+    const partTimers = teachers
+      .filter(t => (t.type || 'full-time') === 'part-time')
+      .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
+
+    if (partTimers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:2rem;">
+        No part-time teachers found. Add part-time teachers in the Teachers page.</td></tr>`;
+      return;
+    }
+
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+    const rows = partTimers.map(t => {
+      const teacherId = t.id || t.uid || t.authUid;
+      const name = t.name || t.fullName || t.displayName || 'Unknown';
+      const savedDays = t.partTimeDays || [];
+      const savedStart = t.partTimeStartTime || '08:00';
+
+      const dayCheckboxes = days.map(day => `
+        <label style="margin-right:0.6rem; white-space:nowrap;">
+          <input type="checkbox" class="pt-day" data-day="${day}" ${savedDays.includes(day) ? 'checked' : ''}> ${day.slice(0,3)}
+        </label>`).join('');
+
+      return `
+        <tr data-id="${teacherId}">
+          <td style="font-weight:700;color:#0d1b2a;">${escapeHtml(name)}</td>
+          <td>${dayCheckboxes}</td>
+          <td><input type="time" class="pt-time" value="${escapeHtml(savedStart)}"></td>
+          <td>
+            <button class="btn-primary save-pt-schedule" style="padding:.3rem .8rem;font-size:.75rem;">
+              <i class="fa-solid fa-floppy-disk"></i> Save
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    tbody.innerHTML = rows;
+
+    tbody.querySelectorAll('.save-pt-schedule').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const teacherId = row.dataset.id;
+        const checkedDays = Array.from(row.querySelectorAll('.pt-day:checked')).map(cb => cb.dataset.day);
+        const startTime = row.querySelector('.pt-time')?.value || '08:00';
+
+        if (checkedDays.length === 0) {
+          toast.error('Please select at least one working day.');
+          return;
+        }
+
+        showLoader();
+        try {
+          await updateDoc(doc(db, 'teachers', teacherId), {
+            partTimeDays: checkedDays,
+            partTimeStartTime: startTime,
+            updatedAt: new Date()
+          });
+          toast.success('Part-time schedule saved successfully.');
+        } catch (err) {
+          console.error('Save part-time schedule error:', err);
+          toast.error('Failed to save part-time schedule. Please try again.');
+        } finally {
+          hideLoader();
+        }
+      });
+    });
+
+  } catch (err) {
+    console.error('Load part-time schedule error:', err);
+    toast.error('Unable to load part-time teachers. Please refresh the page.');
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#ef4444;padding:2rem;">
+      Error loading part-time teachers. Please try again.</td></tr>`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ATTENDANCE LOADING (separates full-time and part-time)
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadAttendanceForDate(schoolId, dateStr) {
@@ -296,22 +391,16 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
   try {
     const teachers = await service.getTeachersBySchool(schoolId);
-    const fullTimeTeachers = [];
-    const partTimeTeachers = [];
+    const fullTimeTeachers = teachers
+      .filter(t => (t.type || 'full-time') !== 'part-time')
+      .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
+    const partTimeTeachers = teachers
+      .filter(t => (t.type || 'full-time') === 'part-time')
+      .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
     const teacherMap = {};
+    teachers.forEach(t => { const uid = t.uid || t.id; teacherMap[uid] = t; });
 
-    teachers.forEach(t => {
-      const uid = t.uid || t.id;
-      teacherMap[uid] = t;
-      const type = t.type || 'full-time'; // default to full-time if missing
-      if (type === 'part-time') {
-        partTimeTeachers.push(t);
-      } else {
-        fullTimeTeachers.push(t);
-      }
-    });
-
-    // Fetch all attendance records for the selected date
+    // Fetch attendance records for selected date
     const attSnap = await getDocs(
       query(
         collection(db, 'teacher_attendance'),
@@ -327,8 +416,8 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
     let countPresent = 0, countLate = 0, countAbsent = 0, expectedCount = 0;
 
-    // Process full-time teachers
-    for (const teacher of fullTimeTeachers) {
+    // ── Full-time rows ──
+    const fullTimeRows = fullTimeTeachers.map((teacher, i) => {
       const uid = teacher.uid || teacher.id;
       expectedCount++;
       const rec = records[uid] || null;
@@ -349,8 +438,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       else if (status === 'late') countLate++;
       else countAbsent++;
 
-      // Build row for full-time table
-      const name  = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
+      const name = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
       const clockIn  = rec ? formatTime(rec.clockIn)  : '—';
       const clockOut = rec ? formatTime(rec.clockOut) : '—';
       const hours    = rec ? formatHours(rec.clockIn, rec.clockOut) : '—';
@@ -361,10 +449,10 @@ async function loadAttendanceForDate(schoolId, dateStr) {
         ? ' <i class="fa-solid fa-pen-ruler" style="color:#0369a1;font-size:.7rem;" title="Admin override"></i>'
         : '';
 
-      const row = `
+      return `
         <tr>
-          <td style="color:#94a3b8;font-size:.75rem;">${fullTimeBody.children.length}</td>
-          <td style="font-weight:700;color:#0d1b2a;">${name}${overrideMark}</td>
+          <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
+          <td style="font-weight:700;color:#0d1b2a;">${escapeHtml(name)}${overrideMark}</td>
           <td>${clockIn}</td>
           <td>${clockOut}</td>
           <td>${dist}</td>
@@ -372,39 +460,37 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${statusPill(status)}</td>
           <td>
             <button class="btn-secondary" style="padding:.3rem .7rem;font-size:.73rem;"
-              onclick="window.__openOverride('${uid}','${name}')">
+              onclick="window.__openOverride('${uid}','${escapeHtml(name)}')">
               <i class="fa-solid fa-pen"></i> Override
             </button>
           </td>
         </tr>`;
-      fullTimeBody.innerHTML += row; // This is not efficient but okay for small numbers; we'll rebuild later.
-    }
+    });
+    fullTimeBody.innerHTML = fullTimeRows.length
+      ? fullTimeRows.join('')
+      : `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">No full-time teachers found.</td></tr>`;
 
-    // Process part-time teachers
-    for (const teacher of partTimeTeachers) {
+    // ── Part-time rows ──
+    const partTimeRows = partTimeTeachers.map((teacher, i) => {
       const uid = teacher.uid || teacher.id;
       const assignedDays = teacher.partTimeDays || [];
       const assignedDayMatch = assignedDays.includes(dayName);
       const startTime = teacher.partTimeStartTime || officialResumeTime;
       const rec = records[uid] || null;
 
-      // If not scheduled today, status = notscheduled; not counted in summary
       if (!assignedDayMatch) {
-        const row = `
+        return `
           <tr>
-            <td style="color:#94a3b8;font-size:.75rem;">${partTimeBody.children.length + 1}</td>
-            <td>${escapeHtml(teacher.name || 'Unknown')}</td>
+            <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
+            <td style="font-weight:700;color:#0d1b2a;">${escapeHtml(teacher.name || 'Unknown')}</td>
             <td>${escapeHtml(assignedDays.join(', ') || '—')}</td>
             <td>${escapeHtml(startTime)}</td>
             <td>—</td>
             <td>—</td>
             <td>${statusPill('notscheduled')}</td>
           </tr>`;
-        partTimeBody.innerHTML += row;
-        continue;
       }
 
-      // Scheduled today: expected
       expectedCount++;
       let status = 'absent';
 
@@ -423,25 +509,27 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       else if (status === 'late') countLate++;
       else countAbsent++;
 
-      const name  = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
+      const name = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
       const clockIn  = rec ? formatTime(rec.clockIn)  : '—';
       const clockOut = rec ? formatTime(rec.clockOut) : '—';
       const overrideMark = rec?.adminOverride
         ? ' <i class="fa-solid fa-pen-ruler" style="color:#0369a1;font-size:.7rem;" title="Admin override"></i>'
         : '';
 
-      const row = `
+      return `
         <tr>
-          <td style="color:#94a3b8;font-size:.75rem;">${partTimeBody.children.length + 1}</td>
-          <td style="font-weight:700;color:#0d1b2a;">${name}${overrideMark}</td>
+          <td style="color:#94a3b8;font-size:.75rem;">${i + 1}</td>
+          <td style="font-weight:700;color:#0d1b2a;">${escapeHtml(name)}${overrideMark}</td>
           <td>${escapeHtml(assignedDays.join(', ') || '—')}</td>
           <td>${escapeHtml(startTime)}</td>
           <td>${clockIn}</td>
           <td>${clockOut}</td>
           <td>${statusPill(status)}</td>
         </tr>`;
-      partTimeBody.innerHTML += row;
-    }
+    });
+    partTimeBody.innerHTML = partTimeRows.length
+      ? partTimeRows.join('')
+      : `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">No part-time teachers found.</td></tr>`;
 
     // Update summary
     document.getElementById('countPresent').textContent = countPresent;
@@ -449,20 +537,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
     document.getElementById('countAbsent').textContent = countAbsent;
     document.getElementById('countTotal').textContent = expectedCount;
 
-    // Clear loading if empty
-    if (fullTimeTeachers.length === 0) {
-      fullTimeBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
-        No full-time teachers found.</td></tr>`;
-    } else if (!fullTimeBody.innerHTML.includes('<tr>')) {
-      // already populated
-    }
-
-    if (partTimeTeachers.length === 0) {
-      partTimeBody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">
-        No part-time teachers found.</td></tr>`;
-    }
-
-    // Store export data (full-time + part-time expected rows)
+    // Store export data
     window.__attendanceExportData = [
       ...fullTimeTeachers.map(t => {
         const uid = t.uid || t.id;
@@ -497,7 +572,6 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       })
     ];
 
-    // Set up override function
     window.__openOverride = (uid, name) => {
       const sel = document.getElementById('overrideTeacherSelect');
       if (sel) {
@@ -520,7 +594,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPORT CSV (unchanged, uses window.__attendanceExportData)
+// EXPORT CSV (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 function exportToCSV(data, filename) {
   if (!data || !data.length) {
@@ -550,7 +624,7 @@ function exportToCSV(data, filename) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POPULATE OVERRIDE SELECT (uses service.getTeachersBySchool)
+// POPULATE OVERRIDE SELECT
 // ─────────────────────────────────────────────────────────────────────────────
 async function populateTeacherSelect(schoolId) {
   const select = document.getElementById('overrideTeacherSelect');
@@ -573,7 +647,7 @@ async function populateTeacherSelect(schoolId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADMIN OVERRIDE (direct Firestore – service does not support)
+// ADMIN OVERRIDE
 // ─────────────────────────────────────────────────────────────────────────────
 async function setupOverrideUI(schoolId) {
   const overrideBtn = document.getElementById('applyOverrideBtn');
@@ -649,6 +723,9 @@ export async function initTeacherAttendancePage() {
 
   await populateTeacherSelect(schoolId);
   await setupOverrideUI(schoolId);
+
+  // Load part-time schedule management
+  await loadPartTimeScheduleManagement(schoolId);
 
   const today = todayStr();
   document.getElementById('attendanceDateFilter').value = today;
