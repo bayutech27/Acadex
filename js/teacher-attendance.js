@@ -6,8 +6,10 @@
  *   • Configuring official resumption time & late threshold
  *   • Viewing real‑time teacher attendance records from Firestore
  *   • Summary stats (present / late / absent / total expected)
+ *   • Part-time summary card (present / late / absent / expected)
  *   • Separate handling for full-time and part-time teachers
  *   • Part-time teacher schedule management (working days + start time)
+ *   • Weekends are excluded from general processing, but existing records are shown
  *   • Exporting attendance to CSV
  *   • Admin override (manually mark a teacher's status)
  *
@@ -352,6 +354,10 @@ async function loadAttendanceForDate(schoolId, dateStr) {
   document.getElementById('countLate').textContent = 0;
   document.getElementById('countAbsent').textContent = 0;
   document.getElementById('countTotal').textContent = 0;
+  document.getElementById('ptPresent').textContent = 0;
+  document.getElementById('ptLate').textContent = 0;
+  document.getElementById('ptAbsent').textContent = 0;
+  document.getElementById('ptExpected').textContent = 0;
 
   // Set loading states
   fullTimeBody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:1.5rem;">
@@ -407,31 +413,59 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       return null;
     }
 
-    let countPresent = 0, countLate = 0, countAbsent = 0, expectedCount = 0;
+    // Helper to determine counts based on record and start time
+    function getAttendanceSummary(rec, startTime) {
+      let isPresent = false;
+      let isLate = false;
+      let isAbsent = false;
+
+      if (rec) {
+        if (rec.clockIn) {
+          isPresent = true;
+          const computed = computeTeacherStatus(rec.clockIn, startTime, lateAfterMinutes);
+          if (computed === 'late') isLate = true;
+        } else if (rec.adminOverride) {
+          if (rec.overrideStatus === 'absent') {
+            isAbsent = true;
+          } else {
+            isPresent = true;
+            if (rec.overrideStatus === 'late') isLate = true;
+          }
+        } else {
+          isAbsent = true;
+        }
+      } else {
+        isAbsent = true;
+      }
+
+      return { isPresent, isLate, isAbsent };
+    }
+
+    // Counters for full-time and part-time
+    let ftPresent = 0, ftLate = 0, ftAbsent = 0, ftExpected = 0;
+    let ptPresent = 0, ptLate = 0, ptAbsent = 0, ptExpected = 0;
 
     // Full-time rows
     const fullTimeRows = fullTimeTeachers.map((teacher, i) => {
+      ftExpected++;
       const rec = findRecord(teacher);
-      let status = 'absent';
+      const summary = getAttendanceSummary(rec, officialResumeTime);
 
+      if (summary.isPresent) ftPresent++;
+      if (summary.isLate) ftLate++;
+      if (summary.isAbsent) ftAbsent++;
+
+      let displayStatus = 'absent';
       if (rec) {
         if (rec.adminOverride) {
-          status = 'override';
+          displayStatus = 'override';
         } else {
-          status = computeTeacherStatus(rec.clockIn, officialResumeTime, lateAfterMinutes);
-          if (status === 'present' && rec.clockIn && !rec.clockOut) {
-            status = 'clockedin';
+          displayStatus = computeTeacherStatus(rec.clockIn, officialResumeTime, lateAfterMinutes);
+          if (displayStatus === 'present' && rec.clockIn && !rec.clockOut) {
+            displayStatus = 'clockedin';
           }
         }
       }
-
-      // For full-time, count every teacher as expected (Monday–Friday only,
-      // but admin can still view weekend records if they exist)
-      expectedCount++;
-
-      if (status === 'present' || status === 'override') countPresent++;
-      else if (status === 'late') countLate++;
-      else countAbsent++;
 
       const name = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
       const clockIn  = rec ? formatTime(rec.clockIn)  : '—';
@@ -453,7 +487,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${clockOut}</td>
           <td>${dist}</td>
           <td>${hours}</td>
-          <td>${statusPill(status)}</td>
+          <td>${statusPill(displayStatus)}</td>
           <td>
             <button class="btn-secondary override-trigger" style="padding:.3rem .7rem;font-size:.73rem;"
               data-uid="${escapeHtml(uid)}" data-name="${escapeHtml(name)}">
@@ -487,23 +521,24 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           </tr>`;
       }
 
-      expectedCount++;
-      let status = 'absent';
+      ptExpected++;
+      const summary = getAttendanceSummary(rec, startTime);
 
+      if (summary.isPresent) ptPresent++;
+      if (summary.isLate) ptLate++;
+      if (summary.isAbsent) ptAbsent++;
+
+      let displayStatus = 'absent';
       if (rec) {
         if (rec.adminOverride) {
-          status = 'override';
+          displayStatus = 'override';
         } else {
-          status = computeTeacherStatus(rec.clockIn, startTime, lateAfterMinutes);
-          if (status === 'present' && rec.clockIn && !rec.clockOut) {
-            status = 'clockedin';
+          displayStatus = computeTeacherStatus(rec.clockIn, startTime, lateAfterMinutes);
+          if (displayStatus === 'present' && rec.clockIn && !rec.clockOut) {
+            displayStatus = 'clockedin';
           }
         }
       }
-
-      if (status === 'present' || status === 'override') countPresent++;
-      else if (status === 'late') countLate++;
-      else countAbsent++;
 
       const name = teacher.name || teacher.fullName || teacher.displayName || 'Unknown';
       const clockIn  = rec ? formatTime(rec.clockIn)  : '—';
@@ -520,7 +555,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${escapeHtml(startTime)}</td>
           <td>${clockIn}</td>
           <td>${clockOut}</td>
-          <td>${statusPill(status)}</td>
+          <td>${statusPill(displayStatus)}</td>
         </tr>`;
     });
 
@@ -528,17 +563,28 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       ? partTimeRows.join('')
       : `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">No part-time teachers found.</td></tr>`;
 
-    // Update summary
-    document.getElementById('countPresent').textContent = countPresent;
-    document.getElementById('countLate').textContent = countLate;
-    document.getElementById('countAbsent').textContent = countAbsent;
-    document.getElementById('countTotal').textContent = expectedCount;
+    // Update overall summary cards (combined)
+    const totalPresent = ftPresent + ptPresent;
+    const totalLate = ftLate + ptLate;
+    const totalAbsent = ftAbsent + ptAbsent;
+    const totalExpected = ftExpected + ptExpected;
+
+    document.getElementById('countPresent').textContent = totalPresent;
+    document.getElementById('countLate').textContent = totalLate;
+    document.getElementById('countAbsent').textContent = totalAbsent;
+    document.getElementById('countTotal').textContent = totalExpected;
+
+    // Update part-time summary card
+    document.getElementById('ptPresent').textContent = ptPresent;
+    document.getElementById('ptLate').textContent = ptLate;
+    document.getElementById('ptAbsent').textContent = ptAbsent;
+    document.getElementById('ptExpected').textContent = ptExpected;
 
     // Store export data
     window.__attendanceExportData = [
       ...fullTimeTeachers.map(t => {
         const rec = findRecord(t);
-        const status = rec?.adminOverride ? 'override' : computeTeacherStatus(rec?.clockIn, officialResumeTime, lateAfterMinutes);
+        const summary = getAttendanceSummary(rec, officialResumeTime);
         return {
           Name: t.name || 'Unknown',
           Date: dateStr,
@@ -547,13 +593,13 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           ClockOut: rec ? formatTime(rec.clockOut) : '',
           Hours: rec ? formatHours(rec.clockIn, rec.clockOut) : '',
           Distance_m: rec?.distanceAtClockIn != null ? Math.round(rec.distanceAtClockIn) : '',
-          Status: status,
+          Status: summary.isAbsent ? 'Absent' : (summary.isLate ? 'Late' : 'Present'),
         };
       }),
       ...partTimeTeachers.filter(t => (t.partTimeDays || []).includes(dayName)).map(t => {
         const rec = findRecord(t);
         const startTime = t.partTimeStartTime || officialResumeTime;
-        const status = rec?.adminOverride ? 'override' : computeTeacherStatus(rec?.clockIn, startTime, lateAfterMinutes);
+        const summary = getAttendanceSummary(rec, startTime);
         return {
           Name: t.name || 'Unknown',
           Date: dateStr,
@@ -562,7 +608,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           ClockOut: rec ? formatTime(rec.clockOut) : '',
           Hours: rec ? formatHours(rec.clockIn, rec.clockOut) : '',
           Distance_m: rec?.distanceAtClockIn != null ? Math.round(rec.distanceAtClockIn) : '',
-          Status: status,
+          Status: summary.isAbsent ? 'Absent' : (summary.isLate ? 'Late' : 'Present'),
         };
       })
     ];
