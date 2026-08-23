@@ -15,7 +15,7 @@
  * Firestore collection: teacher_attendance
  * School geofence stored in: schools/{schoolId}  →  geofence: { ... }
  * Teacher type and part-time schedule stored in teacher document:
- *   type: 'full-time' or 'part-time'
+ *   type: 'full-time' or 'part-time'  (missing type defaults to full-time)
  *   partTimeDays: array of day names e.g. ['Monday','Wednesday']
  *   partTimeStartTime: string e.g. '09:00'
  *
@@ -281,7 +281,7 @@ async function loadPartTimeScheduleManagement(schoolId) {
   try {
     const teachers = await service.getTeachersBySchool(schoolId);
     const partTimers = teachers
-      .filter(t => (t.type || 'full-time') === 'part-time')
+      .filter(t => (t.type || 'full-time').trim().toLowerCase() === 'part-time')
       .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
 
     if (partTimers.length === 0) {
@@ -391,14 +391,23 @@ async function loadAttendanceForDate(schoolId, dateStr) {
 
   try {
     const teachers = await service.getTeachersBySchool(schoolId);
+
+    // Categorize teachers. Missing type defaults to full-time.
     const fullTimeTeachers = teachers
-      .filter(t => (t.type || 'full-time') !== 'part-time')
+      .filter(t => {
+        const type = (t.type || 'full-time').trim().toLowerCase();
+        return type !== 'part-time';
+      })
       .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
+
     const partTimeTeachers = teachers
-      .filter(t => (t.type || 'full-time') === 'part-time')
+      .filter(t => (t.type || 'full-time').trim().toLowerCase() === 'part-time')
       .sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
-    const teacherMap = {};
-    teachers.forEach(t => { const uid = t.uid || t.id; teacherMap[uid] = t; });
+
+    // Helper to resolve teacher UID candidates for matching attendance records
+    function getUidCandidates(teacher) {
+      return [teacher.uid, teacher.authUid, teacher.id].filter(Boolean);
+    }
 
     // Fetch attendance records for selected date
     const attSnap = await getDocs(
@@ -408,19 +417,28 @@ async function loadAttendanceForDate(schoolId, dateStr) {
         where('date', '==', dateStr)
       )
     );
-    const records = {};
+
+    const recordsByUid = {};
     attSnap.forEach(d => {
       const data = d.data();
-      records[data.uid] = { id: d.id, ...data };
+      if (data.uid) recordsByUid[data.uid] = { id: d.id, ...data };
+      // Also store by teacherDbId if available
+      if (data.teacherDbId) recordsByUid[data.teacherDbId] = { id: d.id, ...data };
     });
+
+    function findRecord(teacher) {
+      for (const candidate of getUidCandidates(teacher)) {
+        if (recordsByUid[candidate]) return recordsByUid[candidate];
+      }
+      return null;
+    }
 
     let countPresent = 0, countLate = 0, countAbsent = 0, expectedCount = 0;
 
     // ── Full-time rows ──
     const fullTimeRows = fullTimeTeachers.map((teacher, i) => {
-      const uid = teacher.uid || teacher.id;
       expectedCount++;
-      const rec = records[uid] || null;
+      const rec = findRecord(teacher);
       let status = 'absent';
 
       if (rec) {
@@ -448,6 +466,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       const overrideMark = rec?.adminOverride
         ? ' <i class="fa-solid fa-pen-ruler" style="color:#0369a1;font-size:.7rem;" title="Admin override"></i>'
         : '';
+      const uid = getUidCandidates(teacher)[0] || '';
 
       return `
         <tr>
@@ -459,24 +478,24 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${hours}</td>
           <td>${statusPill(status)}</td>
           <td>
-            <button class="btn-secondary" style="padding:.3rem .7rem;font-size:.73rem;"
-              onclick="window.__openOverride('${uid}','${escapeHtml(name)}')">
+            <button class="btn-secondary override-trigger" style="padding:.3rem .7rem;font-size:.73rem;"
+              data-uid="${escapeHtml(uid)}" data-name="${escapeHtml(name)}">
               <i class="fa-solid fa-pen"></i> Override
             </button>
           </td>
         </tr>`;
     });
+
     fullTimeBody.innerHTML = fullTimeRows.length
       ? fullTimeRows.join('')
       : `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">No full-time teachers found.</td></tr>`;
 
     // ── Part-time rows ──
     const partTimeRows = partTimeTeachers.map((teacher, i) => {
-      const uid = teacher.uid || teacher.id;
       const assignedDays = teacher.partTimeDays || [];
       const assignedDayMatch = assignedDays.includes(dayName);
       const startTime = teacher.partTimeStartTime || officialResumeTime;
-      const rec = records[uid] || null;
+      const rec = assignedDayMatch ? findRecord(teacher) : null;
 
       if (!assignedDayMatch) {
         return `
@@ -527,6 +546,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
           <td>${statusPill(status)}</td>
         </tr>`;
     });
+
     partTimeBody.innerHTML = partTimeRows.length
       ? partTimeRows.join('')
       : `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">No part-time teachers found.</td></tr>`;
@@ -540,8 +560,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
     // Store export data
     window.__attendanceExportData = [
       ...fullTimeTeachers.map(t => {
-        const uid = t.uid || t.id;
-        const rec = records[uid] || null;
+        const rec = findRecord(t);
         const status = rec?.adminOverride ? 'override' : computeTeacherStatus(rec?.clockIn, officialResumeTime, lateAfterMinutes);
         return {
           Name: t.name || 'Unknown',
@@ -555,8 +574,7 @@ async function loadAttendanceForDate(schoolId, dateStr) {
         };
       }),
       ...partTimeTeachers.filter(t => (t.partTimeDays || []).includes(dayName)).map(t => {
-        const uid = t.uid || t.id;
-        const rec = records[uid] || null;
+        const rec = findRecord(t);
         const startTime = t.partTimeStartTime || officialResumeTime;
         const status = rec?.adminOverride ? 'override' : computeTeacherStatus(rec?.clockIn, startTime, lateAfterMinutes);
         return {
@@ -572,16 +590,21 @@ async function loadAttendanceForDate(schoolId, dateStr) {
       })
     ];
 
-    window.__openOverride = (uid, name) => {
-      const sel = document.getElementById('overrideTeacherSelect');
-      if (sel) {
-        for (const opt of sel.options) {
-          if (opt.value === uid) { sel.value = uid; break; }
+    // Attach override events
+    document.querySelectorAll('.override-trigger').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const uid = btn.dataset.uid;
+        const name = btn.dataset.name;
+        const sel = document.getElementById('overrideTeacherSelect');
+        if (sel) {
+          for (const opt of sel.options) {
+            if (opt.value === uid) { sel.value = uid; break; }
+          }
         }
-      }
-      document.getElementById('overrideNote')?.focus();
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    };
+        document.getElementById('overrideNote')?.focus();
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      });
+    });
 
   } catch (err) {
     console.error('Load attendance error:', err);
@@ -631,10 +654,11 @@ async function populateTeacherSelect(schoolId) {
   if (!select) return;
   try {
     const teachers = await service.getTeachersBySchool(schoolId);
+    const sorted = teachers.sort((a, b) => (a.name || a.fullName || '').localeCompare(b.name || b.fullName || ''));
     select.innerHTML = '<option value="">-- Select Teacher --</option>';
-    teachers.forEach(t => {
+    sorted.forEach(t => {
       const name = t.name || t.fullName || t.displayName || 'Unknown';
-      const uid = t.uid || t.id;
+      const uid = t.uid || t.authUid || t.id;
       const option = document.createElement('option');
       option.value = uid;
       option.textContent = name;
