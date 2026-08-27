@@ -92,7 +92,7 @@ export async function initFinancePage() {
     document.getElementById('bulkPaymentBtn').addEventListener('click', () => {
       const container = document.getElementById('bulkPaymentRows');
       container.innerHTML = '';
-      addBulkRow(); // Now defined below
+      addBulkRow();
       document.getElementById('bulkPaymentModal').style.display = 'flex';
     });
 
@@ -174,7 +174,7 @@ export async function initFinancePage() {
   });
 }
 
-// ─── Function: addBulkRow (was missing) ─────────────────
+// ─── Function: addBulkRow ─────────────────
 function addBulkRow() {
   const container = document.getElementById('bulkPaymentRows');
   if (!container) return;
@@ -402,7 +402,6 @@ async function loadSummaryCards() {
           totalExpectedTerm += owed;
           totalPaidTerm += paid;
         } else {
-          // Arrears from previous terms (could be negative if overpaid; clamp to >=0)
           totalBroughtForward += Math.max(0, owed - paid);
         }
       }
@@ -1183,7 +1182,7 @@ async function populateHistorySessionSelect() {
   }
 }
 
-// ─── loadFinancialHistory (modified to include income/expenses) ──
+// ─── loadFinancialHistory (modified) ──
 async function loadFinancialHistory() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) {
@@ -1199,16 +1198,9 @@ async function loadFinancialHistory() {
     const students = [];
     studentsSnap.forEach(d => students.push({ id: d.id, name: d.data().name || 'Unnamed' }));
 
-    let totalFees = 0;
-    let totalPaid = 0;
-    let totalArrears = 0;
     const tableBody = document.getElementById('historyTableBody');
-
     if (students.length === 0) {
       tableBody.innerHTML = '<tr><td colspan="4">No students found.</td></tr>';
-      document.getElementById('historyTotalFees').textContent = '₦0';
-      document.getElementById('historyTotalPaid').textContent = '₦0';
-      document.getElementById('historyTotalArrears').textContent = '₦0';
     } else {
       const rows = [];
       for (const student of students) {
@@ -1229,30 +1221,19 @@ async function loadFinancialHistory() {
         }
 
         const arrears = Math.max(0, fee - paid);
-        totalFees += fee;
-        totalPaid += paid;
-        totalArrears += arrears;
-        rows.push({ studentId: student.id, name: student.name, fee, paid, arrears });
+        rows.push({ name: student.name, fee, paid, arrears });
       }
 
-      document.getElementById('historyTotalFees').textContent = `₦${totalFees.toLocaleString()}`;
-      document.getElementById('historyTotalPaid').textContent = `₦${totalPaid.toLocaleString()}`;
-      document.getElementById('historyTotalArrears').textContent = `₦${totalArrears.toLocaleString()}`;
-
-      if (rows.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="4">No data for this session.</td></tr>';
-      } else {
-        let html = '';
-        rows.forEach(r => {
-          html += `<tr>
-            <td>${r.name}</td>
-            <td>₦${r.fee.toLocaleString()}</td>
-            <td>₦${r.paid.toLocaleString()}</td>
-            <td>₦${r.arrears.toLocaleString()}</td>
-          </tr>`;
-        });
-        tableBody.innerHTML = html;
-      }
+      let html = '';
+      rows.forEach(r => {
+        html += `<tr>
+          <td>${r.name}</td>
+          <td>₦${r.fee.toLocaleString()}</td>
+          <td>₦${r.paid.toLocaleString()}</td>
+          <td>₦${r.arrears.toLocaleString()}</td>
+        </tr>`;
+      });
+      tableBody.innerHTML = html || '<tr><td colspan="4">No data for this session.</td></tr>';
     }
 
     // NEW: Load income and expenses for the selected session
@@ -1263,11 +1244,22 @@ async function loadFinancialHistory() {
   }
 }
 
-// ─── Helper to load income/expense records into history table ──
+// ─── Helper to load income/expense records into separate tables ──
 async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
-  const tableBody = document.getElementById('incomeExpenseHistoryBody');
-  if (!tableBody) return;
-  tableBody.innerHTML = '<tr><td colspan="5">Loading records...</td></tr>';
+  const incomeBody = document.getElementById('incomeHistoryBody');
+  const expenseBody = document.getElementById('expenseHistoryBody');
+  const incomeTotalEl = document.getElementById('incomeHistoryTotal');
+  const expenseTotalEl = document.getElementById('expenseHistoryTotal');
+  const balanceEl = document.getElementById('incomeExpenseBalance');
+
+  if (!incomeBody || !expenseBody) return;
+
+  // Reset
+  incomeBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+  expenseBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+  incomeTotalEl.textContent = '₦0';
+  expenseTotalEl.textContent = '₦0';
+  balanceEl.textContent = '₦0';
 
   try {
     const expensesQ = sessionFilter === 'all'
@@ -1279,37 +1271,52 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
 
     const [expensesSnap, incomeSnap] = await Promise.all([getDocs(expensesQ), getDocs(incomeQ)]);
 
-    const records = [];
-    expensesSnap.forEach(doc => {
-      const data = doc.data();
-      records.push({ type: 'Expense', title: data.title, amount: data.amount, date: data.date, narration: data.narration || '' });
-    });
-    incomeSnap.forEach(doc => {
-      const data = doc.data();
-      records.push({ type: 'Income', title: data.title, amount: data.amount, date: data.date, narration: data.narration || '' });
-    });
-
-    records.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    if (records.length === 0) {
-      tableBody.innerHTML = '<tr><td colspan="5">No income/expense records for this session.</td></tr>';
-      return;
+    // Income table
+    let totalIncome = 0;
+    if (incomeSnap.empty) {
+      incomeBody.innerHTML = '<tr><td colspan="4">No income records.</td></tr>';
+    } else {
+      let html = '';
+      incomeSnap.forEach(doc => {
+        const data = doc.data();
+        totalIncome += data.amount || 0;
+        html += `<tr>
+          <td>${data.title || ''}</td>
+          <td>₦${(data.amount || 0).toLocaleString()}</td>
+          <td>${data.date || ''}</td>
+          <td>${data.narration || ''}</td>
+        </tr>`;
+      });
+      incomeBody.innerHTML = html;
     }
+    incomeTotalEl.textContent = `₦${totalIncome.toLocaleString()}`;
 
-    let html = '';
-    records.forEach(r => {
-      html += `<tr>
-        <td>${r.type}</td>
-        <td>${r.title}</td>
-        <td>₦${r.amount.toLocaleString()}</td>
-        <td>${r.date}</td>
-        <td>${r.narration}</td>
-      </tr>`;
-    });
-    tableBody.innerHTML = html;
+    // Expense table
+    let totalExpenses = 0;
+    if (expensesSnap.empty) {
+      expenseBody.innerHTML = '<tr><td colspan="4">No expense records.</td></tr>';
+    } else {
+      let html = '';
+      expensesSnap.forEach(doc => {
+        const data = doc.data();
+        totalExpenses += data.amount || 0;
+        html += `<tr>
+          <td>${data.title || ''}</td>
+          <td>₦${(data.amount || 0).toLocaleString()}</td>
+          <td>${data.date || ''}</td>
+          <td>${data.narration || ''}</td>
+        </tr>`;
+      });
+      expenseBody.innerHTML = html;
+    }
+    expenseTotalEl.textContent = `₦${totalExpenses.toLocaleString()}`;
+
+    const balance = totalIncome - totalExpenses;
+    balanceEl.textContent = `₦${balance.toLocaleString()}`;
   } catch (err) {
     console.error('Load income/expense history error:', err);
-    tableBody.innerHTML = '<tr><td colspan="5">Error loading records.</td></tr>';
+    incomeBody.innerHTML = '<tr><td colspan="4">Error loading records.</td></tr>';
+    expenseBody.innerHTML = '<tr><td colspan="4">Error loading records.</td></tr>';
   }
 }
 
