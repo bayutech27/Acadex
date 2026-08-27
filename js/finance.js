@@ -15,6 +15,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { toast } from './error-handler.js';
 import { sanitizeSession } from './service.js';
+import { renderFinanceReport } from './financeReportRenderer.js'; // NEW IMPORT
 
 // ─── Helper: totalOwed ───────────────────────────
 function totalOwed(feeData) {
@@ -143,7 +144,7 @@ export async function initFinancePage() {
     document.getElementById('setFeeForm').addEventListener('submit', saveFee);
     document.getElementById('paymentForm').addEventListener('submit', handlePaymentSubmit);
     document.getElementById('loadHistoryBtn').addEventListener('click', loadFinancialHistory);
-    document.getElementById('downloadHistoryPdfBtn').addEventListener('click', downloadHistoryPdf);
+    document.getElementById('downloadHistoryPdfBtn').addEventListener('click', downloadHistoryPdf); // will call new renderer
     document.getElementById('editSummaryForm').addEventListener('submit', saveSummary);
 
     document.getElementById('saveOpeningBalanceBtn').addEventListener('click', handleOpeningBalance);
@@ -614,7 +615,7 @@ async function loadStudentLookupDropdown() {
   }
 }
 
-// ─── refreshClassFeeTable (unchanged) ─────────────────
+// ─── refreshClassFeeTable (modified to include arrears) ──
 async function refreshClassFeeTable() {
   const classId = document.getElementById('financeClassSelect').value;
   const term = document.getElementById('financeTermSelect').value;
@@ -622,7 +623,7 @@ async function refreshClassFeeTable() {
   const statusFilter = document.getElementById('statusFilterSelect').value;
 
   if (!classId || !term || !session) {
-    document.getElementById('classFeeTableBody').innerHTML = '<tr><td colspan="6">Please select class, term and session.</td></tr>';
+    document.getElementById('classFeeTableBody').innerHTML = '<tr><td colspan="7">Please select class, term and session.</td></tr>';
     return;
   }
 
@@ -640,31 +641,58 @@ async function refreshClassFeeTable() {
     const students = [];
     studentsSnap.forEach(doc => students.push({ id: doc.id, ...doc.data() }));
 
-    const feesPromises = students.map(async student => {
+    const rows = [];
+    for (const student of students) {
+      // Current term fee
       const feeId = `${student.id}_${term}_${safeSession}`;
       const feeRef = doc(db, 'schools', schoolId, 'fees', feeId);
       const feeDoc = await getDoc(feeRef);
-      if (!feeDoc.exists()) {
-        return { ...student, feeAmount: 0, totalPaid: 0, balance: 0, hasFee: false, feeDocId: null };
-      }
-      const feeData = feeDoc.data();
-      const paymentsQ = query(collection(feeRef, 'payments'));
-      const paymentsSnap = await getDocs(paymentsQ);
-      let totalPaid = 0;
-      paymentsSnap.forEach(p => { if (!p.data().voided) totalPaid += p.data().amount || 0; });
-      const owed = totalOwed(feeData);
-      const balance = owed - totalPaid;
-      return {
-        ...student,
-        feeAmount: owed,
-        totalPaid,
-        balance,
-        hasFee: true,
-        feeDocId: feeId
-      };
-    });
+      const currentFee = feeDoc.exists() ? totalOwed(feeDoc.data()) : 0;
 
-    const rows = await Promise.all(feesPromises);
+      // Current term payments
+      let currentPaid = 0;
+      if (feeDoc.exists()) {
+        const paymentsSnap = await getDocs(collection(feeRef, 'payments'));
+        paymentsSnap.forEach(p => { if (!p.data().voided) currentPaid += p.data().amount || 0; });
+      }
+
+      // Previous arrears: query all fee docs for this student across all terms/sessions
+      // excluding the current term/session
+      let previousArrears = 0;
+      const allFeesQ = query(
+        collection(db, 'schools', schoolId, 'fees'),
+        where('studentId', '==', student.id)
+      );
+      const allFeesSnap = await getDocs(allFeesQ);
+      for (const feeDocPrev of allFeesSnap.docs) {
+        const feeDataPrev = feeDocPrev.data();
+        // Skip if it's the same term/session
+        if (feeDataPrev.term === term && feeDataPrev.session === session) continue;
+
+        const owedPrev = totalOwed(feeDataPrev);
+        const paymentsPrevSnap = await getDocs(collection(feeDocPrev.ref, 'payments'));
+        let paidPrev = 0;
+        paymentsPrevSnap.forEach(p => { if (!p.data().voided) paidPrev += p.data().amount || 0; });
+        const balancePrev = owedPrev - paidPrev;
+        if (balancePrev > 0) {
+          previousArrears += balancePrev;
+        }
+      }
+
+      // Total owed = current fee + previous arrears
+      const totalOwedAll = currentFee + previousArrears;
+      const balance = totalOwedAll - currentPaid;
+
+      rows.push({
+        id: student.id,
+        name: student.name,
+        feeAmount: currentFee,
+        arrears: previousArrears,
+        paid: currentPaid,
+        balance,
+        hasFee: feeDoc.exists(),
+      });
+    }
 
     let filteredRows = rows;
     if (statusFilter === 'paid') filteredRows = rows.filter(r => r.balance <= 0 && r.hasFee);
@@ -672,7 +700,7 @@ async function refreshClassFeeTable() {
 
     const tbody = document.getElementById('classFeeTableBody');
     if (filteredRows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6">No matching records.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7">No matching records.</td></tr>';
       return;
     }
 
@@ -688,7 +716,8 @@ async function refreshClassFeeTable() {
         <tr>
           <td>${r.name}</td>
           <td>₦${(r.feeAmount || 0).toLocaleString()}</td>
-          <td>₦${(r.totalPaid || 0).toLocaleString()}</td>
+          <td>₦${(r.arrears || 0).toLocaleString()}</td>
+          <td>₦${(r.paid || 0).toLocaleString()}</td>
           <td>${balanceLabel}</td>
           <td><span class="status-badge ${statusClass}">${statusClass === 'not-set' ? 'Fee not set' : (r.balance <= 0 ? 'Paid' : 'Unpaid')}</span></td>
           <td>
@@ -701,6 +730,7 @@ async function refreshClassFeeTable() {
     });
     tbody.innerHTML = html;
 
+    // Rebinding events
     document.querySelectorAll('.set-fee-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const studentId = btn.dataset.studentId;
@@ -1236,7 +1266,7 @@ async function loadFinancialHistory() {
       tableBody.innerHTML = html || '<tr><td colspan="4">No data for this session.</td></tr>';
     }
 
-    // NEW: Load income and expenses for the selected session
+    // Load income and expenses for the selected session
     await loadIncomeExpenseHistory(schoolId, selectedSession);
   } catch (err) {
     console.error('Load history error:', err);
@@ -1320,9 +1350,15 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
   }
 }
 
-// ─── downloadHistoryPdf (unchanged) ─────────────────
+// ─── downloadHistoryPdf (modified to use new renderer) ──
 function downloadHistoryPdf() {
-  window.print();
+  const schoolId = getCurrentSchoolId();
+  const selectedSession = document.getElementById('historySessionSelect').value;
+  if (!schoolId) {
+    toast.error('School ID not found.');
+    return;
+  }
+  renderFinanceReport(schoolId, selectedSession);
 }
 
 // ─── saveSummary (unchanged) ─────────────────────────
