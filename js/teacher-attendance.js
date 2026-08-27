@@ -690,10 +690,12 @@ async function populateTeacherSelect(schoolId) {
     select.innerHTML = '<option value="">-- Select Teacher --</option>';
     sorted.forEach(t => {
       const name = t.name || t.fullName || t.displayName || 'Unknown';
-      const uid = t.uid || t.authUid || t.id;
+      const docId = t.id;                     // Firestore document ID of teacher
+      const authUid = t.uid || t.authUid;     // Auth UID if available
       const option = document.createElement('option');
-      option.value = uid;
+      option.value = docId;                   // use doc ID as value for selection
       option.textContent = name;
+      if (authUid) option.dataset.uid = authUid;   // store auth UID if present
       select.appendChild(option);
     });
   } catch (err) {
@@ -710,28 +712,53 @@ async function setupOverrideUI(schoolId) {
   if (!overrideBtn) return;
 
   overrideBtn.addEventListener('click', async () => {
-    const teacherUid = document.getElementById('overrideTeacherSelect')?.value;
-    const status = document.getElementById('overrideStatusSelect')?.value;   // FIX: correct element id
+    const selectEl = document.getElementById('overrideTeacherSelect');
+    const teacherDocId = selectEl?.value;
+    const selectedOption = selectEl?.options[selectEl?.selectedIndex];
+    const teacherAuthUid = selectedOption?.dataset.uid || null;
+    const status = document.getElementById('overrideStatusSelect')?.value;
     const note = document.getElementById('overrideNote')?.value.trim() || 'Admin override';
-    const date = document.getElementById('overrideDateInput')?.value || todayStr(); // FIX: use override date input
+    const date = document.getElementById('overrideDateInput')?.value || todayStr();
 
-    if (!teacherUid || !status) {
+    if (!teacherDocId || !status) {
       toast.error('Please select a teacher and choose a status.');
       return;
     }
 
     showLoader();
     try {
-      const q = query(
-        collection(db, 'teacher_attendance'),
-        where('schoolId', '==', schoolId),
-        where('uid', '==', teacherUid),
-        where('date', '==', date)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const ref = doc(db, 'teacher_attendance', snap.docs[0].id);
-        await updateDoc(ref, {
+      // Try to find existing record first by auth UID (if available)
+      let existingRef = null;
+      if (teacherAuthUid) {
+        const q1 = query(
+          collection(db, 'teacher_attendance'),
+          where('schoolId', '==', schoolId),
+          where('uid', '==', teacherAuthUid),
+          where('date', '==', date)
+        );
+        const snap1 = await getDocs(q1);
+        if (!snap1.empty) {
+          existingRef = doc(db, 'teacher_attendance', snap1.docs[0].id);
+        }
+      }
+
+      // If not found, try by teacherDbId (document ID)
+      if (!existingRef) {
+        const q2 = query(
+          collection(db, 'teacher_attendance'),
+          where('schoolId', '==', schoolId),
+          where('teacherDbId', '==', teacherDocId),
+          where('date', '==', date)
+        );
+        const snap2 = await getDocs(q2);
+        if (!snap2.empty) {
+          existingRef = doc(db, 'teacher_attendance', snap2.docs[0].id);
+        }
+      }
+
+      if (existingRef) {
+        // Update existing record
+        await updateDoc(existingRef, {
           adminOverride: true,
           overrideStatus: status,
           overrideNote: note,
@@ -739,8 +766,8 @@ async function setupOverrideUI(schoolId) {
           updatedAt: serverTimestamp()
         });
       } else {
-        await addDoc(collection(db, 'teacher_attendance'), {
-          uid: teacherUid,
+        // Create new record with both identifiers
+        const newRecord = {
           schoolId,
           date,
           adminOverride: true,
@@ -749,13 +776,18 @@ async function setupOverrideUI(schoolId) {
           overrideBy: auth.currentUser?.uid || 'admin',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
-        });
+        };
+        // Set uid and teacherDbId if available
+        if (teacherAuthUid) newRecord.uid = teacherAuthUid;
+        newRecord.teacherDbId = teacherDocId;   // always store doc ID
+        await addDoc(collection(db, 'teacher_attendance'), newRecord);
       }
+
       toast.success('Override applied successfully.');
-      await loadAttendanceForDate(schoolId, date);   // reload the overridden date
+      await loadAttendanceForDate(schoolId, date);
     } catch (err) {
       console.error('Override error:', err);
-      toast.error('Failed to apply override. Please try again.');
+      toast.error(`Failed to apply override: ${err.message}`);
     } finally {
       hideLoader();
     }
