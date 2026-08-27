@@ -485,11 +485,23 @@
         <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
       </div>
 
-      <!-- Class Fee Table -->
+      <!-- Class Fee Table (with new Arrears column) -->
       <div class="table-container" id="classFeeTableContainer">
         <table class="data-table" id="classFeeTable">
-          <thead><tr><th>Student</th><th>Fee Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody id="classFeeTableBody"><tr><td colspan="6">Select a class and term to view.</td></tr></tbody>
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Fee Amount</th>
+              <th>Arrears</th>
+              <th>Paid</th>
+              <th>Balance</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="classFeeTableBody">
+            <tr><td colspan="7">Select a class and term to view.</td></tr>
+          </tbody>
         </table>
       </div>
 
