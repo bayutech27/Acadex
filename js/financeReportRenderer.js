@@ -3,7 +3,6 @@ import { db } from './firebase-config.js';
 import {
   collection, getDocs, query, where
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
-import { sanitizeSession } from './service.js';
 
 // Helper to calculate total owed from fee data
 function totalOwed(feeData) {
