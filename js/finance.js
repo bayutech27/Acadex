@@ -15,7 +15,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { toast } from './error-handler.js';
 import { sanitizeSession } from './service.js';
-import { renderFinanceReport } from './financeReportRenderer.js'; // NEW IMPORT
+import { renderFinanceReport } from './financeReportRenderer.js'; // Ensure this file exists
 
 // ─── Helper: totalOwed ───────────────────────────
 function totalOwed(feeData) {
@@ -144,7 +144,7 @@ export async function initFinancePage() {
     document.getElementById('setFeeForm').addEventListener('submit', saveFee);
     document.getElementById('paymentForm').addEventListener('submit', handlePaymentSubmit);
     document.getElementById('loadHistoryBtn').addEventListener('click', loadFinancialHistory);
-    document.getElementById('downloadHistoryPdfBtn').addEventListener('click', downloadHistoryPdf); // will call new renderer
+    document.getElementById('downloadHistoryPdfBtn').addEventListener('click', downloadHistoryPdf);
     document.getElementById('editSummaryForm').addEventListener('submit', saveSummary);
 
     document.getElementById('saveOpeningBalanceBtn').addEventListener('click', handleOpeningBalance);
@@ -1350,9 +1350,9 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
   }
 }
 
-// ─── downloadHistoryPdf (modified to use new renderer) ──
-function downloadHistoryPdf() {
-  const schoolId = getCurrentSchoolId();
+// ─── downloadHistoryPdf (FIXED: async/await) ──
+async function downloadHistoryPdf() {
+  const schoolId = await getCurrentSchoolId(); // Await the Promise
   const selectedSession = document.getElementById('historySessionSelect').value;
   if (!schoolId) {
     toast.error('School ID not found.');
