@@ -92,7 +92,7 @@ export async function initFinancePage() {
     document.getElementById('bulkPaymentBtn').addEventListener('click', () => {
       const container = document.getElementById('bulkPaymentRows');
       container.innerHTML = '';
-      addBulkRow();
+      addBulkRow(); // Now defined below
       document.getElementById('bulkPaymentModal').style.display = 'flex';
     });
 
@@ -172,6 +172,34 @@ export async function initFinancePage() {
       refreshClassFeeTable();
     }
   });
+}
+
+// ─── Function: addBulkRow (was missing) ─────────────────
+function addBulkRow() {
+  const container = document.getElementById('bulkPaymentRows');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'bulk-payment-row';
+  row.innerHTML = `
+    <input type="date" class="bulk-date" required placeholder="Date" />
+    <input type="number" class="bulk-amount" required placeholder="Amount" min="0" step="100" />
+    <select class="bulk-method">
+      <option value="cash">Cash</option>
+      <option value="transfer">Transfer</option>
+      <option value="paystack">Paystack</option>
+      <option value="other">Other</option>
+    </select>
+    <input type="text" class="bulk-note" placeholder="Note (optional)" />
+    <button type="button" class="btn-remove-row" title="Remove row"><i class="fa-solid fa-xmark"></i></button>
+  `;
+  row.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (container.children.length > 1) {
+      row.remove();
+    } else {
+      toast.warning('At least one row is required.');
+    }
+  });
+  container.appendChild(row);
 }
 
 // ─── NEW: Populate session selects for expense/income forms ──
