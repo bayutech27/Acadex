@@ -39,7 +39,7 @@
       margin-bottom: 1.75rem;
     }
 
-    /* NEW: First row with 4 columns on desktop */
+    /* First row with 4 columns on desktop */
     .stats-grid-4 {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -121,11 +121,11 @@
       min-height: 70px;
     }
 
-    /* History income/expense table */
+    /* History income/expense tables */
     .income-expense-history-table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 1rem;
+      margin-top: 0.5rem;
     }
     .income-expense-history-table th,
     .income-expense-history-table td {
@@ -137,7 +137,32 @@
     .income-expense-history-table th {
       background: #f8fafc;
     }
+    .income-expense-history-table tfoot td {
+      font-weight: 600;
+      background: #f1f5f9;
+    }
+
+    /* New: Two-column layout for income/expense history */
+    .income-expense-tables {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .income-table-container,
+    .expense-table-container {
+      flex: 1;
+      min-width: 250px;
+    }
+    .income-table-container h5,
+    .expense-table-container h5 {
+      margin: 0 0 0.5rem 0;
+      font-size: 0.95rem;
+    }
+
     @media (max-width: 600px) {
+      .income-expense-tables {
+        flex-direction: column;
+      }
       .income-expense-history-table {
         font-size: 0.8rem;
       }
@@ -224,6 +249,7 @@
       .stat-card { flex: 1; padding: 0.5rem; }
       .stat-number-lg { font-size: 1.8rem; }
       .income-expense-history-table { font-size: 9px; }
+      .income-expense-tables { flex-direction: column; }
     }
   </style>
 </head>
@@ -494,20 +520,8 @@
           <button id="loadHistoryBtn" class="btn-primary no-print"><i class="fa-solid fa-chart-simple"></i> Load History</button>
           <button id="downloadHistoryPdfBtn" class="btn-secondary no-print"><i class="fa-solid fa-file-pdf"></i> Download PDF</button>
         </div>
-        <div class="stats-grid" style="margin-bottom:1.5rem;">
-          <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="historyTotalFees">₦0</div>
-            <div class="stat-label">Total School Fees</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="historyTotalPaid">₦0</div>
-            <div class="stat-label">Total School Fees Paid</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="historyTotalArrears">₦0</div>
-            <div class="stat-label">Total School Fees Arrears</div>
-          </div>
-        </div>
+
+        <!-- Student Fee History Table (unchanged) -->
         <div class="history-table-container">
           <table class="data-table history-table" id="historyTable">
             <thead><tr><th>Student</th><th>Total Fee</th><th>Total Paid</th><th>Arrears</th></tr></thead>
@@ -515,17 +529,42 @@
           </table>
         </div>
 
-        <!-- New: Income/Expense table in history -->
+        <!-- New: Income/Expense tables in history -->
         <div style="margin-top:2rem;">
           <h4>Other Income & Expenses (Selected Session)</h4>
-          <table class="income-expense-history-table" id="incomeExpenseHistoryTable">
-            <thead>
-              <tr><th>Type</th><th>Title</th><th>Amount (₦)</th><th>Date</th><th>Narration</th></tr>
-            </thead>
-            <tbody id="incomeExpenseHistoryBody">
-              <tr><td colspan="5">Select a session and click Load History to view records.</td></tr>
-            </tbody>
-          </table>
+          <div class="income-expense-tables">
+            <div class="income-table-container">
+              <h5>Other Income</h5>
+              <table class="income-expense-history-table">
+                <thead>
+                  <tr><th>Title</th><th>Amount (₦)</th><th>Date</th><th>Narration</th></tr>
+                </thead>
+                <tbody id="incomeHistoryBody">
+                  <tr><td colspan="4">No income records.</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr><td colspan="3">Total Income</td><td id="incomeHistoryTotal">₦0</td></tr>
+                </tfoot>
+              </table>
+            </div>
+            <div class="expense-table-container">
+              <h5>Expenses</h5>
+              <table class="income-expense-history-table">
+                <thead>
+                  <tr><th>Title</th><th>Amount (₦)</th><th>Date</th><th>Narration</th></tr>
+                </thead>
+                <tbody id="expenseHistoryBody">
+                  <tr><td colspan="4">No expense records.</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr><td colspan="3">Total Expenses</td><td id="expenseHistoryTotal">₦0</td></tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+          <div style="margin-top:0.5rem; font-weight:600;">
+            Balance (Income - Expenses): <span id="incomeExpenseBalance">₦0</span>
+          </div>
         </div>
       </div>
 
