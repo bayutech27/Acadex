@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="../css/styles.css" />
 
   <style>
-    /* ========== Existing base styles ========== */
+    /* ========== Base styles (unchanged) ========== */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -31,7 +31,7 @@
       margin-top: 0.25rem;
     }
 
-    /* New wrapper for multiple stats rows */
+    /* Wrapper for two rows of cards */
     .summary-cards-wrapper {
       display: flex;
       flex-direction: column;
@@ -39,9 +39,25 @@
       margin-bottom: 1.75rem;
     }
 
-    /* Mobile: 2 columns for stats */
+    /* NEW: First row with 4 columns on desktop */
+    .stats-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.75rem;
+    }
+
+    /* Second row with 3 columns (unchanged) */
+    .stats-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 0;
+    }
+
+    /* Mobile: 2 columns for all rows */
     @media (max-width: 768px) {
-      .stats-grid,
+      .stats-grid-4,
       .stats-grid-2 {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
@@ -131,7 +147,7 @@
       }
     }
 
-    /* Remaining existing styles preserved from original */
+    /* All other existing styles preserved */
     .student-detail-container { display: flex; gap: 2rem; flex-wrap: wrap; }
     .student-detail-info { flex: 0 0 auto; min-width: 180px; }
     .student-detail-history { flex: 1; min-width: 200px; }
@@ -301,22 +317,29 @@
         </span>
       </div>
 
-      <!-- Summary Cards (5 cards in two rows, mobile 2 columns) -->
+      <!-- Summary Cards -->
       <div class="summary-cards-wrapper">
-        <div class="stats-grid">
+        <!-- First row: 4 cards (Expected, Paid, Arrears, Brought Forward) -->
+        <div class="stats-grid-4">
           <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="totalPaidTerm">₦0</div>
-            <div class="stat-label">Total School Fees Paid (This Term)</div>
+            <div class="stat-number stat-number-lg" id="totalFeesExpectedTerm">₦0</div>
+            <div class="stat-label">Total Fees Expected (This Term)</div>
           </div>
           <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="totalPaidSession">₦0</div>
-            <div class="stat-label">Total School Fees Paid (This Session)</div>
+            <div class="stat-number stat-number-lg" id="totalFeesPaidTerm">₦0</div>
+            <div class="stat-label">Total Fees Paid (This Term)</div>
           </div>
           <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="totalArrears">₦0</div>
-            <div class="stat-label">Total School Fees Arrears (This Term)</div>
+            <div class="stat-number stat-number-lg" id="totalArrearsTerm">₦0</div>
+            <div class="stat-label">Arrears (This Term)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number stat-number-lg" id="totalBroughtForward">₦0</div>
+            <div class="stat-label">Arrears Brought Forward</div>
           </div>
         </div>
+
+        <!-- Second row: 3 cards (Other Income, Expenses, Gross Balance) -->
         <div class="stats-grid-2">
           <div class="stat-card">
             <div class="stat-number stat-number-lg" id="otherIncomeTerm">₦0</div>
@@ -327,46 +350,10 @@
             <div class="stat-label">Expenses (This Term)</div>
           </div>
           <div class="stat-card">
-            <div class="stat-number stat-number-lg" id="netPositionTerm">₦0</div>
-            <div class="stat-label">Net Position (This Term)</div>
+            <div class="stat-number stat-number-lg" id="grossBalanceTerm">₦0</div>
+            <div class="stat-label">Gross Balance (This Term)</div>
+            <small style="display:block; font-size:0.7rem; color:#64748b;" id="grossIncomeSubtext">Gross Income: ₦0</small>
           </div>
-        </div>
-      </div>
-
-      <!-- Controls -->
-      <div class="finance-controls">
-        <div class="form-group"><label>Class</label><select id="financeClassSelect"><option value="">Select Class</option></select></div>
-        <div class="form-group"><label>Term</label><select id="financeTermSelect"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
-        <div class="form-group"><label>Session</label><select id="financeSessionSelect"></select></div>
-        <button id="refreshFinanceBtn" class="btn-primary"><i class="fa-solid fa-rotate"></i> Refresh</button>
-        <div class="filter-dropdown">
-          <label for="statusFilterSelect">Filter:</label>
-          <select id="statusFilterSelect"><option value="all">All</option><option value="paid">Paid</option><option value="unpaid">Not Paid</option></select>
-        </div>
-        <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
-      </div>
-
-      <!-- Class Fee Table -->
-      <div class="table-container" id="classFeeTableContainer">
-        <table class="data-table" id="classFeeTable">
-          <thead><tr><th>Student</th><th>Fee Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody id="classFeeTableBody"><tr><td colspan="6">Select a class and term to view.</td></tr></tbody>
-        </table>
-      </div>
-
-      <!-- Student Fee Detail -->
-      <div style="margin-top:2rem; background:white; padding:1.5rem; border-radius:var(--r-lg); border:1px solid var(--card-border);">
-        <h3>Student Fee Detail</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Student</label><select id="studentLookupSelect"><option value="">Select Student</option></select></div>
-          <div class="form-group"><label>Term</label><select id="studentLookupTerm"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
-          <div class="form-group"><label>Session</label><select id="studentLookupSession"></select></div>
-          <button id="lookupStudentBtn" class="btn-primary">Lookup</button>
-        </div>
-        <div id="studentFeeDetail" style="margin-top:1rem;"></div>
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:0.5rem;">
-          <button id="recordPaymentBtn" class="btn-success" style="display:none;"><i class="fa-solid fa-plus"></i> Record Payment</button>
-          <button id="bulkPaymentBtn" class="btn-primary" style="display:none;"><i class="fa-solid fa-list"></i> Bulk Payments</button>
         </div>
       </div>
 
@@ -459,7 +446,44 @@
         </div>
       </div>
 
-      <!-- Financial History (modified to include income/expenses) -->
+      <!-- Controls (class fee table) -->
+      <div class="finance-controls">
+        <div class="form-group"><label>Class</label><select id="financeClassSelect"><option value="">Select Class</option></select></div>
+        <div class="form-group"><label>Term</label><select id="financeTermSelect"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
+        <div class="form-group"><label>Session</label><select id="financeSessionSelect"></select></div>
+        <button id="refreshFinanceBtn" class="btn-primary"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        <div class="filter-dropdown">
+          <label for="statusFilterSelect">Filter:</label>
+          <select id="statusFilterSelect"><option value="all">All</option><option value="paid">Paid</option><option value="unpaid">Not Paid</option></select>
+        </div>
+        <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
+      </div>
+
+      <!-- Class Fee Table -->
+      <div class="table-container" id="classFeeTableContainer">
+        <table class="data-table" id="classFeeTable">
+          <thead><tr><th>Student</th><th>Fee Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="classFeeTableBody"><tr><td colspan="6">Select a class and term to view.</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Student Fee Detail -->
+      <div style="margin-top:2rem; background:white; padding:1.5rem; border-radius:var(--r-lg); border:1px solid var(--card-border);">
+        <h3>Student Fee Detail</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Student</label><select id="studentLookupSelect"><option value="">Select Student</option></select></div>
+          <div class="form-group"><label>Term</label><select id="studentLookupTerm"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
+          <div class="form-group"><label>Session</label><select id="studentLookupSession"></select></div>
+          <button id="lookupStudentBtn" class="btn-primary">Lookup</button>
+        </div>
+        <div id="studentFeeDetail" style="margin-top:1rem;"></div>
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-top:0.5rem;">
+          <button id="recordPaymentBtn" class="btn-success" style="display:none;"><i class="fa-solid fa-plus"></i> Record Payment</button>
+          <button id="bulkPaymentBtn" class="btn-primary" style="display:none;"><i class="fa-solid fa-list"></i> Bulk Payments</button>
+        </div>
+      </div>
+
+      <!-- Financial History -->
       <div class="history-section">
         <h3>📊 School Financial History</h3>
         <div class="history-controls">
@@ -505,7 +529,7 @@
         </div>
       </div>
 
-      <!-- Migration Tools (same as original) -->
+      <!-- Migration Tools -->
       <div class="migration-section">
         <h3>📥 Migrate Existing Records</h3>
         <p style="color:var(--text-500);font-size:0.9rem;">
@@ -545,7 +569,7 @@
   </main>
 </div>
 
-<!-- Modals (identical to original) -->
+<!-- Modals (unchanged) -->
 <div id="setFeeModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
