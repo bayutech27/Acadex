@@ -55,11 +55,11 @@ export async function initFinancePage() {
     });
 
     await populateSessionSelects();
-    await populateIncomeExpenseSessionSelects(); // NEW
+    await populateIncomeExpenseSessionSelects();
     await loadClassesDropdown();
     await loadStudentLookupDropdown();
     await loadSummaryCards();
-    await loadIncomeExpenseSummaryCards(); // NEW
+    await loadIncomeExpenseSummaryCards();
     await loadFeeGateState();
 
     // ─── Event listeners ──────────────────────────────
@@ -150,7 +150,7 @@ export async function initFinancePage() {
     document.getElementById('importCsvBtn').addEventListener('click', handleCsvImport);
     document.getElementById('downloadCsvTemplateLink').addEventListener('click', downloadCsvTemplate);
 
-    // NEW: Expense and Income form submissions
+    // Expense and Income form submissions
     document.getElementById('expenseForm').addEventListener('submit', saveExpense);
     document.getElementById('incomeForm').addEventListener('submit', saveOtherIncome);
     // Manual title overrides dropdown
@@ -242,7 +242,7 @@ async function saveExpense(e) {
     toast.success('Expense saved successfully.');
     e.target.reset();
     populateIncomeExpenseSessionSelects();
-    loadIncomeExpenseSummaryCards();
+    await refreshIncomeExpenseCards();
   } catch (err) {
     console.error('Save expense error:', err);
     toast.error('Failed to save expense.');
@@ -284,14 +284,20 @@ async function saveOtherIncome(e) {
     toast.success('Other income saved successfully.');
     e.target.reset();
     populateIncomeExpenseSessionSelects();
-    loadIncomeExpenseSummaryCards();
+    await refreshIncomeExpenseCards();
   } catch (err) {
     console.error('Save income error:', err);
     toast.error('Failed to save other income.');
   }
 }
 
-// ─── NEW: Load Other Income & Expense totals for current term ──
+// ─── Helper to refresh income/expense cards ─────────
+async function refreshIncomeExpenseCards() {
+  await loadSummaryCards();
+  await loadIncomeExpenseSummaryCards();
+}
+
+// ─── Load Income & Expense totals, including Gross Balance ──
 async function loadIncomeExpenseSummaryCards() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) return;
@@ -311,19 +317,27 @@ async function loadIncomeExpenseSummaryCards() {
     const incomeQ = query(collection(db, 'schools', schoolId, 'otherIncome'),
       where('term', '==', term), where('session', '==', session));
     const incomeSnap = await getDocs(incomeQ);
-    let totalIncome = 0;
-    incomeSnap.forEach(d => totalIncome += d.data().amount || 0);
+    let totalOtherIncome = 0;
+    incomeSnap.forEach(d => totalOtherIncome += d.data().amount || 0);
 
-    document.getElementById('otherIncomeTerm').textContent = `₦${totalIncome.toLocaleString()}`;
+    // Get total school fees paid (this term) from DOM
+    const totalPaidTermText = document.getElementById('totalFeesPaidTerm').textContent.replace(/[₦,]/g, '');
+    const totalPaidTerm = parseFloat(totalPaidTermText) || 0;
+
+    const grossIncome = totalPaidTerm + totalOtherIncome;
+    const grossBalance = grossIncome - totalExpenses;
+
+    document.getElementById('otherIncomeTerm').textContent = `₦${totalOtherIncome.toLocaleString()}`;
     document.getElementById('expensesTerm').textContent = `₦${totalExpenses.toLocaleString()}`;
-    document.getElementById('netPositionTerm').textContent = `₦${(totalIncome - totalExpenses).toLocaleString()}`;
+    document.getElementById('grossBalanceTerm').textContent = `₦${grossBalance.toLocaleString()}`;
+    document.getElementById('grossIncomeSubtext').textContent = `Gross Income: ₦${grossIncome.toLocaleString()}`;
   } catch (err) {
     console.error('Load income/expense summary error:', err);
     toast.warning('Could not load income/expense totals.');
   }
 }
 
-// ─── loadSummaryCards (existing, but updated labels via HTML) ──
+// ─── loadSummaryCards (modified for new cards) ──
 async function loadSummaryCards() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) { toast.error('School ID not found.'); return; }
@@ -340,9 +354,9 @@ async function loadSummaryCards() {
     const ALL_TERMS = ['First Term', 'Second Term', 'Third Term'];
     const safeSession = sanitizeSession(session);
 
+    let totalExpectedTerm = 0;
     let totalPaidTerm = 0;
-    let totalPaidSession = 0;
-    let totalArrears = 0;
+    let totalBroughtForward = 0;
 
     for (const studentId of studentIds) {
       for (const t of ALL_TERMS) {
@@ -351,21 +365,28 @@ async function loadSummaryCards() {
         const feeDoc = await getDoc(feeRef);
         if (!feeDoc.exists()) continue;
         const feeData = feeDoc.data();
+        const owed = totalOwed(feeData);
         const paymentsSnap = await getDocs(collection(feeRef, 'payments'));
         let paid = 0;
         paymentsSnap.forEach(p => { if (!p.data().voided) paid += p.data().amount || 0; });
 
-        totalPaidSession += paid;
         if (t === term) {
+          totalExpectedTerm += owed;
           totalPaidTerm += paid;
-          totalArrears += Math.max(0, totalOwed(feeData) - paid);
+        } else {
+          // Arrears from previous terms (could be negative if overpaid; clamp to >=0)
+          totalBroughtForward += Math.max(0, owed - paid);
         }
       }
     }
 
-    document.getElementById('totalPaidTerm').textContent = `₦${totalPaidTerm.toLocaleString()}`;
-    document.getElementById('totalPaidSession').textContent = `₦${totalPaidSession.toLocaleString()}`;
-    document.getElementById('totalArrears').textContent = `₦${totalArrears.toLocaleString()}`;
+    const totalArrearsTerm = totalExpectedTerm - totalPaidTerm;
+
+    document.getElementById('totalFeesExpectedTerm').textContent = `₦${totalExpectedTerm.toLocaleString()}`;
+    document.getElementById('totalFeesPaidTerm').textContent = `₦${totalPaidTerm.toLocaleString()}`;
+    document.getElementById('totalArrearsTerm').textContent = `₦${totalArrearsTerm.toLocaleString()}`;
+    document.getElementById('totalBroughtForward').textContent = `₦${totalBroughtForward.toLocaleString()}`;
+
   } catch (err) {
     console.error('Load summary cards error:', err);
     toast.error('Could not load summary totals.');
@@ -892,6 +913,7 @@ async function handlePaymentSubmit(e) {
       await refreshClassFeeTable();
     }
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
     await populateHistorySessionSelect();
 
     const studentId = document.getElementById('paymentForm').dataset.studentId;
@@ -974,6 +996,7 @@ async function handleBulkPayments(e) {
       await refreshClassFeeTable();
     }
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
     await populateHistorySessionSelect();
   } catch (err) {
     console.error('Bulk payment error:', err);
@@ -1029,6 +1052,7 @@ async function handleBulkSetClassFee(e) {
     document.getElementById('bulkSetClassFeeModal').style.display = 'none';
     await refreshClassFeeTable();
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
     for (const studentDoc of studentsSnap.docs) {
       await recalculateFeeGateStatus(schoolId, studentDoc.id, term, session);
     }
@@ -1086,6 +1110,7 @@ async function saveFee(e) {
     document.getElementById('setFeeModal').style.display = 'none';
     await refreshClassFeeTable();
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
     await populateHistorySessionSelect();
     await recalculateFeeGateStatus(schoolId, studentId, term, session);
   } catch (err) {
@@ -1349,6 +1374,7 @@ async function handleOpeningBalance(e) {
     await recalculateFeeGateStatus(schoolId, studentId, term, session);
     await refreshClassFeeTable();
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
   } catch (err) {
     console.error('Opening balance error:', err);
     toast.error('Failed to save opening balance.');
@@ -1458,6 +1484,7 @@ async function handleCsvImport() {
     document.getElementById('csvImportFile').value = '';
     await refreshClassFeeTable();
     await loadSummaryCards();
+    await loadIncomeExpenseSummaryCards();
   });
 }
 
