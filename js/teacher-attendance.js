@@ -711,14 +711,14 @@ async function setupOverrideUI(schoolId) {
 
   overrideBtn.addEventListener('click', async () => {
     const teacherUid = document.getElementById('overrideTeacherSelect')?.value;
-    const status = document.getElementById('overrideStatus')?.value;
+    const status = document.getElementById('overrideStatusSelect')?.value;   // FIX: correct element id
     const note = document.getElementById('overrideNote')?.value.trim() || 'Admin override';
+    const date = document.getElementById('overrideDateInput')?.value || todayStr(); // FIX: use override date input
+
     if (!teacherUid || !status) {
       toast.error('Please select a teacher and choose a status.');
       return;
     }
-
-    const date = document.getElementById('attendanceDateFilter')?.value || todayStr();
 
     showLoader();
     try {
@@ -752,7 +752,7 @@ async function setupOverrideUI(schoolId) {
         });
       }
       toast.success('Override applied successfully.');
-      await loadAttendanceForDate(schoolId, date);
+      await loadAttendanceForDate(schoolId, date);   // reload the overridden date
     } catch (err) {
       console.error('Override error:', err);
       toast.error('Failed to apply override. Please try again.');
