@@ -173,80 +173,63 @@ export async function initFinancePage() {
       refreshClassFeeTable();
     }
 
-    // NEW: Check school status and lock/unlock UI
+    // NEW: Check subscription status and lock UI
     await checkSchoolStatusAndLockUI();
+
+    // Add submit interceptor to prevent any form submission when locked
+    document.addEventListener('submit', preventFinanceSubmit, true);
   });
 }
 
-// ─── NEW: Check subscription status and lock UI accordingly ──
-async function checkSchoolStatusAndLockUI() {
-  const schoolId = await getCurrentSchoolId();
-  if (!schoolId) return;
+// ─── Global lock state ─────────────────────────────
+let financeLocked = false;
 
-  try {
-    const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
-    if (!schoolDoc.exists()) {
-      toast.error('School record not found.');
-      return;
-    }
-
-    const status = schoolDoc.data().status || 'expired';
-    const isExpired = status === 'expired';
-
-    // Apply lock to all buttons and form elements inside the finance features
-    lockFinanceUI(isExpired);
-
-    // Show a notice if expired
-    if (isExpired) {
-      showExpiredNotice();
-    } else {
-      hideExpiredNotice();
-    }
-  } catch (err) {
-    console.error('Error checking school status:', err);
-    toast.warning('Could not verify subscription status. Some features may be limited.');
-    // Default to locking if unsure? But we choose to lock to be safe.
-    lockFinanceUI(true);
-    showExpiredNotice();
+// ─── Prevent form submissions when locked ─────────
+function preventFinanceSubmit(e) {
+  if (financeLocked) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    toast.error('Your subscription is expired. Please renew to use finance features.');
   }
 }
 
-function lockFinanceUI(locked) {
-  // Select all interactive elements within the main content area
-  const content = document.querySelector('.content');
-  if (!content) return;
-
-  const interactiveElements = content.querySelectorAll('button, input, select, textarea, a.btn, .btn');
-  interactiveElements.forEach(el => {
-    if (locked) {
+// ─── Apply lock/unlock to all relevant elements ──
+function applyFinanceLock() {
+  const selectors = [
+    'main .content button',
+    'main .content input',
+    'main .content select',
+    'main .content textarea',
+    '.modal button',
+    '.modal input',
+    '.modal select',
+    '.modal textarea',
+    '.btn', // buttons that might be anchors
+  ];
+  const elements = document.querySelectorAll(selectors.join(', '));
+  elements.forEach(el => {
+    if (financeLocked) {
       el.disabled = true;
-      // For anchor tags, prevent click using class
       if (el.tagName === 'A') {
-        el.classList.add('disabled-link');
         el.style.pointerEvents = 'none';
+        el.setAttribute('aria-disabled', 'true');
       }
     } else {
       el.disabled = false;
       if (el.tagName === 'A') {
-        el.classList.remove('disabled-link');
         el.style.pointerEvents = '';
+        el.removeAttribute('aria-disabled');
       }
     }
   });
 
-  // Add/remove a global submit interceptor to prevent form submission when locked
-  if (locked) {
-    document.addEventListener('submit', preventFinanceSubmit, true);
-  } else {
-    document.removeEventListener('submit', preventFinanceSubmit, true);
-  }
+  // Also handle dynamic buttons inside tables (already covered by .btn selector)
+  // Ensure toggle checkbox is included
+  const feeGate = document.getElementById('feeGateToggle');
+  if (feeGate) feeGate.disabled = financeLocked;
 }
 
-function preventFinanceSubmit(e) {
-  e.preventDefault();
-  toast.error('Your subscription is expired. Please renew to use finance features.');
-}
-
+// ─── Show/hide expired notice ─────────────────────
 function showExpiredNotice() {
   let notice = document.getElementById('expiredNotice');
   if (!notice) {
@@ -264,15 +247,46 @@ function showExpiredNotice() {
     `;
     notice.textContent = '⚠️ Your subscription has expired. Finance features are locked. Please renew to continue.';
     const content = document.querySelector('.content');
-    if (content) {
-      content.prepend(notice);
-    }
+    if (content) content.prepend(notice);
   }
 }
 
 function hideExpiredNotice() {
   const notice = document.getElementById('expiredNotice');
   if (notice) notice.remove();
+}
+
+// ─── Set the global lock state ────────────────────
+function setFinanceLocked(locked) {
+  financeLocked = locked;
+  applyFinanceLock();
+  if (locked) {
+    showExpiredNotice();
+  } else {
+    hideExpiredNotice();
+  }
+}
+
+// ─── Check school status and lock/unlock UI ───────
+async function checkSchoolStatusAndLockUI() {
+  const schoolId = await getCurrentSchoolId();
+  if (!schoolId) return;
+
+  try {
+    const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
+    if (!schoolDoc.exists()) {
+      toast.error('School record not found.');
+      setFinanceLocked(true); // lock if no school
+      return;
+    }
+
+    const status = schoolDoc.data().status || 'expired';
+    setFinanceLocked(status !== 'active');
+  } catch (err) {
+    console.error('Error checking school status:', err);
+    toast.warning('Could not verify subscription status. Finance features are locked.');
+    setFinanceLocked(true);
+  }
 }
 
 // ─── Function: addBulkRow ─────────────────
@@ -301,6 +315,10 @@ function addBulkRow() {
     }
   });
   container.appendChild(row);
+  // If locked, disable the newly added inputs and button
+  if (financeLocked) {
+    row.querySelectorAll('input, select, button').forEach(el => el.disabled = true);
+  }
 }
 
 // ─── NEW: Populate session selects for expense/income forms ──
@@ -756,8 +774,7 @@ async function refreshClassFeeTable() {
         paymentsSnap.forEach(p => { if (!p.data().voided) currentPaid += p.data().amount || 0; });
       }
 
-      // Previous arrears: query all fee docs for this student across all terms/sessions
-      // excluding the current term/session
+      // Previous arrears
       let previousArrears = 0;
       const allFeesQ = query(
         collection(db, 'schools', schoolId, 'fees'),
@@ -766,7 +783,6 @@ async function refreshClassFeeTable() {
       const allFeesSnap = await getDocs(allFeesQ);
       for (const feeDocPrev of allFeesSnap.docs) {
         const feeDataPrev = feeDocPrev.data();
-        // Skip if it's the same term/session
         if (feeDataPrev.term === term && feeDataPrev.session === session) continue;
 
         const owedPrev = totalOwed(feeDataPrev);
@@ -774,12 +790,9 @@ async function refreshClassFeeTable() {
         let paidPrev = 0;
         paymentsPrevSnap.forEach(p => { if (!p.data().voided) paidPrev += p.data().amount || 0; });
         const balancePrev = owedPrev - paidPrev;
-        if (balancePrev > 0) {
-          previousArrears += balancePrev;
-        }
+        if (balancePrev > 0) previousArrears += balancePrev;
       }
 
-      // Total owed = current fee + previous arrears
       const totalOwedAll = currentFee + previousArrears;
       const balance = totalOwedAll - currentPaid;
 
@@ -829,6 +842,9 @@ async function refreshClassFeeTable() {
         </tr>`;
     });
     tbody.innerHTML = html;
+
+    // Re-apply lock state to newly created buttons
+    if (financeLocked) applyFinanceLock();
 
     // Rebinding events
     document.querySelectorAll('.set-fee-btn').forEach(btn => {
@@ -965,6 +981,9 @@ async function lookupStudentFee() {
     recordBtn.dataset.feeId = feeId;
     bulkBtn.dataset.studentId = studentId;
     bulkBtn.dataset.feeId = feeId;
+
+    // Apply lock state to newly created buttons
+    if (financeLocked) applyFinanceLock();
 
     document.getElementById('openManualOverrideBtn')?.addEventListener('click', () => {
       const studentName = document.getElementById('studentLookupSelect').selectedOptions[0]?.textContent || '';
@@ -1384,7 +1403,6 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
 
   if (!incomeBody || !expenseBody) return;
 
-  // Reset
   incomeBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
   expenseBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
   incomeTotalEl.textContent = '₦0';
@@ -1401,7 +1419,6 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
 
     const [expensesSnap, incomeSnap] = await Promise.all([getDocs(expensesQ), getDocs(incomeQ)]);
 
-    // Income table
     let totalIncome = 0;
     if (incomeSnap.empty) {
       incomeBody.innerHTML = '<tr><td colspan="4">No income records.</td></tr>';
@@ -1421,7 +1438,6 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
     }
     incomeTotalEl.textContent = `₦${totalIncome.toLocaleString()}`;
 
-    // Expense table
     let totalExpenses = 0;
     if (expensesSnap.empty) {
       expenseBody.innerHTML = '<tr><td colspan="4">No expense records.</td></tr>';
@@ -1452,7 +1468,7 @@ async function loadIncomeExpenseHistory(schoolId, sessionFilter) {
 
 // ─── downloadHistoryPdf (FIXED: async/await) ──
 async function downloadHistoryPdf() {
-  const schoolId = await getCurrentSchoolId(); // Await the Promise
+  const schoolId = await getCurrentSchoolId();
   const selectedSession = document.getElementById('historySessionSelect').value;
   if (!schoolId) {
     toast.error('School ID not found.');
