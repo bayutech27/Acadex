@@ -37,7 +37,6 @@ async function recalculateAllFeeGates(term, session) {
 // ─── Finance Page Init ──────────────────────────────
 export async function initFinancePage() {
   await initAdminPage(async () => {
-    // Academic badge with rollover detection
     let lastKnownPeriod = null;
     subscribeToCalendar(async (state) => {
       const termEl = document.getElementById('currentTermDisplay');
@@ -63,7 +62,6 @@ export async function initFinancePage() {
     await loadIncomeExpenseSummaryCards();
     await loadFeeGateState();
 
-    // ─── Event listeners ──────────────────────────────
     document.getElementById('refreshFinanceBtn').addEventListener('click', refreshClassFeeTable);
     document.getElementById('financeClassSelect').addEventListener('change', refreshClassFeeTable);
     document.getElementById('financeTermSelect').addEventListener('change', refreshClassFeeTable);
@@ -129,7 +127,6 @@ export async function initFinancePage() {
       }
     });
 
-    // Modal close handlers
     document.querySelectorAll('.close-modal, [data-modal-close]').forEach(btn => {
       btn.addEventListener('click', () => {
         btn.closest('.modal').style.display = 'none';
@@ -151,10 +148,8 @@ export async function initFinancePage() {
     document.getElementById('importCsvBtn').addEventListener('click', handleCsvImport);
     document.getElementById('downloadCsvTemplateLink').addEventListener('click', downloadCsvTemplate);
 
-    // Expense and Income form submissions
     document.getElementById('expenseForm').addEventListener('submit', saveExpense);
     document.getElementById('incomeForm').addEventListener('submit', saveOtherIncome);
-    // Manual title overrides dropdown
     document.getElementById('incomeTitleManual').addEventListener('input', (e) => {
       if (e.target.value.trim()) {
         document.getElementById('incomeTitleDropdown').value = '';
@@ -173,10 +168,10 @@ export async function initFinancePage() {
       refreshClassFeeTable();
     }
 
-    // NEW: Check subscription status and lock UI
+    // Apply lock state based on school status
     await checkSchoolStatusAndLockUI();
 
-    // Add submit interceptor to prevent any form submission when locked
+    // Global submit interceptor (only blocks when financeLocked)
     document.addEventListener('submit', preventFinanceSubmit, true);
   });
 }
@@ -204,7 +199,7 @@ function applyFinanceLock() {
     '.modal input',
     '.modal select',
     '.modal textarea',
-    '.btn', // buttons that might be anchors
+    '.btn'
   ];
   const elements = document.querySelectorAll(selectors.join(', '));
   elements.forEach(el => {
@@ -223,8 +218,6 @@ function applyFinanceLock() {
     }
   });
 
-  // Also handle dynamic buttons inside tables (already covered by .btn selector)
-  // Ensure toggle checkbox is included
   const feeGate = document.getElementById('feeGateToggle');
   if (feeGate) feeGate.disabled = financeLocked;
 }
@@ -248,6 +241,8 @@ function showExpiredNotice() {
     notice.textContent = '⚠️ Your subscription has expired. Finance features are locked. Please renew to continue.';
     const content = document.querySelector('.content');
     if (content) content.prepend(notice);
+  } else {
+    notice.style.display = '';
   }
 }
 
@@ -270,13 +265,16 @@ function setFinanceLocked(locked) {
 // ─── Check school status and lock/unlock UI ───────
 async function checkSchoolStatusAndLockUI() {
   const schoolId = await getCurrentSchoolId();
-  if (!schoolId) return;
+  if (!schoolId) {
+    setFinanceLocked(true);
+    return;
+  }
 
   try {
     const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
     if (!schoolDoc.exists()) {
       toast.error('School record not found.');
-      setFinanceLocked(true); // lock if no school
+      setFinanceLocked(true);
       return;
     }
 
@@ -315,10 +313,8 @@ function addBulkRow() {
     }
   });
   container.appendChild(row);
-  // If locked, disable the newly added inputs and button
-  if (financeLocked) {
-    row.querySelectorAll('input, select, button').forEach(el => el.disabled = true);
-  }
+  // Re-apply current lock state to new elements
+  applyFinanceLock();
 }
 
 // ─── NEW: Populate session selects for expense/income forms ──
@@ -345,7 +341,6 @@ async function populateIncomeExpenseSessionSelects() {
       select.appendChild(opt);
     }
   });
-  // Set default term to current term
   const currentTerm = getCurrentTerm();
   const termSelects = [document.getElementById('expenseTerm'), document.getElementById('incomeTerm')];
   termSelects.forEach(select => {
@@ -453,21 +448,18 @@ async function loadIncomeExpenseSummaryCards() {
   if (!term || !session) return;
 
   try {
-    // Expenses
     const expensesQ = query(collection(db, 'schools', schoolId, 'expenses'),
       where('term', '==', term), where('session', '==', session));
     const expensesSnap = await getDocs(expensesQ);
     let totalExpenses = 0;
     expensesSnap.forEach(d => totalExpenses += d.data().amount || 0);
 
-    // Other Income
     const incomeQ = query(collection(db, 'schools', schoolId, 'otherIncome'),
       where('term', '==', term), where('session', '==', session));
     const incomeSnap = await getDocs(incomeQ);
     let totalOtherIncome = 0;
     incomeSnap.forEach(d => totalOtherIncome += d.data().amount || 0);
 
-    // Get total school fees paid (this term) from DOM
     const totalPaidTermText = document.getElementById('totalFeesPaidTerm').textContent.replace(/[₦,]/g, '');
     const totalPaidTerm = parseFloat(totalPaidTermText) || 0;
 
@@ -761,20 +753,17 @@ async function refreshClassFeeTable() {
 
     const rows = [];
     for (const student of students) {
-      // Current term fee
       const feeId = `${student.id}_${term}_${safeSession}`;
       const feeRef = doc(db, 'schools', schoolId, 'fees', feeId);
       const feeDoc = await getDoc(feeRef);
       const currentFee = feeDoc.exists() ? totalOwed(feeDoc.data()) : 0;
 
-      // Current term payments
       let currentPaid = 0;
       if (feeDoc.exists()) {
         const paymentsSnap = await getDocs(collection(feeRef, 'payments'));
         paymentsSnap.forEach(p => { if (!p.data().voided) currentPaid += p.data().amount || 0; });
       }
 
-      // Previous arrears
       let previousArrears = 0;
       const allFeesQ = query(
         collection(db, 'schools', schoolId, 'fees'),
@@ -784,7 +773,6 @@ async function refreshClassFeeTable() {
       for (const feeDocPrev of allFeesSnap.docs) {
         const feeDataPrev = feeDocPrev.data();
         if (feeDataPrev.term === term && feeDataPrev.session === session) continue;
-
         const owedPrev = totalOwed(feeDataPrev);
         const paymentsPrevSnap = await getDocs(collection(feeDocPrev.ref, 'payments'));
         let paidPrev = 0;
@@ -843,10 +831,9 @@ async function refreshClassFeeTable() {
     });
     tbody.innerHTML = html;
 
-    // Re-apply lock state to newly created buttons
-    if (financeLocked) applyFinanceLock();
+    // Always re-apply current lock state to new buttons
+    applyFinanceLock();
 
-    // Rebinding events
     document.querySelectorAll('.set-fee-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const studentId = btn.dataset.studentId;
@@ -982,8 +969,8 @@ async function lookupStudentFee() {
     bulkBtn.dataset.studentId = studentId;
     bulkBtn.dataset.feeId = feeId;
 
-    // Apply lock state to newly created buttons
-    if (financeLocked) applyFinanceLock();
+    // Re-apply lock state to newly created buttons
+    applyFinanceLock();
 
     document.getElementById('openManualOverrideBtn')?.addEventListener('click', () => {
       const studentName = document.getElementById('studentLookupSelect').selectedOptions[0]?.textContent || '';
@@ -1341,7 +1328,6 @@ async function loadFinancialHistory() {
   const selectedSession = document.getElementById('historySessionSelect').value;
 
   try {
-    // Existing student fee history loading
     const studentsQ = query(collection(db, 'students'), where('schoolId', '==', schoolId), where('status', '==', 'active'));
     const studentsSnap = await getDocs(studentsQ);
     const students = [];
@@ -1385,7 +1371,6 @@ async function loadFinancialHistory() {
       tableBody.innerHTML = html || '<tr><td colspan="4">No data for this session.</td></tr>';
     }
 
-    // Load income and expenses for the selected session
     await loadIncomeExpenseHistory(schoolId, selectedSession);
   } catch (err) {
     console.error('Load history error:', err);
