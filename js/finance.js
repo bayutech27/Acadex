@@ -15,7 +15,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import { toast } from './error-handler.js';
 import { sanitizeSession } from './service.js';
-import { renderFinanceReport } from './financeReportRenderer.js'; // Ensure this file exists
+import { renderFinanceReport } from './financeReportRenderer.js';
 
 // ─── Helper: totalOwed ───────────────────────────
 function totalOwed(feeData) {
@@ -172,7 +172,107 @@ export async function initFinancePage() {
     if (document.getElementById('financeClassSelect').value) {
       refreshClassFeeTable();
     }
+
+    // NEW: Check school status and lock/unlock UI
+    await checkSchoolStatusAndLockUI();
   });
+}
+
+// ─── NEW: Check subscription status and lock UI accordingly ──
+async function checkSchoolStatusAndLockUI() {
+  const schoolId = await getCurrentSchoolId();
+  if (!schoolId) return;
+
+  try {
+    const schoolDoc = await getDoc(doc(db, 'schools', schoolId));
+    if (!schoolDoc.exists()) {
+      toast.error('School record not found.');
+      return;
+    }
+
+    const status = schoolDoc.data().status || 'expired';
+    const isExpired = status === 'expired';
+
+    // Apply lock to all buttons and form elements inside the finance features
+    lockFinanceUI(isExpired);
+
+    // Show a notice if expired
+    if (isExpired) {
+      showExpiredNotice();
+    } else {
+      hideExpiredNotice();
+    }
+  } catch (err) {
+    console.error('Error checking school status:', err);
+    toast.warning('Could not verify subscription status. Some features may be limited.');
+    // Default to locking if unsure? But we choose to lock to be safe.
+    lockFinanceUI(true);
+    showExpiredNotice();
+  }
+}
+
+function lockFinanceUI(locked) {
+  // Select all interactive elements within the main content area
+  const content = document.querySelector('.content');
+  if (!content) return;
+
+  const interactiveElements = content.querySelectorAll('button, input, select, textarea, a.btn, .btn');
+  interactiveElements.forEach(el => {
+    if (locked) {
+      el.disabled = true;
+      // For anchor tags, prevent click using class
+      if (el.tagName === 'A') {
+        el.classList.add('disabled-link');
+        el.style.pointerEvents = 'none';
+      }
+    } else {
+      el.disabled = false;
+      if (el.tagName === 'A') {
+        el.classList.remove('disabled-link');
+        el.style.pointerEvents = '';
+      }
+    }
+  });
+
+  // Add/remove a global submit interceptor to prevent form submission when locked
+  if (locked) {
+    document.addEventListener('submit', preventFinanceSubmit, true);
+  } else {
+    document.removeEventListener('submit', preventFinanceSubmit, true);
+  }
+}
+
+function preventFinanceSubmit(e) {
+  e.preventDefault();
+  toast.error('Your subscription is expired. Please renew to use finance features.');
+}
+
+function showExpiredNotice() {
+  let notice = document.getElementById('expiredNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'expiredNotice';
+    notice.style.cssText = `
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 12px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: bold;
+      text-align: center;
+      border: 1px solid #fca5a5;
+    `;
+    notice.textContent = '⚠️ Your subscription has expired. Finance features are locked. Please renew to continue.';
+    const content = document.querySelector('.content');
+    if (content) {
+      content.prepend(notice);
+    }
+  }
+}
+
+function hideExpiredNotice() {
+  const notice = document.getElementById('expiredNotice');
+  if (notice) notice.remove();
 }
 
 // ─── Function: addBulkRow ─────────────────
