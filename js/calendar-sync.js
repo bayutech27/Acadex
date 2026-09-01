@@ -66,6 +66,15 @@ export async function syncAcademicCalendar() {
 
       lastSyncTimestamp = now;
       console.log('[CalendarSync] Firestore updated successfully');
+
+      // NEW: Automatically align subscriptions to new term/session
+      try {
+        const { autoLockExpiredSubscriptions } = await import('./plan.js');
+        await autoLockExpiredSubscriptions();
+      } catch (err) {
+        console.warn('[CalendarSync] Failed to auto-lock expired subscriptions:', err);
+      }
+
       return true;
     }
 
@@ -167,4 +176,11 @@ async function checkManualOverrideStatus() {
     console.error('[CalendarSync] Failed to check manual override status:', error);
     return false; // Assume no override if we can't check
   }
+}
+
+// NEW: Helper that initialises and syncs in one call
+export async function initAndSyncCalendar() {
+  await initAcademicCalendar();
+  await syncAcademicCalendar();
+  return getAcademicCalendar();
 }
