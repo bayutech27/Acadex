@@ -16,7 +16,7 @@ import { toast } from './error-handler.js';
 
 const SUBSCRIPTION_DOC_ID = 'current';
 
-// ------------------- FIX 4: Rolling 3-month end date -------------------
+// ------------------- FIX 4: Rolling 3-month end date (kept for fallback) -------------------
 function getRollingEndDate(monthsAhead = 3) {
   const end = new Date();
   end.setMonth(end.getMonth() + monthsAhead);
@@ -64,6 +64,7 @@ export async function getSubscriptionDisplayStatus(schoolId) {
  *   1. status === 'active'
  *   2. locked !== true
  *   3. endDate has NOT passed
+ *   4. term and session match current academic calendar
  */
 export async function isSubscriptionActive(schoolId) {
   const sub = await getSubscriptionStatus(schoolId);
@@ -75,6 +76,22 @@ export async function isSubscriptionActive(schoolId) {
     const endDate = sub.endDate.toDate ? sub.endDate.toDate() : new Date(sub.endDate);
     if (endDate < new Date()) return false;
   }
+
+  // NEW: must match current term/session
+  const { getCurrentTerm, getCurrentSession, initAcademicCalendar } = await import('./academic-calendar.js');
+  await initAcademicCalendar();
+  let currentTerm, currentSession;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      currentTerm = getCurrentTerm();
+      currentSession = getCurrentSession();
+      break;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  if (!currentTerm || !currentSession) return false;
+  if (sub.term !== currentTerm || sub.session !== currentSession) return false;
 
   return true;
 }
@@ -221,6 +238,19 @@ async function markStudentsAsCovered(schoolId, count) {
 // ------------------- Safe autoLockExpiredSubscriptions -------------------
 export async function autoLockExpiredSubscriptions() {
   const now = new Date();
+  const { getCurrentTerm, getCurrentSession } = await import('./academic-calendar.js');
+  let currentTerm, currentSession;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      currentTerm = getCurrentTerm();
+      currentSession = getCurrentSession();
+      break;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  if (!currentTerm || !currentSession) return;
+
   try {
     const schoolsSnapshot = await getDocs(collection(db, 'schools'));
     const batch = writeBatch(db);
@@ -235,27 +265,35 @@ export async function autoLockExpiredSubscriptions() {
 
       const data = subSnap.data();
 
-      if (
-        data.status === 'active' &&
-        data.locked !== true &&
-        data.endDate
-      ) {
+      if (data.status !== 'active' || data.locked === true) continue;
+
+      let shouldExpire = false;
+
+      // Check date-based expiry
+      if (data.endDate) {
         const endDate = data.endDate.toDate ? data.endDate.toDate() : new Date(data.endDate);
-        if (endDate < now) {
-          batch.update(subRef, {
-            status: 'expired',
-            locked: true,
-            lastUpdated: now,
-            autoExpired: true
-          });
-          updateCount++;
-        }
+        if (endDate < now) shouldExpire = true;
+      }
+
+      // NEW: also expire if term/session no longer matches current calendar
+      if (data.term !== currentTerm || data.session !== currentSession) {
+        shouldExpire = true;
+      }
+
+      if (shouldExpire) {
+        batch.update(subRef, {
+          status: 'expired',
+          locked: true,
+          lastUpdated: now,
+          autoExpired: true
+        });
+        updateCount++;
       }
     }
 
     if (updateCount > 0) {
       await batch.commit();
-      console.log(`autoLockExpiredSubscriptions: expired ${updateCount} school(s) whose endDate has passed.`);
+      console.log(`autoLockExpiredSubscriptions: expired ${updateCount} school(s).`);
     }
   } catch (err) {
     console.error('Auto-lock expired subscriptions error:', err);
@@ -280,10 +318,12 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     }
     if (!currentTerm || !currentSession) throw new Error('Calendar not ready');
 
+    // Use actual term end date, fallback to rolling 3 months if term date unavailable
+    const termEnd = getTermEndDateFromSessionAndTerm(currentSession, currentTerm) || getRollingEndDate(3);
+
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     const subSnap = await getDoc(subRef);
     const now = new Date();
-    const endDate = getRollingEndDate(3);
 
     const data = {
       status: 'active',
@@ -291,7 +331,7 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
       term: currentTerm,
       session: currentSession,
       startDate: now,
-      endDate: endDate,
+      endDate: termEnd,
       coveredStudents: coveredStudents,
       costPerStudent: costPerStudent,
       totalAmount: coveredStudents * costPerStudent,
