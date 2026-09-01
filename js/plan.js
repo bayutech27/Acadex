@@ -318,8 +318,9 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     }
     if (!currentTerm || !currentSession) throw new Error('Calendar not ready');
 
-    // Use actual term end date, fallback to rolling 3 months if term date unavailable
-    const termEnd = getTermEndDateFromSessionAndTerm(currentSession, currentTerm) || getRollingEndDate(3);
+    // Use actual term end date (no rolling fallback)
+    const termEnd = getTermEndDateFromSessionAndTerm(currentSession, currentTerm);
+    if (!termEnd) throw new Error('Unable to determine term end date');
 
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
     const subSnap = await getDoc(subRef);
