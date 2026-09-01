@@ -788,7 +788,18 @@ async function openPromoteModal(studentId) {
 async function promoteStudentToClass(studentId, newClassId) {
   showLoader();
   try {
-    await updateDoc(doc(db, 'students', studentId), { classId: newClassId, updatedAt: new Date() });
+    const classInfo = classesMap.get(newClassId);
+    if (!classInfo) {
+      toast.error('Selected class not found. Please refresh the page and try again.');
+      return;
+    }
+    // Use class level to update student's level
+    const newLevel = classInfo.level || 'primary'; // fallback to primary if missing
+    await updateDoc(doc(db, 'students', studentId), {
+      classId: newClassId,
+      level: newLevel,
+      updatedAt: new Date()
+    });
     toast.success('Student promoted successfully.');
     await loadAndDisplayStudents();
   } catch (err) {
