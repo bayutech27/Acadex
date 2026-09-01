@@ -32,7 +32,6 @@ export async function syncAcademicCalendar() {
 
     if (!storedData) {
       console.error('[CalendarSync] Firestore document missing');
-      // Don't show toast here – this is a background process, and the calendar will use fallback
       return false;
     }
 
@@ -51,7 +50,6 @@ export async function syncAcademicCalendar() {
         to: `${calculated.term} ${calculated.session}`
       });
 
-      // Prepare updated data (merge with existing)
       const updatedData = {
         ...storedData,
         currentSession: calculated.session,
@@ -67,7 +65,7 @@ export async function syncAcademicCalendar() {
       lastSyncTimestamp = now;
       console.log('[CalendarSync] Firestore updated successfully');
 
-      // NEW: Automatically align subscriptions to new term/session
+      // Automatically align subscriptions to new term/session
       try {
         const { autoLockExpiredSubscriptions } = await import('./plan.js');
         await autoLockExpiredSubscriptions();
@@ -83,7 +81,6 @@ export async function syncAcademicCalendar() {
 
   } catch (error) {
     console.error('[CalendarSync] Sync failed:', error);
-    // Only show toast for network/permission errors that might affect the user
     if (error.message?.includes('permission') || error.code === 'permission-denied') {
       toast.warning('Calendar sync permission issue. Please refresh the page.');
     } else if (error.message?.includes('network') || error.message?.includes('offline')) {
@@ -153,7 +150,6 @@ export function startPeriodicSync(intervalMinutes = 60) {
   const intervalId = setInterval(() => {
     syncAcademicCalendar().catch(err => {
       console.error('[CalendarSync] Periodic sync error:', err);
-      // Silent failure – don't spam user with toasts every hour
     });
   }, intervalMinutes * 60 * 1000);
   return () => clearInterval(intervalId);
@@ -174,7 +170,7 @@ async function checkManualOverrideStatus() {
     return doc ? (doc.manualOverride || false) : false;
   } catch (error) {
     console.error('[CalendarSync] Failed to check manual override status:', error);
-    return false; // Assume no override if we can't check
+    return false;
   }
 }
 
