@@ -366,7 +366,7 @@ async function loadIncomeExpenseSummaryCards() {
   }
 }
 
-// ─── loadSummaryCards (modified for new cards) ──
+// ─── loadSummaryCards (UPDATED: correct arrears brought forward across all past sessions) ──
 async function loadSummaryCards() {
   const schoolId = await getCurrentSchoolId();
   if (!schoolId) { toast.error('School ID not found.'); return; }
@@ -388,22 +388,38 @@ async function loadSummaryCards() {
     let totalBroughtForward = 0;
 
     for (const studentId of studentIds) {
-      for (const t of ALL_TERMS) {
-        const feeId = `${studentId}_${t}_${safeSession}`;
-        const feeRef = doc(db, 'schools', schoolId, 'fees', feeId);
-        const feeDoc = await getDoc(feeRef);
-        if (!feeDoc.exists()) continue;
-        const feeData = feeDoc.data();
-        const owed = totalOwed(feeData);
-        const paymentsSnap = await getDocs(collection(feeRef, 'payments'));
-        let paid = 0;
-        paymentsSnap.forEach(p => { if (!p.data().voided) paid += p.data().amount || 0; });
+      // Current term/session fee and payments
+      const currentFeeId = `${studentId}_${term}_${safeSession}`;
+      const currentFeeRef = doc(db, 'schools', schoolId, 'fees', currentFeeId);
+      const currentFeeDoc = await getDoc(currentFeeRef);
+      const currentFee = currentFeeDoc.exists() ? totalOwed(currentFeeDoc.data()) : 0;
+      let currentPaid = 0;
+      if (currentFeeDoc.exists()) {
+        const paymentsSnap = await getDocs(collection(currentFeeRef, 'payments'));
+        paymentsSnap.forEach(p => { if (!p.data().voided) currentPaid += p.data().amount || 0; });
+      }
 
-        if (t === term) {
-          totalExpectedTerm += owed;
-          totalPaidTerm += paid;
-        } else {
-          totalBroughtForward += Math.max(0, owed - paid);
+      totalExpectedTerm += currentFee;
+      totalPaidTerm += currentPaid;
+
+      // Accumulate arrears from ALL previous terms and sessions
+      const allFeesQ = query(
+        collection(db, 'schools', schoolId, 'fees'),
+        where('studentId', '==', studentId)
+      );
+      const allFeesSnap = await getDocs(allFeesQ);
+      for (const feeDocPrev of allFeesSnap.docs) {
+        const data = feeDocPrev.data();
+        // Skip if it's the current term and current session
+        if (data.term === term && data.session === session) continue;
+
+        const owed = totalOwed(data);
+        const paymentsPrevSnap = await getDocs(collection(feeDocPrev.ref, 'payments'));
+        let paid = 0;
+        paymentsPrevSnap.forEach(p => { if (!p.data().voided) paid += p.data().amount || 0; });
+        const balance = owed - paid;
+        if (balance > 0) {
+          totalBroughtForward += balance;
         }
       }
     }
