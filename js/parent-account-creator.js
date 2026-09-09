@@ -1,5 +1,6 @@
 // js/parent-account-creator.js
 // Handles parent account creation (Firebase Auth + Firestore) AND the Admin Parents page logic.
+// Updated: multi-class selection and multi-student selection in modal.
 
 import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
@@ -140,6 +141,7 @@ export async function createParentAuthAccount(email, password) {
 
 let editingParentId = null;
 let allStudents = [];
+let selectedStudentIds = new Set(); // Keep track of selected student IDs
 
 function resetModalToCreate() {
   editingParentId = null;
@@ -149,6 +151,14 @@ function resetModalToCreate() {
     '<i class="fa-solid fa-user-plus"></i> Add Parent';
   document.getElementById('createParentBtn').textContent = 'Create Parent';
   document.getElementById('selectedChildrenChips').innerHTML = '';
+  selectedStudentIds.clear();
+  // Clear class multi-select
+  const classSelect = document.getElementById('classFilterSelect');
+  if (classSelect) {
+    for (let opt of classSelect.options) opt.selected = false;
+  }
+  // Clear student checkbox list
+  document.getElementById('studentCheckboxList').innerHTML = '';
 }
 
 async function loadParentsTable() {
@@ -225,43 +235,86 @@ async function populateStudentCheckboxes() {
     const students = await service.getStudentsBySchool(schoolId);
     allStudents = students;
     const container = document.getElementById('studentCheckboxList');
-    const classFilter = document.getElementById('classFilterSelect');
+    const classSelect = document.getElementById('classFilterSelect');
+    
+    // Load classes into multi-select
     const classes = await service.getClassesBySchool(schoolId);
-    classFilter.innerHTML = '<option value="">All Classes</option>';
+    classSelect.innerHTML = '';
     classes.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
       opt.textContent = c.name;
-      classFilter.appendChild(opt);
+      classSelect.appendChild(opt);
     });
 
-    const renderStudents = (filterClass = '') => {
-      let filtered = students;
-      if (filterClass) filtered = filtered.filter(s => s.classId === filterClass);
+    // Render function: filters students by selected classes
+    const renderStudents = () => {
+      const selectedClassIds = Array.from(classSelect.selectedOptions).map(opt => opt.value);
+      let filtered = allStudents;
+      if (selectedClassIds.length > 0) {
+        filtered = filtered.filter(s => selectedClassIds.includes(s.classId));
+      }
       if (filtered.length === 0) {
         container.innerHTML = '<p style="color:#64748b;padding:0.5rem;">No students found.</p>';
         return;
       }
       let html = '';
       filtered.forEach(s => {
+        const checked = selectedStudentIds.has(s.id) ? 'checked' : '';
         html += `
           <label style="display:flex; align-items:center; padding:4px 0;">
-            <input type="checkbox" value="${s.id}" style="margin-right:8px;" />
+            <input type="checkbox" value="${s.id}" ${checked} style="margin-right:8px;" />
             ${s.name}
           </label>
         `;
       });
       container.innerHTML = html;
+
+      // Add event listeners to checkboxes
+      container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (cb.checked) {
+            selectedStudentIds.add(cb.value);
+          } else {
+            selectedStudentIds.delete(cb.value);
+          }
+          updateChips();
+        });
+      });
     };
 
-    classFilter.addEventListener('change', () => {
-      renderStudents(classFilter.value);
-    });
+    // Event listener for multi-select change
+    classSelect.addEventListener('change', renderStudents);
     renderStudents();
   } catch (err) {
     console.error('Student checkbox error:', err);
     toast.error('Could not load student list.');
   }
+}
+
+function updateChips() {
+  const container = document.getElementById('selectedChildrenChips');
+  if (!container) return;
+  let html = '';
+  for (const id of selectedStudentIds) {
+    const student = allStudents.find(s => s.id === id);
+    if (student) {
+      html += `<span class="parent-chip" data-id="${id}">${student.name} <span class="remove-parent-chip" data-id="${id}"><i class="fa-solid fa-xmark"></i></span></span>`;
+    }
+  }
+  container.innerHTML = html;
+
+  // Add click handlers for removal
+  container.querySelectorAll('.remove-parent-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const id = e.currentTarget.dataset.id;
+      selectedStudentIds.delete(id);
+      updateChips();
+      // Also uncheck corresponding checkbox if visible
+      const cb = document.querySelector(`#studentCheckboxList input[value="${id}"]`);
+      if (cb) cb.checked = false;
+    });
+  });
 }
 
 async function openEditModal(parentId) {
@@ -283,13 +336,29 @@ async function openEditModal(parentId) {
     document.getElementById('parentPhone').value = parent.phone || '';
     document.getElementById('parentEmail').value = parent.email || '';
 
+    // Reset selectedStudentIds
+    selectedStudentIds = new Set(parent.childIds || []);
+    updateChips();
+
+    // Load classes and students
     await populateStudentCheckboxes();
 
-    const checkboxes = document.querySelectorAll('#studentCheckboxList input[type="checkbox"]');
+    // Pre-select classes based on children's class IDs
+    const classSelect = document.getElementById('classFilterSelect');
     const childIds = parent.childIds || [];
-    checkboxes.forEach(cb => {
-      cb.checked = childIds.includes(cb.value);
-    });
+    const childClassIds = new Set();
+    for (const student of allStudents) {
+      if (childIds.includes(student.id)) {
+        childClassIds.add(student.classId);
+      }
+    }
+    for (let opt of classSelect.options) {
+      opt.selected = childClassIds.has(opt.value);
+    }
+
+    // Re-render students with selected classes
+    const event = new Event('change');
+    classSelect.dispatchEvent(event);
 
     document.querySelector('#addParentModal .modal-header h2').innerHTML =
       '<i class="fa-solid fa-user-pen"></i> Edit Parent';
@@ -337,9 +406,7 @@ async function handleAddParentSubmit(e) {
     return;
   }
 
-  const checkboxes = document.querySelectorAll('#studentCheckboxList input[type="checkbox"]:checked');
-  const childIds = Array.from(checkboxes).map(cb => cb.value);
-  if (childIds.length === 0) {
+  if (selectedStudentIds.size === 0) {
     toast.error('Please select at least one child.');
     return;
   }
@@ -348,6 +415,7 @@ async function handleAddParentSubmit(e) {
   btn.disabled = true;
 
   const schoolId = await getCurrentSchoolId();
+  const childIds = Array.from(selectedStudentIds);
 
   if (editingParentId) {
     // UPDATE
