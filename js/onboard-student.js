@@ -5,7 +5,7 @@
 //
 // NEW: Added "Nursery" level support (level is determined by the assigned class).
 // NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
-// NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
+// REMOVED: "Promote" button and promotion logic – only admins can promote students.
 // All other functionality remains unchanged.
 
 import { auth, db } from './firebase-config.js';
@@ -28,7 +28,7 @@ import {
 import * as service from './service.js';
 import { getRawSubscription } from './plan.js';
 import { toast } from './error-handler.js';
-import { getCurrentTerm, initAcademicCalendar } from './academic-calendar.js';
+import { initAcademicCalendar } from './academic-calendar.js';
 
 // Global state
 let currentSchoolId = null;
@@ -387,15 +387,6 @@ async function loadAndDisplayStudents() {
     return;
   }
 
-  // Determine if we are in the First Term (only then show Promote button)
-  let isFirstTerm = false;
-  try {
-    const currentTerm = getCurrentTerm();
-    isFirstTerm = currentTerm?.toLowerCase() === 'first term';
-  } catch (err) {
-    console.warn('Unable to determine current term:', err);
-  }
-
   studentsContainer.innerHTML = `
     <div class="table-container">
       <table class="data-table">
@@ -428,7 +419,6 @@ async function loadAndDisplayStudents() {
               <td>
                 <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
                 <button class="btn-danger" onclick="window.deleteStudent('${student.id}')">Delete</button>
-                ${isFirstTerm ? `<button class="btn-promote" onclick="window.promoteStudent('${student.id}')">Promote</button>` : ''}
               </td>
             </tr>
           `).join('')}
@@ -436,6 +426,7 @@ async function loadAndDisplayStudents() {
       </table>
     </div>
   `;
+
   // Status change listeners
   document.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', async () => {
@@ -452,6 +443,7 @@ async function loadAndDisplayStudents() {
       }
     });
   });
+
   window.editStudent = (id) => openModal(id);
   window.deleteStudent = async (id) => {
     if (confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) {
@@ -464,7 +456,7 @@ async function loadAndDisplayStudents() {
         const reportsSnap = await getDocs(query(collection(db, 'reports'), where('studentId', '==', id)));
         for (const d of reportsSnap.docs) await deleteDoc(d.ref);
 
-        // ======= NEW: Mark user as disabled =======
+        // Mark user as disabled
         if (studentData && studentData.uid) {
           await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
         }
@@ -477,57 +469,6 @@ async function loadAndDisplayStudents() {
       }
     }
   };
-
-  // Promote handler
-  window.promoteStudent = (id) => openPromoteModal(id);
-}
-
-// Promote student modal
-async function openPromoteModal(studentId) {
-  const classes = await service.getClassesBySchool(currentSchoolId);
-  classes.sort((a, b) => a.name.localeCompare(b.name));
-
-  const overlay = document.createElement('div');
-  overlay.id = 'promoteModal';
-  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
-
-  overlay.innerHTML = `
-    <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
-      <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Promote Student</h3>
-      <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">Select the new class for this student.</p>
-      <div style="max-height:300px;overflow-y:auto;">
-        ${classes.map(cls => `
-          <button class="promote-class-btn" data-class-id="${cls.id}" style="display:block;width:100%;padding:10px;margin:5px 0;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;text-align:left;">
-            ${escapeHtml(cls.name)} (${escapeHtml(cls.level)})
-          </button>
-        `).join('')}
-      </div>
-      <button id="closePromoteModalBtn" style="margin-top:15px;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  document.getElementById('closePromoteModalBtn').addEventListener('click', () => overlay.remove());
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-
-  document.querySelectorAll('.promote-class-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const newClassId = btn.dataset.classId;
-      await promoteStudentToClass(studentId, newClassId);
-      overlay.remove();
-    });
-  });
-}
-
-async function promoteStudentToClass(studentId, newClassId) {
-  try {
-    await updateDoc(doc(db, 'students', studentId), { classId: newClassId, updatedAt: new Date() });
-    toast.success('Student promoted successfully.');
-    await loadAndDisplayStudents();
-  } catch (err) {
-    console.error('Promote student error:', err);
-    toast.error('Failed to promote student. Please try again.');
-  }
 }
 
 // Modal logic
@@ -677,7 +618,7 @@ async function handleStudentSubmit(e) {
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email, // may be empty for Nursery/Primary without email
+    email,
     level,
     classId,
     subjects: selectedSubjects,
