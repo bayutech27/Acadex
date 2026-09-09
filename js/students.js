@@ -11,6 +11,8 @@
 // NEW: Added "Nursery" level (order: Nursery, Primary, Secondary).
 // NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
 // NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
+// NEW: Bulk "Promote Class" button appears when a class filter is selected (not "All Students").
+//      It moves all active students from the selected class to a chosen new class.
 //
 // All Firestore operations go through service.js where possible.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
@@ -254,6 +256,12 @@ export async function initStudentsPage() {
   
   await generateClassFilterButtons();
 
+  // Set up bulk promote button event
+  document.getElementById('bulkPromoteBtn')?.addEventListener('click', openBulkPromoteModal);
+  
+  // Toggle bulk promote visibility based on current filter
+  toggleBulkPromoteButton();
+
   await loadAndDisplayStudents();
 
   document.getElementById('addStudentBtn')?.addEventListener('click', () => openModal());
@@ -291,6 +299,7 @@ export async function initStudentsPage() {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       allBtn.classList.add('active');
       currentFilter = 'all';
+      toggleBulkPromoteButton();
       loadAndDisplayStudents();
     });
   }
@@ -323,6 +332,7 @@ async function generateClassFilterButtons() {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentFilter = cls.name;
+        toggleBulkPromoteButton();
         loadAndDisplayStudents();
       });
       container.appendChild(btn);
@@ -330,6 +340,16 @@ async function generateClassFilterButtons() {
   } catch (err) {
     console.error('Generate filter buttons error:', err);
     toast.error('Unable to load classes for filters. Please refresh.');
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// BULK PROMOTE UI TOGGLE
+// ───────────────────────────────────────────────────────────────────────────────
+function toggleBulkPromoteButton() {
+  const container = document.getElementById('bulkPromoteContainer');
+  if (container) {
+    container.style.display = (currentFilter !== 'all') ? 'block' : 'none';
   }
 }
 
@@ -747,7 +767,7 @@ async function loadAndDisplayStudents() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// PROMOTE STUDENT (move to another class)
+// PROMOTE STUDENT (move to another class) - Individual
 // ───────────────────────────────────────────────────────────────────────────────
 async function openPromoteModal(studentId) {
   const classes = Array.from(classesMap.entries()).map(([id, data]) => ({ id, ...data }));
@@ -805,6 +825,123 @@ async function promoteStudentToClass(studentId, newClassId) {
   } catch (err) {
     console.error('Promote student error:', err);
     toast.error('Failed to promote student. Please try again.');
+  } finally {
+    hideLoader();
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// BULK PROMOTE CLASS (move all students from current filtered class)
+// ───────────────────────────────────────────────────────────────────────────────
+async function openBulkPromoteModal() {
+  if (currentFilter === 'all') {
+    toast.warning('Please select a specific class first.');
+    return;
+  }
+
+  // Find current class ID
+  let currentClassId = null;
+  for (const [id, data] of classesMap.entries()) {
+    if (data.name === currentFilter) {
+      currentClassId = id;
+      break;
+    }
+  }
+  if (!currentClassId) {
+    toast.error('Current class not found. Please refresh the page.');
+    return;
+  }
+
+  // Build list of target classes (exclude current one)
+  const classes = Array.from(classesMap.entries())
+    .map(([id, data]) => ({ id, ...data }))
+    .filter(cls => cls.id !== currentClassId);
+  classes.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (classes.length === 0) {
+    toast.warning('No other classes available to promote to.');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'bulkPromoteModal';
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9998;`;
+
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);font-family:inherit;">
+      <h3 style="margin:0 0 6px;font-size:1.1rem;color:#1e293b;">Promote Entire Class</h3>
+      <p style="margin:0 0 18px;color:#64748b;font-size:.9rem;">
+        Move all active students from <strong>${escapeHtml(currentFilter)}</strong> to the selected class below.
+      </p>
+      <div style="max-height:300px;overflow-y:auto;">
+        ${classes.map(cls => `
+          <button class="bulk-promote-class-btn" data-class-id="${cls.id}" style="display:block;width:100%;padding:10px;margin:5px 0;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;text-align:left;">
+            ${escapeHtml(cls.name)} (${escapeHtml(cls.level)})
+          </button>
+        `).join('')}
+      </div>
+      <button id="closeBulkPromoteModalBtn" style="margin-top:15px;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('closeBulkPromoteModalBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  document.querySelectorAll('.bulk-promote-class-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newClassId = btn.dataset.classId;
+      await promoteClassToNewClass(currentClassId, newClassId);
+      overlay.remove();
+    });
+  });
+}
+
+async function promoteClassToNewClass(currentClassId, newClassId) {
+  showLoader();
+  try {
+    const newClassInfo = classesMap.get(newClassId);
+    if (!newClassInfo) {
+      toast.error('Target class not found. Please refresh the page and try again.');
+      return;
+    }
+
+    // Fetch all students in the current class (active only)
+    const students = await service.getStudentsByClass(currentSchoolId, currentClassId);
+    const activeStudents = students.filter(s => s.status === 'active');
+
+    if (activeStudents.length === 0) {
+      toast.warning('No active students found in this class to promote.');
+      return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+    for (const student of activeStudents) {
+      try {
+        await service.updateStudent(student.id, {
+          classId: newClassId,
+          level: newClassInfo.level || 'primary',
+          updatedAt: new Date()
+        });
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to promote student ${student.id}:`, err);
+        failCount++;
+      }
+    }
+
+    if (failCount === 0) {
+      toast.success(`Successfully promoted ${successCount} student(s) to ${newClassInfo.name}.`);
+    } else {
+      toast.warning(`Promoted ${successCount} student(s), but ${failCount} failed. Please check and retry.`);
+    }
+
+    // Refresh the student list (the old class will now be empty)
+    await loadAndDisplayStudents();
+  } catch (err) {
+    console.error('Bulk promote class error:', err);
+    toast.error('Failed to promote class. Please try again.');
   } finally {
     hideLoader();
   }
