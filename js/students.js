@@ -13,6 +13,7 @@
 // NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
 // NEW: Bulk "Promote Class" button appears when a class filter is selected (not "All Students").
 //      It moves all active students from the selected class to a chosen new class.
+// NEW: Status filter buttons for "Inactive" and "Graduated" students. Active students are shown by default.
 //
 // All Firestore operations go through service.js where possible.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
@@ -35,7 +36,7 @@ let currentSchoolId = null;
 let subjectsMap = new Map();
 let classesMap = new Map();
 let editingStudentId = null;
-let currentFilter = 'all';
+let currentFilter = 'all'; // 'all', class name, 'inactive', 'graduated'
 let schoolName = '';
 let unsubscribeSub = null;
 
@@ -259,7 +260,30 @@ export async function initStudentsPage() {
   // Set up bulk promote button event
   document.getElementById('bulkPromoteBtn')?.addEventListener('click', openBulkPromoteModal);
   
-  // Toggle bulk promote visibility based on current filter
+  // Set up filter button delegation
+  const filterContainer = document.getElementById('classFilterContainer');
+  if (filterContainer) {
+    filterContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('.filter-btn');
+      if (!btn) return;
+      
+      // Remove active from all buttons
+      filterContainer.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      // Determine filter type
+      if (btn.dataset.status) {
+        currentFilter = btn.dataset.status; // 'inactive' or 'graduated'
+      } else {
+        currentFilter = btn.dataset.class || 'all';
+      }
+      
+      toggleBulkPromoteButton();
+      loadAndDisplayStudents();
+    });
+  }
+
+  // Initialize bulk promote visibility
   toggleBulkPromoteButton();
 
   await loadAndDisplayStudents();
@@ -293,17 +317,6 @@ export async function initStudentsPage() {
     });
   }
 
-  const allBtn = document.querySelector('.filter-btn[data-class="all"]');
-  if (allBtn) {
-    allBtn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      allBtn.classList.add('active');
-      currentFilter = 'all';
-      toggleBulkPromoteButton();
-      loadAndDisplayStudents();
-    });
-  }
-
   setupSubscriptionUI();
   initSubscriptionListener();
 }
@@ -315,8 +328,8 @@ async function generateClassFilterButtons() {
   const container = document.getElementById('classFilterContainer');
   if (!container) return;
 
-  const allButton = container.querySelector('.filter-btn[data-class="all"]');
-  const existingClassButtons = container.querySelectorAll('.filter-btn:not([data-class="all"])');
+  // Remove existing dynamic class buttons (keep the static ones: All, Inactive, Graduated)
+  const existingClassButtons = container.querySelectorAll('.filter-btn[data-class]:not([data-class="all"])');
   existingClassButtons.forEach(btn => btn.remove());
 
   try {
@@ -328,13 +341,6 @@ async function generateClassFilterButtons() {
       btn.className = 'filter-btn';
       btn.setAttribute('data-class', cls.name);
       btn.textContent = cls.name;
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentFilter = cls.name;
-        toggleBulkPromoteButton();
-        loadAndDisplayStudents();
-      });
       container.appendChild(btn);
     });
   } catch (err) {
@@ -349,7 +355,9 @@ async function generateClassFilterButtons() {
 function toggleBulkPromoteButton() {
   const container = document.getElementById('bulkPromoteContainer');
   if (container) {
-    container.style.display = (currentFilter !== 'all') ? 'block' : 'none';
+    // Show only when a specific class is selected (not 'all', 'inactive', 'graduated')
+    const isClassFilter = currentFilter !== 'all' && currentFilter !== 'inactive' && currentFilter !== 'graduated';
+    container.style.display = isClassFilter ? 'block' : 'none';
   }
 }
 
@@ -611,10 +619,16 @@ async function handlePassportUpload(e) {
 async function loadAndDisplayStudents() {
   let students;
   try {
-    if (currentFilter === 'all') {
+    if (currentFilter === 'all' || currentFilter === 'inactive' || currentFilter === 'graduated') {
+      // For 'all' or status filters, fetch all students and filter in memory
       const all = await service.getStudentsBySchool(currentSchoolId);
-      students = all.filter(s => s.status === 'active');
+      if (currentFilter === 'all') {
+        students = all.filter(s => s.status === 'active');
+      } else {
+        students = all.filter(s => s.status === currentFilter);
+      }
     } else {
+      // Specific class filter: find classId and fetch students by class, then filter active
       let classId = null;
       for (const [id, data] of classesMap.entries()) {
         if (data.name === currentFilter) { classId = id; break; }
@@ -624,8 +638,8 @@ async function loadAndDisplayStudents() {
         if (container) container.innerHTML = '<p>No students found for this class.</p>';
         return;
       }
-      students = await service.getStudentsByClass(currentSchoolId, classId);
-      students = students.filter(s => s.status === 'active');
+      const classStudents = await service.getStudentsByClass(currentSchoolId, classId);
+      students = classStudents.filter(s => s.status === 'active');
     }
   } catch (err) {
     console.error('Load and display students error:', err);
@@ -639,7 +653,12 @@ async function loadAndDisplayStudents() {
   if (!container) return;
 
   if (students.length === 0) {
-    container.innerHTML = `<p>No active students found${currentFilter !== 'all' ? ` in ${currentFilter}` : ''}.</p>`;
+    let message = 'No students found';
+    if (currentFilter === 'all') message = 'No active students found.';
+    else if (currentFilter === 'inactive') message = 'No inactive students found.';
+    else if (currentFilter === 'graduated') message = 'No graduated students found.';
+    else message = `No active students found in ${currentFilter}.`;
+    container.innerHTML = `<p>${message}</p>`;
     return;
   }
 
@@ -671,6 +690,8 @@ async function loadAndDisplayStudents() {
           ${students.map(student => {
             const className   = classesMap.get(student.classId)?.name ?? 'Unknown';
             const passportSrc = student.passport || '';
+            // Show promote button only for active students during first term
+            const showPromote = isFirstTerm && student.status === 'active';
             return `
               <tr>
                 <td>
@@ -694,7 +715,7 @@ async function loadAndDisplayStudents() {
                   <td>
                   <button class="btn-secondary" onclick="window.editStudent('${student.id}')">Edit</button>
                   <button class="btn-danger"    onclick="window.deleteStudent('${student.id}')">Delete</button>
-                  ${isFirstTerm ? `<button class="btn-promote" onclick="window.promoteStudent('${student.id}')">Promote</button>` : ''}
+                  ${showPromote ? `<button class="btn-promote" onclick="window.promoteStudent('${student.id}')">Promote</button>` : ''}
                 </td>
                 `
             }).join('')}
@@ -762,7 +783,7 @@ async function loadAndDisplayStudents() {
     }
   };
 
-  // Promote handler
+  // Promote handler (individual)
   window.promoteStudent = (id) => openPromoteModal(id);
 }
 
@@ -834,7 +855,7 @@ async function promoteStudentToClass(studentId, newClassId) {
 // BULK PROMOTE CLASS (move all students from current filtered class)
 // ───────────────────────────────────────────────────────────────────────────────
 async function openBulkPromoteModal() {
-  if (currentFilter === 'all') {
+  if (currentFilter === 'all' || currentFilter === 'inactive' || currentFilter === 'graduated') {
     toast.warning('Please select a specific class first.');
     return;
   }
