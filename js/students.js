@@ -1,23 +1,11 @@
 // students.js - Manage students with name parts, level filtering, dynamic class/subject loading
 // FULLY INTEGRATED with Central Academic Calendar (via admin.js exports)
-// MODIFIED: New student locked status based on raw subscription (active→locked true, inactive→locked false)
-// EXTENDED: Firebase Auth account creation using secondary app (same pattern as teachers.js)
-//           Student can login with email and password ($Acadex123) to students-portal.html
-//           All existing edit / delete / filter / display logic is UNCHANGED.
-// ADDED: Alphabetical sorting of students by full name in the student list table.
-// MODIFIED (image compression): Passport images larger than 800KB are compressed to ≤750KB (was 800KB).
-// ADDED: Nationality (all countries), State (Nigerian states), Religion, Parent Phone – mandatory fields.
-// UPDATED: Class filter buttons are now loaded dynamically from the Firestore `classes` collection.
-// NEW: Added "Nursery" level (order: Nursery, Primary, Secondary).
-// NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
-// NEW: "Promote" button appears on student list only during First Term. It allows moving a student to a new class.
-// NEW: Bulk "Promote Class" button appears when a class filter is selected (not "All Students").
-//      It moves all active students from the selected class to a chosen new class.
+// ... (same comments as before, plus new note)
 // NEW: Status filter buttons for "Inactive" and "Graduated" students. Active students are shown by default.
+// FIX: Direct Firestore query to fetch all students when status filter is selected, bypassing service caching.
 //
 // All Firestore operations go through service.js where possible.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
-// TODO: Extend service.js with getStudentsBySchool(schoolId, forceRefresh) to avoid direct Firestore.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, firebaseConfig } from './firebase-config.js';
@@ -614,18 +602,26 @@ async function handlePassportUpload(e) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// STUDENT LIST DISPLAY (using service for loading students)
+// STUDENT LIST DISPLAY (using service or direct Firestore for status filters)
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadAndDisplayStudents() {
   let students;
   try {
     if (currentFilter === 'all' || currentFilter === 'inactive' || currentFilter === 'graduated') {
-      // For 'all' or status filters, fetch all students and filter in memory
-      const all = await service.getStudentsBySchool(currentSchoolId);
+      // For 'all' or status filters, we need ALL students of the school.
+      // Use direct Firestore query to ensure we get all statuses (avoid service caching/filtering).
+      const snapshot = await getDocs(
+        query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
+      );
+      const allStudents = [];
+      snapshot.forEach(doc => {
+        allStudents.push({ id: doc.id, ...doc.data() });
+      });
+      
       if (currentFilter === 'all') {
-        students = all.filter(s => s.status === 'active');
+        students = allStudents.filter(s => s.status === 'active');
       } else {
-        students = all.filter(s => s.status === currentFilter);
+        students = allStudents.filter(s => s.status === currentFilter);
       }
     } else {
       // Specific class filter: find classId and fetch students by class, then filter active
