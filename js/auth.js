@@ -7,6 +7,7 @@
 // FIXED: Login retries Firestore reads to handle eventual consistency.
 // UPDATED: New school document is created with status = 'expired' to match security rules.
 // UPDATED: New subscription document is also created with status = 'expired' and locked = true.
+// UPDATED: Initial subscription plan is now 'freemium' (was 'basic').
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -182,7 +183,8 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       createdAt: nowTimestamp,
     });
 
-    // Subscription document: also expired and locked
+    // Subscription document: also expired and locked.
+    // Initial plan is now 'freemium' (matches expired status).
     batch.set(subRef, {
       status:                      'expired',
       locked:                      true,
@@ -190,7 +192,7 @@ export async function signupSchool(schoolName, username, address, phone, email, 
       session:                     currentSession,
       startDate:                   startDate,
       endDate:                     endDate,
-      plan:                        'basic',
+      plan:                        'freemium',
       costPerStudent:              1000,
       coveredStudents:             0,
       totalStudents:               0,
