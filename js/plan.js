@@ -1,5 +1,10 @@
 // plan.js – Subscription management
 // FIXED: Subscriptions only expire when real endDate passes — never due to term/session mismatch.
+// UPDATED: The `plan` field on the subscription document is kept in lock-step with `status`:
+//            status === 'expired' → plan = 'freemium'
+//            status === 'active'  → plan = 'premium'
+//          This is enforced in lockSchool, unlockSchool, autoLockExpiredSubscriptions,
+//          renewSubscriptionForCurrentTerm, and via the exported syncPlanWithStatus() helper.
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support lockSchool/unlockSchool, handleNewStudentAddition,
 // approveExtraStudents, autoLockExpiredSubscriptions, renewSubscriptionForCurrentTerm.
@@ -15,6 +20,14 @@ import { db } from './firebase-config.js';
 import { toast } from './error-handler.js';
 
 const SUBSCRIPTION_DOC_ID = 'current';
+
+// ------------------- Plan ↔ Status mapping -------------------
+const PLAN_FOR_ACTIVE  = 'premium';
+const PLAN_FOR_EXPIRED = 'freemium';
+
+function getPlanForStatus(status) {
+  return status === 'active' ? PLAN_FOR_ACTIVE : PLAN_FOR_EXPIRED;
+}
 
 // ------------------- FIX 4: Rolling 3-month end date (kept for fallback) -------------------
 function getRollingEndDate(monthsAhead = 3) {
@@ -109,11 +122,41 @@ export async function enforceAccessGuard(user, schoolId) {
   return { allowed: true };
 }
 
+// ------------------- Plan ↔ Status sync helper -------------------
+/**
+ * Ensures the `plan` field on the subscription doc matches the current `status`:
+ *   status === 'active'  → plan = 'premium'
+ *   status === 'expired' → plan = 'freemium'
+ * Read-then-write; safe no-op if the subscription document is missing.
+ * Exported so pages can call it on load if they ever worry about drift.
+ */
+export async function syncPlanWithStatus(schoolId) {
+  try {
+    const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
+    const subSnap = await getDoc(subRef);
+    if (!subSnap.exists()) return;
+    const data = subSnap.data();
+    const status = (data.status || '').toString().toLowerCase();
+    const expectedPlan = getPlanForStatus(status);
+    if (data.plan !== expectedPlan) {
+      await updateDoc(subRef, { plan: expectedPlan, lastUpdated: new Date() });
+    }
+  } catch (err) {
+    console.error('syncPlanWithStatus error:', err);
+    // Non-critical — don't surface to the user.
+  }
+}
+
 // ------------------- Lock / Unlock school (direct Firestore) -------------------
 export async function lockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
-    await updateDoc(subRef, { locked: true, status: 'expired', lastUpdated: new Date() });
+    await updateDoc(subRef, {
+      locked: true,
+      status: 'expired',
+      plan: PLAN_FOR_EXPIRED,
+      lastUpdated: new Date()
+    });
     console.log(`School ${schoolId} locked`);
   } catch (err) {
     console.error('Lock school error:', err);
@@ -124,7 +167,12 @@ export async function lockSchool(schoolId) {
 export async function unlockSchool(schoolId) {
   try {
     const subRef = doc(db, 'schools', schoolId, 'subscription', SUBSCRIPTION_DOC_ID);
-    await updateDoc(subRef, { locked: false, status: 'active', lastUpdated: new Date() });
+    await updateDoc(subRef, {
+      locked: false,
+      status: 'active',
+      plan: PLAN_FOR_ACTIVE,
+      lastUpdated: new Date()
+    });
     console.log(`School ${schoolId} unlocked`);
   } catch (err) {
     console.error('Unlock school error:', err);
@@ -284,6 +332,7 @@ export async function autoLockExpiredSubscriptions() {
         batch.update(subRef, {
           status: 'expired',
           locked: true,
+          plan: PLAN_FOR_EXPIRED,
           lastUpdated: now,
           autoExpired: true
         });
@@ -329,6 +378,7 @@ export async function renewSubscriptionForCurrentTerm(schoolId, coveredStudents,
     const data = {
       status: 'active',
       locked: false,
+      plan: PLAN_FOR_ACTIVE,
       term: currentTerm,
       session: currentSession,
       startDate: now,
