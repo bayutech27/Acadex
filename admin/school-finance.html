@@ -7,47 +7,447 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 
   <link rel="stylesheet" href="../css/card-3d.css" />
   <link rel="stylesheet" href="../css/styles.css" />
 
   <style>
-    /* ========== Base styles (unchanged) ========== */
+    /* =========================================================
+       ▓▓ SHARED iOS DESIGN TOKENS + BASE RULES ▓▓
+       Identical block across admin pages. Copy verbatim.
+       ========================================================= */
+    :root {
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-pink:      #FF2D55;
+      --ios-purple:    #AF52DE;
+      --ios-red:       #FF3B30;
+      --ios-teal:      #5AC8FA;
+      --ios-yellow:    #FFCC00;
+
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+      --ios-bg-secondary:  #E5E5EA;
+
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+      --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
+
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+      --ios-fill-2:    rgba(120, 120, 128, 0.08);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
+      --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    /* -------- Base -------- */
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+    }
+
+    /* -------- Header -------- */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
+    }
+    .school-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+    .school-header-left .school-logo {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      background: var(--ios-fill);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: var(--ios-shadow-sm);
+    }
+    .school-header-left .school-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      display: block;
+    }
+    .school-header-left .school-logo .camera-icon {
+      position: absolute;
+      bottom: 1px;
+      right: 1px;
+      background: var(--ios-blue);
+      color: #fff;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      transition: transform 0.2s var(--ios-spring);
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+    .school-header-left .school-logo .camera-icon:hover {
+      transform: scale(1.1);
+    }
+    .school-address {
+      font-size: 0.74rem;
+      color: var(--ios-label-secondary);
+      margin-top: 3px;
+      letter-spacing: -0.005em;
+    }
+
+    /* -------- Badges -------- */
+    .subscription-badge {
+      font-weight: 600;
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--ios-fill);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      white-space: nowrap;
+      color: var(--ios-label-secondary);
+      letter-spacing: -0.005em;
+    }
+    .subscription-badge.active  { background: rgba(52, 199, 89, 0.14); color: #1B7F3A; }
+    .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
+
+    .academic-badge {
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      letter-spacing: -0.01em;
+      border: 1px solid rgba(0, 122, 255, 0.12);
+    }
+    .academic-badge i { color: var(--ios-blue); }
+    .academic-badge .override-badge {
+      background: var(--ios-orange);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    /* -------- Welcome card -------- */
+    .welcome-card {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 26px 28px;
+      margin-bottom: 22px;
+      box-shadow: var(--ios-shadow);
+      border: none;
+    }
+    .welcome-card h1 {
+      font-family: var(--ios-font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0 0 6px;
+      color: var(--ios-label);
+    }
+    .welcome-card p {
+      color: var(--ios-label-secondary);
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.5;
+      letter-spacing: -0.005em;
+    }
+
+    /* -------- Buttons -------- */
+    .btn-primary,
+    .btn-secondary,
+    .btn-success,
+    .btn-danger,
+    .btn-warning {
+      padding: 11px 22px !important;
+      border-radius: 999px !important;
+      border: none !important;
+      cursor: pointer !important;
+      font-weight: 600 !important;
+      font-family: inherit !important;
+      font-size: 0.88rem !important;
+      letter-spacing: -0.005em;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center;
+      gap: 8px !important;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease, box-shadow 0.2s ease !important;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background-color: var(--ios-blue) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.18);
+    }
+    .btn-primary:hover  { background-color: var(--ios-blue-600) !important; }
+    .btn-secondary {
+      background-color: var(--ios-fill) !important;
+      color: var(--ios-blue) !important;
+    }
+    .btn-secondary:hover { background-color: var(--ios-fill-2) !important; }
+    .btn-success {
+      background-color: var(--ios-green) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(52, 199, 89, 0.18);
+    }
+    .btn-danger {
+      background-color: var(--ios-red) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(255, 59, 48, 0.18);
+    }
+    .btn-warning {
+      background-color: var(--ios-orange) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(255, 149, 0, 0.18);
+    }
+    .btn-primary:active,
+    .btn-secondary:active,
+    .btn-success:active,
+    .btn-danger:active,
+    .btn-warning:active {
+      transform: scale(0.96);
+    }
+
+    /* -------- Table wrapper (scrollable both axes) -------- */
+    .table-container,
+    .table-responsive-wrapper {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      box-shadow: var(--ios-shadow);
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+      border: none;
+    }
+
+    /* -------- Data table -------- */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 600px;
+    }
+    .data-table th {
+      background: rgba(120, 120, 128, 0.06);
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--ios-separator);
+      white-space: nowrap;
+    }
+    .data-table td {
+      padding: 12px 14px;
+      font-size: 0.88rem;
+      color: var(--ios-label);
+      letter-spacing: -0.005em;
+      border-bottom: 1px solid var(--ios-separator);
+      vertical-align: middle;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* -------- Form controls -------- */
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.8rem;
+      letter-spacing: -0.005em;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--ios-fill-2);
+      border: 1px solid transparent;
+      border-radius: var(--ios-radius);
+      font-family: inherit;
+      font-size: 0.9rem;
+      color: var(--ios-label);
+      transition: border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      background: #fff;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
+    /* -------- Modal -------- */
+    .modal-content {
+      border-radius: var(--ios-radius-xl) !important;
+      box-shadow: var(--ios-shadow-xl) !important;
+    }
+    .modal-header h2 {
+      font-family: var(--ios-font-display);
+      font-size: 1.18rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+    }
+    .close-modal {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--ios-fill);
+      color: var(--ios-label-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s var(--ios-smooth);
+    }
+    .close-modal:hover  { background: var(--ios-fill-2); }
+    .close-modal:active { transform: scale(0.94); }
+
+    /* -------- Mobile responsive (identical) -------- */
+    @media (max-width: 768px) {
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
+      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 8px; }
+      .school-name { flex: 1 1 auto; min-width: 0; }
+      .school-name h1#schoolName {
+        font-size: 1rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.25;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      .school-header-left .school-logo .camera-icon { display: none !important; }
+      .school-header-left .school-logo {
+        width: 46px !important;
+        height: 46px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img { pointer-events: none; }
+      .header-right .subscription-badge { display: none !important; }
+      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
+      .welcome-card { padding: 22px 20px; border-radius: 20px; }
+      .welcome-card h1 { font-size: 1.35rem; }
+      .modal-content { border-radius: 20px !important; }
+    }
+
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
+
+    /* =========================================================
+       ▓▓ PAGE-SPECIFIC (school-finance) ▓▓
+       ========================================================= */
+
+    /* Summary cards grid */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1.25rem;
       margin-bottom: 1.75rem;
     }
-    .stat-number-lg { font-size: 2.5rem; }
-    .stat-card { padding: 1.25rem; text-align: center; }
+    .stat-number-lg { font-size: 2.4rem; }
+    .stat-card {
+      padding: 1.25rem;
+      text-align: center;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      box-shadow: var(--ios-shadow);
+      border: none;
+      transition: transform 0.3s var(--ios-spring), box-shadow 0.3s var(--ios-smooth);
+    }
+    .stat-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--ios-shadow-lg);
+    }
+    .stat-card .stat-number {
+      font-family: var(--ios-font-display);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.05;
+    }
     .stat-card .stat-label {
-      font-size: 0.8rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      color: #64748b;
-      letter-spacing: 0.06em;
-      margin-top: 0.25rem;
+      color: var(--ios-label-secondary);
+      letter-spacing: 0.05em;
+      margin-top: 6px;
+      font-weight: 600;
     }
 
-    /* Wrapper for two rows of cards */
+    /* Two-row card layout */
     .summary-cards-wrapper {
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
       margin-bottom: 1.75rem;
     }
-
-    /* First row with 4 columns on desktop */
     .stats-grid-4 {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 1.25rem;
       margin-bottom: 1.75rem;
     }
-
-    /* Second row with 3 columns (unchanged) */
     .stats-grid-2 {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -55,39 +455,46 @@
       margin-bottom: 0;
     }
 
-    /* Mobile: 2 columns for all rows */
     @media (max-width: 768px) {
       .stats-grid-4,
       .stats-grid-2 {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
       }
-      .stat-number-lg { font-size: 2rem; }
-      .stat-card { padding: 1rem; }
+      .stat-number-lg { font-size: 1.9rem; }
+      .stat-card { padding: 1rem; border-radius: 16px; }
     }
     @media (max-width: 480px) {
-      .stat-number-lg { font-size: 1.6rem; }
-      .stat-card { padding: 0.75rem; }
+      .stat-number-lg { font-size: 1.5rem; }
+      .stat-card { padding: 0.85rem; }
     }
 
     /* Expense / Income sections */
     .expense-income-section {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2rem;
+      gap: 1.75rem;
       margin-top: 2rem;
     }
     @media (max-width: 768px) {
       .expense-income-section { grid-template-columns: 1fr; }
     }
-    .expense-card, .income-card {
-      background: white;
+    .expense-card,
+    .income-card {
+      background: var(--ios-bg-elevated);
       padding: 1.5rem;
-      border-radius: var(--r-lg);
-      border: 1px solid var(--card-border);
+      border-radius: var(--ios-radius-lg);
+      border: none;
+      box-shadow: var(--ios-shadow);
     }
-    .expense-card h3, .income-card h3 {
+    .expense-card h3,
+    .income-card h3 {
       margin-top: 0;
+      font-family: var(--ios-font-display);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
     }
     .form-row {
       display: flex;
@@ -99,22 +506,6 @@
       flex: 1;
       min-width: 150px;
       margin-bottom: 0.5rem;
-    }
-    .form-group label {
-      display: block;
-      margin-bottom: 0.3rem;
-      font-weight: 600;
-      font-size: 0.85rem;
-    }
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-      width: 100%;
-      padding: 0.6rem;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      font-family: inherit;
     }
     .form-group textarea {
       resize: vertical;
@@ -129,20 +520,25 @@
     }
     .income-expense-history-table th,
     .income-expense-history-table td {
-      border: 1px solid #e2e8f0;
-      padding: 0.5rem;
+      border: 1px solid var(--ios-separator);
+      padding: 0.6rem 0.7rem;
       text-align: left;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
     }
     .income-expense-history-table th {
-      background: #f8fafc;
+      background: rgba(120, 120, 128, 0.06);
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     .income-expense-history-table tfoot td {
-      font-weight: 600;
-      background: #f1f5f9;
+      font-weight: 700;
+      background: var(--ios-fill-2);
     }
 
-    /* New: Two-column layout for income/expense history */
+    /* Two-column income/expense layout */
     .income-expense-tables {
       display: flex;
       gap: 1.5rem;
@@ -157,100 +553,250 @@
     .expense-table-container h5 {
       margin: 0 0 0.5rem 0;
       font-size: 0.95rem;
+      font-weight: 700;
+      font-family: var(--ios-font-display);
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
     }
 
     @media (max-width: 600px) {
-      .income-expense-tables {
-        flex-direction: column;
-      }
-      .income-expense-history-table {
-        font-size: 0.8rem;
-      }
+      .income-expense-tables { flex-direction: column; }
+      .income-expense-history-table { font-size: 0.8rem; }
       .income-expense-history-table th,
-      .income-expense-history-table td {
-        padding: 0.4rem;
-      }
+      .income-expense-history-table td { padding: 0.45rem; }
     }
 
-    /* All other existing styles preserved */
+    /* Student detail */
     .student-detail-container { display: flex; gap: 2rem; flex-wrap: wrap; }
     .student-detail-info { flex: 0 0 auto; min-width: 180px; }
     .student-detail-history { flex: 1; min-width: 200px; }
     @media (max-width: 600px) {
       .student-detail-container { flex-direction: column; gap: 1.5rem; }
-      .student-detail-info, .student-detail-history { flex: 1 1 100%; }
+      .student-detail-info,
+      .student-detail-history { flex: 1 1 100%; }
     }
-    .finance-controls { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; background: white; padding: 1rem; border-radius: var(--r-lg); border: 1px solid var(--card-border); }
-    .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid #f1f5f9; gap: 0.5rem; flex-wrap: wrap; }
+
+    /* Finance controls bar */
+    .finance-controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      background: var(--ios-bg-elevated);
+      padding: 18px 20px;
+      border-radius: var(--ios-radius-lg);
+      border: none;
+      box-shadow: var(--ios-shadow);
+      align-items: flex-end;
+    }
+    .finance-controls .form-group { margin-bottom: 0; min-width: 140px; flex: 1; }
+
+    /* Detail rows */
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--ios-separator);
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+    }
     .detail-row:last-child { border-bottom: none; }
     .detail-row .payment-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
-    .status-badge.partial { background: var(--warning-bg); color: #92400e; }
-    .status-badge.paid { background: var(--success-bg); color: var(--success-text); }
-    .status-badge.unpaid { background: var(--danger-bg); color: var(--danger-text); }
-    .status-badge.not-set { background: #f1f5f9; color: #64748b; }
+
+    /* Status badges */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .status-badge.partial  { background: rgba(255, 149, 0, 0.14); color: #92400E; }
+    .status-badge.paid     { background: rgba(52, 199, 89, 0.14);  color: #1B7F3A; }
+    .status-badge.unpaid   { background: rgba(255, 59, 48, 0.12);  color: #B3261E; }
+    .status-badge.not-set  { background: var(--ios-fill-2); color: var(--ios-label-secondary); }
+
     .payment-list { max-height: 200px; overflow-y: auto; }
     .filter-dropdown { display: inline-flex; align-items: center; gap: 0.5rem; }
-    .filter-dropdown select { padding: 0.4rem 0.8rem; border-radius: var(--r-sm); border: 1px solid #e2e8f0; background: white; }
-    .table-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-    .btn-sm { padding: 0.2rem 0.6rem; font-size: 0.75rem; }
-    .btn-edit-payment { background: none; border: none; color: var(--primary); cursor: pointer; padding: 0 0.2rem; font-size: 0.9rem; }
-    .btn-edit-payment:hover { color: var(--primary-dark); }
-    .bulk-payment-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
-    .bulk-payment-row input, .bulk-payment-row select { flex: 1; min-width: 80px; }
-    .bulk-payment-row .btn-remove-row { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 1.1rem; }
-    .bulk-payment-row .btn-remove-row:hover { color: var(--danger-dark); }
-    .bulk-payment-row input[type="date"] { max-width: 150px; }
-    .bulk-payment-row input[type="number"] { max-width: 130px; }
-    .history-section { margin-top: 2.5rem; padding: 1.5rem; background: white; border-radius: var(--r-lg); border: 1px solid var(--card-border); }
-    .history-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.5rem; }
-    .history-controls .form-group { margin-bottom: 0; }
-    .history-table-container { overflow-x: auto; }
-    .migration-section { margin-top: 2rem; padding: 1.5rem; background: #f8fafc; border-radius: var(--r-lg); border: 1px solid var(--card-border); }
-    .subscription-badge { font-weight: 700; font-size: 0.78rem; padding: 4px 12px; border-radius: 999px; background: #f1f5f9; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e2e8f0; white-space: nowrap; }
-    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
-    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
-    .academic-badge { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; padding: 5px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 10px rgba(79,70,229,.25); letter-spacing: .02em; }
-    .academic-badge .override-badge { background: #f59e0b; color: #000; padding: 2px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 800; }
-    .school-address { font-size: 0.74rem; color: #64748b; margin-top: 3px; }
-    .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: nowrap; }
-    .school-header-left { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1; }
-    .school-header-left .school-logo { position: relative; width: 52px; height: 52px; flex-shrink: 0; border-radius: 50%; overflow: hidden; background: #e0e7ff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-    .school-header-left .school-logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
-    .school-header-left .school-logo .camera-icon { position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: background 0.2s; cursor: pointer; border: 2px solid #fff; }
-    .school-header-left .school-logo .camera-icon:hover { background: rgba(0,0,0,0.8); }
-    @media (max-width: 768px) {
-      .header { flex-wrap: nowrap; gap: 8px; }
-      .header-right { flex-shrink: 0; margin-left: auto; }
-      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 8px; }
-      .school-name { flex: 1 1 auto; min-width: 0; }
-      .school-name h1#schoolName { font-size: 0.95rem; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; white-space: normal; overflow-wrap: break-word; word-break: break-word; margin: 0; }
-      .school-address { font-size: 0.7rem; line-height: 1.2; white-space: normal; overflow-wrap: break-word; word-break: break-word; }
-      .school-header-left .school-logo .camera-icon { display: none !important; }
-      .school-header-left .school-logo { width: 44px !important; height: 44px !important; touch-action: manipulation; }
-      .school-header-left .school-logo img { pointer-events: none; }
-      .header-right .subscription-badge { display: none !important; }
+    .filter-dropdown label { font-weight: 600; font-size: 0.85rem; color: var(--ios-label-secondary); }
+    .filter-dropdown select {
+      padding: 10px 14px;
+      border-radius: var(--ios-radius);
+      border: 1px solid transparent;
+      background: var(--ios-fill-2);
+      font-family: inherit;
+      font-size: 0.88rem;
+      color: var(--ios-label);
     }
-    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
-    .toggle-container { display: flex; align-items: center; gap: 10px; }
-    .toggle-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+    .filter-dropdown select:focus {
+      outline: none;
+      background: #fff;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
+    .table-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+    /* Small buttons */
+    .btn-sm {
+      padding: 6px 14px !important;
+      font-size: 0.76rem !important;
+      gap: 5px !important;
+    }
+
+    /* Icon-only edit button */
+    .btn-edit-payment {
+      background: none;
+      border: none;
+      color: var(--ios-blue);
+      cursor: pointer;
+      padding: 4px 8px;
+      font-size: 0.95rem;
+      border-radius: 8px;
+      transition: background 0.15s ease;
+    }
+    .btn-edit-payment:hover  { background: var(--ios-fill-2); }
+    .btn-edit-payment:active { transform: scale(0.92); }
+
+    /* Bulk payment rows */
+    .bulk-payment-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.6rem;
+      padding: 10px;
+      background: var(--ios-fill-2);
+      border-radius: var(--ios-radius);
+    }
+    .bulk-payment-row input,
+    .bulk-payment-row select { flex: 1; min-width: 80px; }
+    .bulk-payment-row .btn-remove-row {
+      background: none;
+      border: none;
+      color: var(--ios-red);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 4px 8px;
+      border-radius: 8px;
+      transition: background 0.15s ease;
+    }
+    .bulk-payment-row .btn-remove-row:hover  { background: rgba(255, 59, 48, 0.08); }
+    .bulk-payment-row .btn-remove-row:active { transform: scale(0.92); }
+    .bulk-payment-row input[type="date"]   { max-width: 150px; }
+    .bulk-payment-row input[type="number"] { max-width: 130px; }
+
+    /* History + migration sections */
+    .history-section {
+      margin-top: 2.5rem;
+      padding: 1.5rem;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      border: none;
+      box-shadow: var(--ios-shadow);
+    }
+    .history-section h3 {
+      font-family: var(--ios-font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+      margin: 0 0 1rem;
+    }
+    .history-controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1.5rem;
+    }
+    .history-controls .form-group { margin-bottom: 0; min-width: 150px; flex: 1; }
+    .history-table-container {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+      border-radius: var(--ios-radius);
+    }
+
+    .migration-section {
+      margin-top: 2rem;
+      padding: 1.5rem;
+      background: var(--ios-fill-2);
+      border-radius: var(--ios-radius-lg);
+      border: none;
+    }
+    .migration-section h3 {
+      font-family: var(--ios-font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+      margin: 0 0 1rem;
+    }
+    .migration-section h4 {
+      font-family: var(--ios-font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+      margin: 0 0 0.6rem;
+    }
+
+    /* iOS toggle switch */
+    .toggle-container { display: flex; align-items: center; gap: 12px; }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 51px;
+      height: 31px;
+      flex-shrink: 0;
+    }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 34px; }
-    .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
-    input:checked + .toggle-slider { background-color: #3b82f6; }
-    input:checked + .toggle-slider:before { transform: translateX(24px); }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--ios-bg-secondary);
+      transition: 0.25s var(--ios-smooth);
+      border-radius: 999px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 27px;
+      width: 27px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: 0.25s var(--ios-spring);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+    input:checked + .toggle-slider { background-color: var(--ios-green); }
+    input:checked + .toggle-slider:before { transform: translateX(20px); }
+
+    /* =========================================================
+       ▼▼▼ PRINT STYLES — VERBATIM ▼▼▼
+       ========================================================= */
     @media print {
       .no-print { display: none !important; }
-      .history-section { border: none; box-shadow: none; padding: 0; }
+      .history-section { border: none; box-shadow: none; padding: 0; background: transparent; }
       .history-table-container { overflow: visible; }
       .history-table { font-size: 10px; }
       .history-table th, .history-table td { padding: 4px 6px; }
       .history-table .btn-edit-summary { display: none !important; }
       .stats-grid { display: flex; justify-content: space-around; }
-      .stat-card { flex: 1; padding: 0.5rem; }
+      .stat-card { flex: 1; padding: 0.5rem; box-shadow: none; }
       .stat-number-lg { font-size: 1.8rem; }
       .income-expense-history-table { font-size: 9px; }
       .income-expense-tables { flex-direction: column; }
     }
+    /* =========================================================
+       ▲▲▲ END PRINT STYLES ▲▲▲
+       ========================================================= */
   </style>
 </head>
 <body>
@@ -338,14 +884,13 @@
         <button id="recalcAllGatesBtn" class="btn-secondary btn-sm">
           <i class="fa-solid fa-rotate"></i> Recalculate All Now
         </button>
-        <span style="font-size:0.7rem; color:var(--text-500);">
+        <span style="font-size:0.7rem; color:var(--ios-label-secondary);">
           Fee status updates automatically after payments. Use this if a student's report access looks out of date — for example, right after a new term starts.
         </span>
       </div>
 
       <!-- Summary Cards -->
       <div class="summary-cards-wrapper">
-        <!-- First row: 4 cards (Expected, Paid, Arrears, Brought Forward) -->
         <div class="stats-grid-4">
           <div class="stat-card">
             <div class="stat-number stat-number-lg" id="totalFeesExpectedTerm">₦0</div>
@@ -365,7 +910,6 @@
           </div>
         </div>
 
-        <!-- Second row: 3 cards (Other Income, Expenses, Gross Balance) -->
         <div class="stats-grid-2">
           <div class="stat-card">
             <div class="stat-number stat-number-lg" id="otherIncomeTerm">₦0</div>
@@ -378,14 +922,13 @@
           <div class="stat-card">
             <div class="stat-number stat-number-lg" id="grossBalanceTerm">₦0</div>
             <div class="stat-label">Gross Balance (This Term)</div>
-            <small style="display:block; font-size:0.7rem; color:#64748b;" id="grossIncomeSubtext">Gross Income: ₦0</small>
+            <small style="display:block; font-size:0.7rem; color:var(--ios-label-secondary);" id="grossIncomeSubtext">Gross Income: ₦0</small>
           </div>
         </div>
       </div>
 
       <!-- Expense and Other Income Sections -->
       <div class="expense-income-section">
-        <!-- Expenses -->
         <div class="expense-card">
           <h3><i class="fa-solid fa-file-invoice-dollar"></i> Expenses</h3>
           <form id="expenseForm">
@@ -421,7 +964,6 @@
           </form>
         </div>
 
-        <!-- Other Income -->
         <div class="income-card">
           <h3><i class="fa-solid fa-sack-dollar"></i> Other Income</h3>
           <form id="incomeForm">
@@ -485,7 +1027,7 @@
         <button id="bulkSetClassFeeBtn" class="btn-primary"><i class="fa-solid fa-layer-group"></i> Set Fee for Class</button>
       </div>
 
-      <!-- Class Fee Table (with new Arrears column) -->
+      <!-- Class Fee Table -->
       <div class="table-container" id="classFeeTableContainer">
         <table class="data-table" id="classFeeTable">
           <thead>
@@ -506,8 +1048,8 @@
       </div>
 
       <!-- Student Fee Detail -->
-      <div style="margin-top:2rem; background:white; padding:1.5rem; border-radius:var(--r-lg); border:1px solid var(--card-border);">
-        <h3>Student Fee Detail</h3>
+      <div style="margin-top:2rem; background:var(--ios-bg-elevated); padding:1.5rem; border-radius:var(--ios-radius-lg); box-shadow:var(--ios-shadow);">
+        <h3 style="font-family:var(--ios-font-display);font-weight:700;letter-spacing:-0.02em;">Student Fee Detail</h3>
         <div class="form-row">
           <div class="form-group"><label>Student</label><select id="studentLookupSelect"><option value="">Select Student</option></select></div>
           <div class="form-group"><label>Term</label><select id="studentLookupTerm"><option value="First Term">First Term</option><option value="Second Term">Second Term</option><option value="Third Term">Third Term</option></select></div>
@@ -533,7 +1075,6 @@
           <button id="downloadHistoryPdfBtn" class="btn-secondary no-print"><i class="fa-solid fa-file-pdf"></i> Download PDF</button>
         </div>
 
-        <!-- Student Fee History Table (unchanged) -->
         <div class="history-table-container">
           <table class="data-table history-table" id="historyTable">
             <thead><tr><th>Student</th><th>Total Fee</th><th>Total Paid</th><th>Arrears</th></tr></thead>
@@ -541,9 +1082,8 @@
           </table>
         </div>
 
-        <!-- New: Income/Expense tables in history -->
         <div style="margin-top:2rem;">
-          <h4>Other Income & Expenses (Selected Session)</h4>
+          <h4 style="font-family:var(--ios-font-display);font-weight:700;letter-spacing:-0.02em;">Other Income &amp; Expenses (Selected Session)</h4>
           <div class="income-expense-tables">
             <div class="income-table-container">
               <h5>Other Income</h5>
@@ -583,13 +1123,13 @@
       <!-- Migration Tools -->
       <div class="migration-section">
         <h3>📥 Migrate Existing Records</h3>
-        <p style="color:var(--text-500);font-size:0.9rem;">
+        <p style="color:var(--ios-label-secondary);font-size:0.9rem;">
           For schools moving from paper records. Choose one method below.
         </p>
 
         <div style="margin-bottom:2rem;">
           <h4>Option A — Opening Balance (fast)</h4>
-          <p style="font-size:0.85rem;color:var(--text-500);">
+          <p style="font-size:0.85rem;color:var(--ios-label-secondary);">
             Set what a student owes as of today, without re-entering every past payment.
             Tracking continues normally from here forward.
           </p>
@@ -603,9 +1143,9 @@
 
         <div>
           <h4>Option B — Bulk CSV Import</h4>
-          <p style="font-size:0.85rem;color:var(--text-500);">
+          <p style="font-size:0.85rem;color:var(--ios-label-secondary);">
             For schools with clean digital records. Columns: studentId, term, session, amount, date, method (optional).
-            <a href="#" id="downloadCsvTemplateLink">Download template</a>
+            <a href="#" id="downloadCsvTemplateLink" style="color:var(--ios-blue);font-weight:600;">Download template</a>
           </p>
           <input type="file" id="csvImportFile" accept=".csv" />
           <button id="importCsvBtn" class="btn-primary">Preview &amp; Import</button>
@@ -620,7 +1160,7 @@
   </main>
 </div>
 
-<!-- Modals (unchanged) -->
+<!-- Modals -->
 <div id="setFeeModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -654,7 +1194,7 @@
       <div class="form-group">
         <label for="paymentDate">Payment Date</label>
         <input type="date" id="paymentDate" required />
-        <small style="display:block; margin-top:4px;" id="paymentTermDisplay">Term: — | Session: —</small>
+        <small style="display:block; margin-top:4px; color:var(--ios-label-secondary);" id="paymentTermDisplay">Term: — | Session: —</small>
       </div>
       <div class="form-group">
         <label for="paymentMethod">Method</label>
@@ -683,7 +1223,7 @@
       <h2><i class="fa-solid fa-list"></i> Bulk Payments</h2>
       <button class="close-modal" data-modal="bulkPaymentModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
-    <div style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--text-500);">
+    <div style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--ios-label-secondary);">
       Enter multiple payments for this student. Each payment's term/session will be auto‑detected from its date.
     </div>
     <form id="bulkPaymentForm">
@@ -708,7 +1248,7 @@
     <form id="bulkSetClassFeeForm">
       <div class="form-group"><label>Class</label><input type="text" id="bulkClassFeeClassName" disabled /></div>
       <div class="form-group"><label>Fee Amount (₦)</label><input type="number" id="bulkClassFeeAmount" required min="0" step="100" /></div>
-      <small style="display:block;margin-bottom:0.5rem;color:var(--text-500);">
+      <small style="display:block;margin-bottom:0.5rem;color:var(--ios-label-secondary);">
         This sets the fee for every active student currently in this class for the selected term/session.
         Students who already have a different fee amount set will be overwritten — check the class table first if you're unsure.
       </small>
@@ -803,7 +1343,6 @@ subscribeToCalendar((state) => {
       console.log('Service Worker unregistration failed: ', err);
     });
 
-    // Also delete all caches just in case.
     if (window.caches) {
       caches.keys().then(function(cacheNames) {
         cacheNames.forEach(function(cacheName) {
