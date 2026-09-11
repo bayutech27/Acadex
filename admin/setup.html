@@ -23,6 +23,7 @@
       --ios-pink:      #FF2D55;
       --ios-purple:    #AF52DE;
       --ios-red:       #FF3B30;
+      --ios-red-600:   #D42A22;
       --ios-teal:      #5AC8FA;
       --ios-yellow:    #FFCC00;
 
@@ -528,15 +529,14 @@
 
     /* =========================================================
        ▓▓ COMPACT ACTION BUTTONS in Subjects/Classes lists ▓▓
-       Targets Edit / Delete (and any other action) rendered by
-       JS inside #subjectsList and #classesList so they sit as
-       sleek iOS chips rather than full-size pills.
+       Size unchanged — only the text/icon color is now white
+       so labels are perfectly legible on the solid backgrounds.
        ========================================================= */
     #subjectsList button,
     #classesList button,
     #subjectsList .table-responsive-wrapper button,
     #classesList .table-responsive-wrapper button {
-      /* Geometry — compact but still a comfortable tap target */
+      /* Geometry — unchanged, compact but comfortable */
       min-height: 30px !important;
       height: 30px !important;
       padding: 0 12px !important;
@@ -577,33 +577,50 @@
       margin-left: 6px !important;
     }
 
-    /* Specific intents inside the lists */
+    /* ---------- EDIT buttons — iOS blue bg, WHITE text/icon ---------- */
     #subjectsList .btn-secondary,
     #classesList .btn-secondary,
     #subjectsList .btn-edit,
     #classesList .btn-edit {
-      background-color: var(--ios-fill) !important;
-      color: var(--ios-blue) !important;
+      background-color: var(--ios-blue) !important;
+      color: #ffffff !important;
+      border: none !important;
+    }
+    #subjectsList .btn-secondary i,
+    #classesList .btn-secondary i,
+    #subjectsList .btn-edit i,
+    #classesList .btn-edit i {
+      color: #ffffff !important;
     }
     #subjectsList .btn-secondary:hover,
     #classesList .btn-secondary:hover,
     #subjectsList .btn-edit:hover,
     #classesList .btn-edit:hover {
-      background-color: var(--ios-fill-2) !important;
+      background-color: var(--ios-blue-600) !important;
+      color: #ffffff !important;
     }
 
+    /* ---------- DELETE buttons — iOS red bg, WHITE text/icon ---------- */
     #subjectsList .btn-danger,
     #classesList .btn-danger,
     #subjectsList .btn-delete,
     #classesList .btn-delete {
-      background-color: rgba(255, 59, 48, 0.12) !important;
-      color: var(--ios-red) !important;
+      background-color: var(--ios-red) !important;
+      color: #ffffff !important;
+      border: none !important;
+    }
+    #subjectsList .btn-danger i,
+    #classesList .btn-danger i,
+    #subjectsList .btn-delete i,
+    #classesList .btn-delete i {
+      color: #ffffff !important;
     }
     #subjectsList .btn-danger:hover,
     #classesList .btn-danger:hover,
     #subjectsList .btn-delete:hover,
     #classesList .btn-delete:hover {
-      background-color: rgba(255, 59, 48, 0.20) !important;
+      background-color: var(--ios-red-600) !important;
+      color: #ffffff !important;
     }
 
     /* Press feedback */
@@ -651,10 +668,12 @@
         height: 32px !important;
         padding: 0 11px !important;
         font-size: 0.72rem !important;
+        color: #ffffff !important;
       }
       #subjectsList button i,
       #classesList button i {
         font-size: 0.7rem !important;
+        color: #ffffff !important;
       }
       #subjectsList button + button,
       #classesList button + button {
