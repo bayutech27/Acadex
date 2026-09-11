@@ -3,6 +3,9 @@
 // FIX 5: Activation sets status=active, locked=false, and a real future endDate — nothing else reverts this.
 // FIX 9: endDate is now always the end of the current term from the academic calendar.
 // NEW: School names are clickable and open a detail modal with school information.
+// UPDATED: `plan` field is now kept in lock-step with `status` (matches plan.js):
+//            activate → status='active'  + plan='premium'
+//            suspend  → status='expired' + plan='freemium'
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { db, auth } from './firebase-config.js';
@@ -19,6 +22,10 @@ let schoolsData = [];
 let calendarUnsubscribe = null;
 let isLoading = false;
 let loadTimeout = null;
+
+// Plan values mirror those used in plan.js
+const PLAN_FOR_ACTIVE  = 'premium';
+const PLAN_FOR_EXPIRED = 'freemium';
 
 // Kept for display in the table (expiry column) — NOT used for activation or expiry decisions.
 function getTermEndDateFromSessionAndTerm(session, term) {
@@ -220,7 +227,7 @@ function renderTable(schools) {
         <td>${escapeHtml(s.adminEmail)}</td>
         <td>${phoneDisplay}</td>
         <td><span class="status-badge status-${statusClass}">${status}</span></td>
-        <td>${sub.plan || 'basic'}</td>
+        <td>${sub.plan || PLAN_FOR_EXPIRED}</td>
         <td>${s.totalStudents || 0}</td>
         <td>${s.activeStudents || 0}</td>
         <td>${s.lockedCount || 0}</td>
@@ -282,7 +289,7 @@ async function openSchoolDetailsModal(schoolId) {
     <div class="detail-row"><span class="detail-label">Admin Email:</span><span class="detail-value">${escapeHtml(school.adminEmail)}</span></div>
     <div class="detail-row"><span class="detail-label">Phone:</span><span class="detail-value">${escapeHtml(school.phone || '—')}</span></div>
     <div class="detail-row"><span class="detail-label">Status:</span><span class="detail-value">${escapeHtml(status)}</span></div>
-    <div class="detail-row"><span class="detail-label">Plan:</span><span class="detail-value">${escapeHtml(sub.plan || 'basic')}</span></div>
+    <div class="detail-row"><span class="detail-label">Plan:</span><span class="detail-value">${escapeHtml(sub.plan || PLAN_FOR_EXPIRED)}</span></div>
     <div class="detail-row"><span class="detail-label">Total Students:</span><span class="detail-value">${school.totalStudents || 0}</span></div>
     <div class="detail-row"><span class="detail-label">Active Students:</span><span class="detail-value">${school.activeStudents || 0}</span></div>
     <div class="detail-row"><span class="detail-label">Pending Extra:</span><span class="detail-value">${school.lockedCount || 0}</span></div>
@@ -296,6 +303,9 @@ async function openSchoolDetailsModal(schoolId) {
 }
 
 // FIX 4 & 5 & 9: Activation now uses the current term's end date from the academic calendar.
+// UPDATED: `plan` is now written alongside `status` to match plan.js:
+//            activate → plan = 'premium'
+//            suspend  → plan = 'freemium'
 async function handleToggle(e) {
   const btn = e.currentTarget;
   const schoolId = btn.dataset.id;
@@ -313,14 +323,17 @@ async function handleToggle(e) {
     }
 
     if (currentStatus === 'active') {
+      // Suspend → expired, freemium
       await updateDoc(subRef, {
         status: 'expired',
         locked: true,
+        plan: PLAN_FOR_EXPIRED,
         lastUpdated: new Date(),
         autoExpired: false
       });
       toast.success('School suspended successfully.');
     } else {
+      // Activate → active, premium
       const currentTerm = getCurrentTerm();
       const currentSession = getCurrentSession();
       const termDates = getTermDates();
@@ -329,6 +342,7 @@ async function handleToggle(e) {
       const updateData = {
         status: 'active',
         locked: false,
+        plan: PLAN_FOR_ACTIVE,
         term: currentTerm,
         session: currentSession,
         endDate: termEndDate,
