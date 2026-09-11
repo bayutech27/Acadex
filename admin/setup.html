@@ -526,7 +526,93 @@
       letter-spacing: 0.05em;
     }
 
-    /* Mobile: stack columns, full-width buttons, smaller table wrapper */
+    /* =========================================================
+       ▓▓ COMPACT ACTION BUTTONS in Subjects/Classes lists ▓▓
+       Targets Edit / Delete (and any other action) rendered by
+       JS inside #subjectsList and #classesList so they sit as
+       sleek iOS chips rather than full-size pills.
+       ========================================================= */
+    #subjectsList button,
+    #classesList button,
+    #subjectsList .table-responsive-wrapper button,
+    #classesList .table-responsive-wrapper button {
+      /* Geometry — compact but still a comfortable tap target */
+      min-height: 30px !important;
+      height: 30px !important;
+      padding: 0 12px !important;
+      border-radius: 999px !important;
+
+      /* Typography — small but readable, no wrapping */
+      font-family: inherit !important;
+      font-size: 0.75rem !important;
+      font-weight: 600 !important;
+      line-height: 1 !important;
+      white-space: nowrap !important;
+      letter-spacing: -0.005em;
+
+      /* Layout — icon + label perfectly aligned */
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 4px !important;
+
+      /* Reset shadow to keep them visually light inside tables */
+      box-shadow: none !important;
+      transition: transform 0.15s var(--ios-smooth),
+                  background-color 0.2s ease !important;
+    }
+
+    /* Tighten the icon inside the button */
+    #subjectsList button i,
+    #classesList button i,
+    #subjectsList button .fa,
+    #classesList button .fa {
+      font-size: 0.72rem !important;
+      line-height: 1 !important;
+    }
+
+    /* Give adjacent buttons a small gap */
+    #subjectsList button + button,
+    #classesList button + button {
+      margin-left: 6px !important;
+    }
+
+    /* Specific intents inside the lists */
+    #subjectsList .btn-secondary,
+    #classesList .btn-secondary,
+    #subjectsList .btn-edit,
+    #classesList .btn-edit {
+      background-color: var(--ios-fill) !important;
+      color: var(--ios-blue) !important;
+    }
+    #subjectsList .btn-secondary:hover,
+    #classesList .btn-secondary:hover,
+    #subjectsList .btn-edit:hover,
+    #classesList .btn-edit:hover {
+      background-color: var(--ios-fill-2) !important;
+    }
+
+    #subjectsList .btn-danger,
+    #classesList .btn-danger,
+    #subjectsList .btn-delete,
+    #classesList .btn-delete {
+      background-color: rgba(255, 59, 48, 0.12) !important;
+      color: var(--ios-red) !important;
+    }
+    #subjectsList .btn-danger:hover,
+    #classesList .btn-danger:hover,
+    #subjectsList .btn-delete:hover,
+    #classesList .btn-delete:hover {
+      background-color: rgba(255, 59, 48, 0.20) !important;
+    }
+
+    /* Press feedback */
+    #subjectsList button:active,
+    #classesList button:active {
+      transform: scale(0.94) !important;
+    }
+
+    /* Mobile: still compact, still a good tap target, tighter gap */
     @media (max-width: 768px) {
       .main-content { padding: 0 12px; }
       .two-columns { gap: 20px; }
@@ -548,6 +634,32 @@
         white-space: normal;
       }
       .table-responsive-wrapper { max-height: 50vh; }
+
+      /* Override the full-width rule for action buttons inside lists —
+         we still want them compact side-by-side on mobile. */
+      #subjectsList button,
+      #classesList button,
+      #subjectsList button.btn-primary,
+      #classesList button.btn-primary,
+      #subjectsList button.btn-secondary,
+      #classesList button.btn-secondary,
+      #subjectsList button.btn-danger,
+      #classesList button.btn-danger {
+        width: auto !important;
+        margin-top: 0 !important;
+        min-height: 32px !important;
+        height: 32px !important;
+        padding: 0 11px !important;
+        font-size: 0.72rem !important;
+      }
+      #subjectsList button i,
+      #classesList button i {
+        font-size: 0.7rem !important;
+      }
+      #subjectsList button + button,
+      #classesList button + button {
+        margin-left: 5px !important;
+      }
     }
   </style>
 </head>
