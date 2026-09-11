@@ -345,6 +345,7 @@
       letter-spacing: -0.035em;
       margin-bottom: 22px;
       max-width: 900px;
+      text-wrap: balance;
     }
 
     .hero-title .highlight {
@@ -352,6 +353,7 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+      white-space: nowrap; /* keep "Your Phone & Computer" on one line */
     }
 
     .hero-sub {
@@ -983,14 +985,35 @@
       .logo { font-size: 1.25rem; }
       .logo-icon { width: 34px; height: 34px; border-radius: 10px; font-size: 0.95rem; }
 
-      .hero-title { font-size: 2.15rem; }
-
-      .hero-cta {
-        flex-direction: column;
-        align-items: stretch;
+      /* Sized so "Your Phone & Computer" (nowrap) always fits inside the
+         container without overflowing or forcing "Computer" onto a 3rd line. */
+      .hero-title {
+        font-size: 1.9rem;
+        line-height: 1.15;
+        letter-spacing: -0.03em;
       }
 
-      .btn-large { width: 100%; padding: 16px 28px; font-size: 1rem; }
+      /* Hero CTA on mobile — buttons stay inline, auto-width and compact
+         so they don't stretch edge-to-edge, but keep their punch. */
+      .hero-cta {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 36px;
+      }
+      .hero-cta .btn-large {
+        width: auto;
+        flex: 0 0 auto;
+        padding: 14px 22px;
+        font-size: 0.9rem;
+        gap: 8px;
+      }
+
+      /* Final CTA — keep its single button centered, not full-width */
+      .final-cta .hero-cta {
+        justify-content: center;
+      }
 
       .features,
       .how,
@@ -1030,7 +1053,33 @@
         font-size: 0.75rem;
       }
 
-      .hero-title { font-size: 1.85rem; }
+      .hero-title {
+        font-size: 1.6rem;
+        line-height: 1.18;
+      }
+
+      /* Slightly tighter CTA pills on very small phones */
+      .hero-cta { gap: 8px; }
+      .hero-cta .btn-large {
+        padding: 13px 18px;
+        font-size: 0.85rem;
+        gap: 6px;
+      }
+    }
+
+    /* Extra safety for very narrow phones (iPhone SE, older Androids) */
+    @media (max-width: 380px) {
+      .hero-title {
+        font-size: 1.45rem;
+        line-height: 1.2;
+      }
+    }
+
+    @media (max-width: 340px) {
+      .hero-title {
+        font-size: 1.35rem;
+        line-height: 1.22;
+      }
     }
   </style>
 </head>
