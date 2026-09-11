@@ -26,6 +26,9 @@
       --ios-teal:      #5AC8FA;
       --ios-yellow:    #FFCC00;
 
+      --ios-whatsapp:     #25D366;
+      --ios-whatsapp-600: #1DAA54;
+
       --ios-bg:            #F2F2F7;
       --ios-bg-elevated:   #FFFFFF;
       --ios-bg-secondary:  #E5E5EA;
@@ -461,11 +464,132 @@
     }
     .student-name-cell { text-align: left !important; font-weight: 600; }
 
+    /* =========================================================
+       ▓▓ REPORT & BROADSHEET ACTION BUTTONS — CLEAN, iOS-STYLE ▓▓
+       Fix: consistent geometry, correct colors, no clipping,
+       perfect emoji+label alignment, mobile-safe layout.
+       ========================================================= */
     .action-buttons {
-      margin-top: 16px;
+      margin-top: 20px;
       display: flex;
       gap: 12px;
       justify-content: flex-end;
+      flex-wrap: wrap;
+      align-items: center;
+      row-gap: 12px;
+    }
+
+    /* Universal geometry for every action button (Save / Print / WhatsApp / etc.) */
+    .action-buttons > button,
+    #reportActions > button,
+    #broadsheetActions > button {
+      /* Layout */
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 8px !important;
+      white-space: nowrap !important;
+      line-height: 1 !important;
+      min-height: 44px !important;
+      padding: 0 22px !important;
+      /* Typography */
+      font-family: inherit !important;
+      font-size: 0.92rem !important;
+      font-weight: 600 !important;
+      letter-spacing: -0.005em;
+      /* Shape */
+      border: none !important;
+      border-radius: 999px !important;
+      cursor: pointer !important;
+      /* Motion */
+      transition: transform 0.15s var(--ios-smooth),
+                  background-color 0.2s ease,
+                  box-shadow 0.2s ease !important;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Prevent any inner span/emoji from breaking the flex alignment */
+    .action-buttons > button > *,
+    #reportActions > button > *,
+    #broadsheetActions > button > * {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    /* Press feedback */
+    .action-buttons > button:active,
+    #reportActions > button:active,
+    #broadsheetActions > button:active {
+      transform: scale(0.96);
+    }
+
+    /* ---- Save (primary — blue) ---- */
+    #saveReportBtn,
+    #saveBroadsheetBtn,
+    .action-buttons > button.btn-primary {
+      background-color: var(--ios-blue) !important;
+      color: #ffffff !important;
+      box-shadow: 0 2px 10px rgba(0, 122, 255, 0.22) !important;
+    }
+    #saveReportBtn:hover,
+    #saveBroadsheetBtn:hover,
+    .action-buttons > button.btn-primary:hover {
+      background-color: var(--ios-blue-600) !important;
+    }
+
+    /* ---- Print / PDF (secondary — soft grey with blue label) ---- */
+    #printReportBtn,
+    #printBroadsheetBtn,
+    .action-buttons > button.btn-secondary {
+      background-color: var(--ios-fill) !important;
+      color: var(--ios-blue) !important;
+      box-shadow: none !important;
+    }
+    #printReportBtn:hover,
+    #printBroadsheetBtn:hover,
+    .action-buttons > button.btn-secondary:hover {
+      background-color: var(--ios-fill-2) !important;
+    }
+
+    /* ---- Send to WhatsApp (brand green) ---- */
+    #sendWhatsappBtn,
+    #sendToWhatsappBtn,
+    #whatsappBtn,
+    .action-buttons > button.btn-whatsapp,
+    .action-buttons > button[data-action="whatsapp"] {
+      background-color: var(--ios-whatsapp) !important;
+      color: #ffffff !important;
+      box-shadow: 0 2px 10px rgba(37, 211, 102, 0.28) !important;
+    }
+    #sendWhatsappBtn:hover,
+    #sendToWhatsappBtn:hover,
+    #whatsappBtn:hover,
+    .action-buttons > button.btn-whatsapp:hover,
+    .action-buttons > button[data-action="whatsapp"]:hover {
+      background-color: var(--ios-whatsapp-600) !important;
+    }
+
+    /* ---- If any tertiary action appears (e.g., Cancel / Close) ---- */
+    .action-buttons > button.btn-danger {
+      background-color: var(--ios-red) !important;
+      color: #ffffff !important;
+      box-shadow: 0 2px 10px rgba(255, 59, 48, 0.22) !important;
+    }
+
+    /* Mobile: buttons become full-width, evenly stacked */
+    @media (max-width: 768px) {
+      .action-buttons {
+        justify-content: stretch;
+        gap: 10px;
+      }
+      .action-buttons > button,
+      #reportActions > button,
+      #broadsheetActions > button {
+        flex: 1 1 140px;
+        padding: 0 18px !important;
+        font-size: 0.9rem !important;
+      }
     }
 
     /* Report editor layout */
@@ -746,9 +870,15 @@
           <button id="generateBroadsheetBtn" class="btn-primary">📄 Generate Broadsheet</button>
         </div>
         <div id="broadsheetContainer" class="table-responsive-wrapper"></div>
-        <div id="broadsheetActions" style="display:none;">
-          <button id="saveBroadsheetBtn" class="btn-primary">💾 Save Broadsheet</button>
-          <button id="printBroadsheetBtn" class="btn-secondary">🖨️ Print / PDF</button>
+        <div id="broadsheetActions" class="action-buttons" style="display:none;">
+          <button id="saveBroadsheetBtn" class="btn-primary">
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+            <span>Save Broadsheet</span>
+          </button>
+          <button id="printBroadsheetBtn" class="btn-secondary">
+            <i class="fa-solid fa-print" aria-hidden="true"></i>
+            <span>Print / PDF</span>
+          </button>
         </div>
       </div>
 
@@ -771,8 +901,18 @@
                 <p style="text-align:center; color:var(--ios-label-secondary); padding:2rem;">Select a student to edit report</p>
               </div>
               <div id="reportActions" class="action-buttons" style="display: none;">
-                <button id="saveReportBtn" class="btn-primary">💾 Save Report</button>
-                <button id="printReportBtn" class="btn-secondary">🖨️ Print / PDF</button>
+                <button id="saveReportBtn" class="btn-primary">
+                  <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+                  <span>Save Report</span>
+                </button>
+                <button id="printReportBtn" class="btn-secondary">
+                  <i class="fa-solid fa-print" aria-hidden="true"></i>
+                  <span>Print / PDF</span>
+                </button>
+                <button id="sendWhatsappBtn" class="btn-whatsapp" type="button">
+                  <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+                  <span>Send to WhatsApp</span>
+                </button>
               </div>
             </div>
           </div>
