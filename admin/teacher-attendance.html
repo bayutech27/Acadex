@@ -5,61 +5,94 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Teachers Attendance</title>
 
-  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-  <!-- Font Awesome 6 -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-
-  <!-- Global Styles -->
   <link rel="stylesheet" href="../css/styles.css">
 
   <style>
     /* =========================================================
-       TEACHER ATTENDANCE ADMIN – Page styles
+       ▓▓ SHARED iOS DESIGN TOKENS + BASE RULES ▓▓
+       Identical block across admin pages. Copy verbatim.
        ========================================================= */
-    .academic-badge {
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      color: white; padding: 5px 14px; border-radius: 999px;
-      font-size: 0.78rem; font-weight: 700; display: inline-flex;
-      align-items: center; gap: 7px;
-      box-shadow: 0 2px 10px rgba(79,70,229,.25); letter-spacing: .02em;
-    }
-    .academic-badge .override-badge {
-      background: #f59e0b; color: #000; padding: 2px 7px;
-      border-radius: 999px; font-size: .68rem; font-weight: 800;
-    }
-    .school-address { font-size: .74rem; color: #64748b; margin-top: 3px; }
-    .subscription-badge {
-      font-weight: 700; font-size: .78rem; padding: 4px 12px;
-      border-radius: 999px; background: #f1f5f9;
-      display: inline-flex; align-items: center; gap: 5px;
-      border: 1px solid #e2e8f0; white-space: nowrap;
-    }
-    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
-    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    :root {
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-pink:      #FF2D55;
+      --ios-purple:    #AF52DE;
+      --ios-red:       #FF3B30;
+      --ios-teal:      #5AC8FA;
+      --ios-yellow:    #FFCC00;
 
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+      --ios-bg-secondary:  #E5E5EA;
+
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+      --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
+
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+      --ios-fill-2:    rgba(120, 120, 128, 0.08);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
+      --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+    }
+
+    /* -------- Header -------- */
     .header {
-      display: flex; align-items: center;
-      justify-content: space-between; flex-wrap: nowrap;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: nowrap;
     }
     .school-header-left {
-      display: flex; align-items: center;
-      gap: 14px; min-width: 0; flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
     }
     .school-header-left .school-logo {
       position: relative;
-      width: 52px; height: 52px;
+      width: 54px;
+      height: 54px;
       flex-shrink: 0;
       border-radius: 50%;
       overflow: hidden;
-      background: #e0e7ff;
+      background: var(--ios-fill);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      box-shadow: var(--ios-shadow-sm);
     }
     .school-header-left .school-logo img {
       width: 100%;
@@ -70,24 +103,296 @@
     }
     .school-header-left .school-logo .camera-icon {
       position: absolute;
-      bottom: 2px;
-      right: 2px;
-      background: rgba(0,0,0,0.6);
+      bottom: 1px;
+      right: 1px;
+      background: var(--ios-blue);
       color: #fff;
       border-radius: 50%;
-      width: 26px;
-      height: 26px;
+      width: 22px;
+      height: 22px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
-      transition: background 0.2s;
+      font-size: 10px;
+      transition: transform 0.2s var(--ios-spring);
       cursor: pointer;
       border: 2px solid #fff;
     }
     .school-header-left .school-logo .camera-icon:hover {
-      background: rgba(0,0,0,0.8);
+      transform: scale(1.1);
     }
+    .school-address {
+      font-size: 0.74rem;
+      color: var(--ios-label-secondary);
+      margin-top: 3px;
+      letter-spacing: -0.005em;
+    }
+
+    /* -------- Badges -------- */
+    .subscription-badge {
+      font-weight: 600;
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: var(--ios-fill);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      white-space: nowrap;
+      color: var(--ios-label-secondary);
+      letter-spacing: -0.005em;
+    }
+    .subscription-badge.active  { background: rgba(52, 199, 89, 0.14); color: #1B7F3A; }
+    .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
+
+    .academic-badge {
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      letter-spacing: -0.01em;
+      border: 1px solid rgba(0, 122, 255, 0.12);
+    }
+    .academic-badge i { color: var(--ios-blue); }
+    .academic-badge .override-badge {
+      background: var(--ios-orange);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    /* -------- Welcome card -------- */
+    .welcome-card {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 26px 28px;
+      margin-bottom: 22px;
+      box-shadow: var(--ios-shadow);
+      border: none;
+    }
+    .welcome-card h1 {
+      font-family: var(--ios-font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0 0 6px;
+      color: var(--ios-label);
+    }
+    .welcome-card p {
+      color: var(--ios-label-secondary);
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.5;
+      letter-spacing: -0.005em;
+    }
+
+    /* -------- Buttons -------- */
+    .btn-primary,
+    .btn-secondary,
+    .btn-success,
+    .btn-danger,
+    .btn-warning {
+      padding: 11px 22px !important;
+      border-radius: 999px !important;
+      border: none !important;
+      cursor: pointer !important;
+      font-weight: 600 !important;
+      font-family: inherit !important;
+      font-size: 0.88rem !important;
+      letter-spacing: -0.005em;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center;
+      gap: 8px !important;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease, box-shadow 0.2s ease !important;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background-color: var(--ios-blue) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.18);
+    }
+    .btn-primary:hover  { background-color: var(--ios-blue-600) !important; }
+    .btn-secondary {
+      background-color: var(--ios-fill) !important;
+      color: var(--ios-blue) !important;
+    }
+    .btn-secondary:hover { background-color: var(--ios-fill-2) !important; }
+    .btn-success {
+      background-color: var(--ios-green) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(52, 199, 89, 0.18);
+    }
+    .btn-danger {
+      background-color: var(--ios-red) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(255, 59, 48, 0.18);
+    }
+    .btn-warning {
+      background-color: var(--ios-orange) !important;
+      color: #fff !important;
+      box-shadow: 0 2px 8px rgba(255, 149, 0, 0.18);
+    }
+    .btn-primary:active,
+    .btn-secondary:active,
+    .btn-success:active,
+    .btn-danger:active,
+    .btn-warning:active {
+      transform: scale(0.96);
+    }
+
+    /* -------- Table wrapper (scrollable both axes) -------- */
+    .table-container,
+    .table-responsive-wrapper {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      box-shadow: var(--ios-shadow);
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+      border: none;
+    }
+
+    /* -------- Data table -------- */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 600px;
+    }
+    .data-table th {
+      background: rgba(120, 120, 128, 0.06);
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--ios-separator);
+      white-space: nowrap;
+    }
+    .data-table td {
+      padding: 12px 14px;
+      font-size: 0.88rem;
+      color: var(--ios-label);
+      letter-spacing: -0.005em;
+      border-bottom: 1px solid var(--ios-separator);
+      vertical-align: middle;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* -------- Form controls -------- */
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.8rem;
+      letter-spacing: -0.005em;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--ios-fill-2);
+      border: 1px solid transparent;
+      border-radius: var(--ios-radius);
+      font-family: inherit;
+      font-size: 0.9rem;
+      color: var(--ios-label);
+      transition: border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      background: #fff;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
+    /* -------- Modal -------- */
+    .modal-content {
+      border-radius: var(--ios-radius-xl) !important;
+      box-shadow: var(--ios-shadow-xl) !important;
+    }
+    .modal-header h2 {
+      font-family: var(--ios-font-display);
+      font-size: 1.18rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+    }
+    .close-modal {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--ios-fill);
+      color: var(--ios-label-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.15s var(--ios-smooth);
+    }
+    .close-modal:hover  { background: var(--ios-fill-2); }
+    .close-modal:active { transform: scale(0.94); }
+
+    /* -------- Mobile responsive (identical) -------- */
+    @media (max-width: 768px) {
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
+      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 8px; }
+      .school-name { flex: 1 1 auto; min-width: 0; }
+      .school-name h1#schoolName {
+        font-size: 1rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.25;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      .school-header-left .school-logo .camera-icon { display: none !important; }
+      .school-header-left .school-logo {
+        width: 46px !important;
+        height: 46px !important;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img { pointer-events: none; }
+      .header-right .subscription-badge { display: none !important; }
+      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
+      .welcome-card { padding: 22px 20px; border-radius: 20px; }
+      .welcome-card h1 { font-size: 1.35rem; }
+      .modal-content { border-radius: 20px !important; }
+    }
+
+    @media (min-width: 769px) {
+      .hamburger-menu { display: none !important; }
+    }
+
+    /* =========================================================
+       ▓▓ PAGE-SPECIFIC (teacher-attendance) ▓▓
+       ========================================================= */
 
     /* ---- Summary stat cards ---- */
     .attendance-summary {
@@ -97,293 +402,379 @@
       margin-bottom: 24px;
     }
     .summary-card {
-      background: #fff;
-      border-radius: 16px;
-      padding: 20px 16px 16px;
-      box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08);
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      padding: 22px 16px 18px;
+      box-shadow: var(--ios-shadow);
       text-align: center;
-      border: 1px solid rgba(67,97,238,.07);
-      position: relative; overflow: hidden;
-      transition: transform .25s ease, box-shadow .25s ease;
-      animation: fadeSlideUp .4s ease both;
+      border: none;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.3s var(--ios-spring), box-shadow 0.3s var(--ios-smooth);
+      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
     }
-    .summary-card::before {
-      content: ''; position: absolute;
-      top: 0; left: 0; right: 0; height: 4px;
-      border-radius: 16px 16px 0 0;
+    .summary-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--ios-shadow-lg);
     }
-    .summary-card:nth-child(1)::before { background: linear-gradient(90deg, #10b981, #06b6d4); }
-    .summary-card:nth-child(2)::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
-    .summary-card:nth-child(3)::before { background: linear-gradient(90deg, #ef4444, #dc2626); }
-    .summary-card:nth-child(4)::before { background: linear-gradient(90deg, #4361ee, #7c3aed); }
-    .summary-card:hover { transform: translateY(-4px); box-shadow: 0 12px 36px rgba(13,27,42,.12); }
     .summary-icon {
-      width: 46px; height: 46px; border-radius: 12px;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 10px; font-size: 1.2rem;
+      width: 52px;
+      height: 52px;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 10px;
+      font-size: 1.3rem;
+      transition: transform 0.3s var(--ios-spring);
     }
-    .summary-card:nth-child(1) .summary-icon { background: rgba(16,185,129,.1); color: #10b981; }
-    .summary-card:nth-child(2) .summary-icon { background: rgba(245,158,11,.1); color: #d97706; }
-    .summary-card:nth-child(3) .summary-icon { background: rgba(239,68,68,.1);  color: #ef4444; }
-    .summary-card:nth-child(4) .summary-icon { background: rgba(67,97,238,.1);  color: #4361ee; }
-    .summary-number {
-      font-family: 'Outfit', sans-serif; font-size: 2.2rem;
-      font-weight: 800; line-height: 1; letter-spacing: -.04em;
-    }
-    .summary-card:nth-child(1) .summary-number { color: #10b981; }
-    .summary-card:nth-child(2) .summary-number { color: #d97706; }
-    .summary-card:nth-child(3) .summary-number { color: #ef4444; }
-    .summary-card:nth-child(4) .summary-number { color: #4361ee; }
-    .summary-label {
-      color: #64748b; font-size: .72rem; font-weight: 700;
-      text-transform: uppercase; letter-spacing: .06em; margin-top: 4px;
-    }
-    .summary-card:nth-child(1) { animation-delay: .05s; }
-    .summary-card:nth-child(2) { animation-delay: .1s; }
-    .summary-card:nth-child(3) { animation-delay: .15s; }
-    .summary-card:nth-child(4) { animation-delay: .2s; }
+    .summary-card:hover .summary-icon { transform: scale(1.06); }
 
-    /* Part-time summary card */
+    /* iOS system-color tints per card */
+    .summary-card:nth-child(1) .summary-icon { background: rgba(52, 199, 89, 0.12);  color: var(--ios-green);  }
+    .summary-card:nth-child(2) .summary-icon { background: rgba(255, 149, 0, 0.14);  color: var(--ios-orange); }
+    .summary-card:nth-child(3) .summary-icon { background: rgba(255, 59, 48, 0.12);  color: var(--ios-red);    }
+    .summary-card:nth-child(4) .summary-icon { background: rgba(0, 122, 255, 0.12);  color: var(--ios-blue);   }
+
+    .summary-number {
+      font-family: var(--ios-font-display);
+      font-size: 2.2rem;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
+    }
+    .summary-label {
+      color: var(--ios-label-secondary);
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 6px;
+    }
+    .summary-card:nth-child(1) { animation-delay: 0.05s; }
+    .summary-card:nth-child(2) { animation-delay: 0.10s; }
+    .summary-card:nth-child(3) { animation-delay: 0.15s; }
+    .summary-card:nth-child(4) { animation-delay: 0.20s; }
+
+    /* ---- Part-time summary card ---- */
     .part-time-summary-card {
-      background: #fff;
-      border-radius: 16px;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
       padding: 1.2rem 1.5rem;
       margin-bottom: 24px;
-      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
-      border: 1px solid rgba(67,97,238,.07);
-      animation: fadeSlideUp .4s ease .25s both;
+      box-shadow: var(--ios-shadow);
+      border: none;
+      animation: fadeSlideUp 0.5s var(--ios-smooth) 0.25s both;
     }
     .part-time-summary-title {
-      font-family: 'Outfit', sans-serif;
+      font-family: var(--ios-font-display);
       font-size: 1rem;
       font-weight: 700;
-      color: #0d1b2a;
-      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+      margin-bottom: 0.85rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-    .part-time-summary-title i { color: #8b5cf6; }
+    .part-time-summary-title i { color: var(--ios-purple); }
     .part-time-stats-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 1rem;
+      gap: 0.75rem;
     }
     .part-time-stat {
       flex: 1;
       min-width: 100px;
       text-align: center;
-      background: #f8faff;
-      border-radius: 10px;
-      padding: 0.75rem 0.5rem;
+      background: var(--ios-fill-2);
+      border-radius: var(--ios-radius);
+      padding: 0.85rem 0.5rem;
     }
     .part-time-stat .stat-number {
-      font-family: 'Outfit', sans-serif;
+      font-family: var(--ios-font-display);
       font-size: 1.5rem;
-      font-weight: 800;
+      font-weight: 700;
       line-height: 1;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
     }
     .part-time-stat .stat-label {
-      color: #64748b;
-      font-size: 0.7rem;
-      font-weight: 700;
+      color: var(--ios-label-secondary);
+      font-size: 0.68rem;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
       margin-top: 4px;
     }
 
     /* ---- Section cards ---- */
     .section-card {
-      background: #fff; border-radius: 16px; padding: 1.5rem;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      padding: 1.5rem;
       margin-bottom: 1.5rem;
-      box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 6px 22px rgba(13,27,42,.07);
-      border: 1px solid rgba(67,97,238,.07);
-      animation: fadeSlideUp .4s ease both;
+      box-shadow: var(--ios-shadow);
+      border: none;
+      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
     }
     .section-card-header {
-      display: flex; align-items: center; gap: .75rem;
-      margin-bottom: 1.25rem; padding-bottom: .9rem;
-      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.9rem;
+      border-bottom: 1px solid var(--ios-separator);
     }
     .section-card-icon {
-      width: 40px; height: 40px; border-radius: 10px;
-      background: rgba(67,97,238,.1); color: #4361ee;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1rem; flex-shrink: 0;
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: rgba(0, 122, 255, 0.12);
+      color: var(--ios-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.05rem;
+      flex-shrink: 0;
     }
-    .section-card-title { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 700; color: #0d1b2a; }
-    .section-card-sub   { font-size: .78rem; color: #94a3b8; margin-top: 2px; font-weight: 500; }
+    .section-card-title {
+      font-family: var(--ios-font-display);
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--ios-label);
+      letter-spacing: -0.02em;
+    }
+    .section-card-sub {
+      font-size: 0.78rem;
+      color: var(--ios-label-secondary);
+      margin-top: 2px;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+    }
 
     /* ---- Geofence setup ---- */
-    .geofence-form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
-    .geofence-form .form-group { flex: 1; min-width: 160px; margin-bottom: 0; }
-    .geofence-status {
-      display: flex; align-items: center; gap: .5rem;
-      padding: .6rem 1rem; border-radius: 10px;
-      font-size: .82rem; font-weight: 700;
-      margin-top: .75rem;
+    .geofence-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
     }
-    .geofence-status.set    { background: #d1fae5; color: #065f46; }
-    .geofence-status.notset { background: #fef3c7; color: #92400e; }
-    .geofence-status.saving { background: #e0f2fe; color: #0369a1; }
+    .geofence-form .form-group {
+      flex: 1;
+      min-width: 160px;
+      margin-bottom: 0;
+    }
+    .geofence-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
+      border-radius: var(--ios-radius);
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-top: 0.75rem;
+      letter-spacing: -0.005em;
+    }
+    .geofence-status.set    { background: rgba(52, 199, 89, 0.14); color: #1B7F3A; }
+    .geofence-status.notset { background: rgba(255, 149, 0, 0.16); color: #92400E; }
+    .geofence-status.saving { background: rgba(0, 122, 255, 0.12); color: #0055B8; }
 
-    /* ---- Attendance table ---- */
-    .attendance-table-wrapper { overflow-x: auto; border-radius: 12px; border: 1px solid #f1f5f9; }
+    /* ---- Attendance table wrapper ---- */
+    .attendance-table-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: var(--ios-radius);
+      border: 1px solid var(--ios-separator);
+      max-width: 100%;
+    }
     .attendance-table {
-      width: 100%; border-collapse: collapse;
-      font-size: .84rem; background: #fff; min-width: 700px;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+      background: var(--ios-bg-elevated);
+      min-width: 700px;
     }
     .attendance-table th {
-      background: #f8faff; font-weight: 700; font-size: .74rem;
-      color: #475569; text-transform: uppercase; letter-spacing: .05em;
-      padding: .75rem 1rem; text-align: left;
-      border-bottom: 1px solid #f1f5f9; white-space: nowrap;
+      background: rgba(120, 120, 128, 0.06);
+      font-weight: 600;
+      font-size: 0.72rem;
+      color: var(--ios-label-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.85rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--ios-separator);
+      white-space: nowrap;
     }
     .attendance-table td {
-      padding: .75rem 1rem; border-bottom: 1px solid #f8fafc;
-      vertical-align: middle; color: #334155;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--ios-separator);
+      vertical-align: middle;
+      color: var(--ios-label);
+      letter-spacing: -0.005em;
     }
-    .attendance-table tr:hover td { background: #fafbff; }
-    .attendance-table tr:last-child td { border-bottom: none; }
+    .attendance-table tbody tr:hover td { background: rgba(0, 122, 255, 0.03); }
+    .attendance-table tbody tr:last-child td { border-bottom: none; }
 
-    /* Status pill */
+    /* ---- Status pill ---- */
     .status-pill {
-      display: inline-flex; align-items: center; gap: .3rem;
-      padding: .22rem .7rem; border-radius: 999px;
-      font-size: .72rem; font-weight: 800; letter-spacing: .04em;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.28rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
+      white-space: nowrap;
     }
-    .status-present  { background: #d1fae5; color: #065f46; }
-    .status-late     { background: #fef3c7; color: #92400e; }
-    .status-absent   { background: #fee2e2; color: #991b1b; }
-    .status-override { background: #e0f2fe; color: #0369a1; }
-    .status-clockedin { background: rgba(67,97,238,.1); color: #4361ee; }
-    .status-notscheduled { background: #f1f5f9; color: #64748b; }
+    .status-present       { background: rgba(52, 199, 89, 0.14);  color: #1B7F3A; }
+    .status-late          { background: rgba(255, 149, 0, 0.16);  color: #92400E; }
+    .status-absent        { background: rgba(255, 59, 48, 0.12);  color: #B3261E; }
+    .status-override      { background: rgba(0, 122, 255, 0.12);  color: #0055B8; }
+    .status-clockedin     { background: rgba(88, 86, 214, 0.14);  color: #3E3CB8; }
+    .status-notscheduled  { background: var(--ios-fill-2);        color: var(--ios-label-secondary); }
 
-    /* Distance badge */
+    /* ---- Distance badge ---- */
     .dist-badge {
-      background: #f0f4ff; color: #4361ee;
-      padding: .2rem .6rem; border-radius: 6px;
-      font-size: .72rem; font-weight: 700;
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 0.22rem 0.6rem;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.005em;
     }
 
     /* ---- Date filter bar ---- */
     .filter-row {
-      display: flex; gap: .75rem; align-items: center;
-      flex-wrap: wrap; margin-bottom: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
     }
     .filter-row .form-group { margin-bottom: 0; }
 
     /* ---- Override note area ---- */
     .override-note-area {
-      width: 100%; padding: .6rem .9rem;
-      border: 1.5px solid #e2e8f0; border-radius: 10px;
-      font-family: 'Nunito', sans-serif; font-size: .875rem;
-      resize: vertical; min-height: 80px;
-      transition: border-color .18s ease;
+      width: 100%;
+      padding: 0.85rem 1rem;
+      border: 1px solid transparent;
+      background: var(--ios-fill-2);
+      border-radius: var(--ios-radius);
+      font-family: inherit;
+      font-size: 0.9rem;
+      color: var(--ios-label);
+      resize: vertical;
+      min-height: 80px;
+      transition: border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
     }
     .override-note-area:focus {
-      outline: none; border-color: #4361ee;
-      box-shadow: 0 0 0 3.5px rgba(67,97,238,.15);
+      outline: none;
+      background: #fff;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
     }
 
-    /* GPS indicator */
+    /* ---- GPS indicator ---- */
     .gps-indicator {
-      display: inline-flex; align-items: center; gap: .4rem;
-      padding: .3rem .8rem; border-radius: 8px;
-      font-size: .78rem; font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--ios-radius-sm);
+      font-size: 0.78rem;
+      font-weight: 600;
     }
     .gps-pulse { animation: gpsPulse 1.4s infinite; }
     @keyframes gpsPulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: .35; }
+      50%      { opacity: 0.35; }
     }
 
-    /* Part-time schedule table */
+    /* ---- Part-time schedule table ---- */
     .part-time-schedule-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: .84rem;
-      background: #fff;
+      font-size: 0.86rem;
+      background: var(--ios-bg-elevated);
       min-width: 700px;
     }
     .part-time-schedule-table th {
-      background: #f8faff; font-weight: 700; font-size: .74rem;
-      color: #475569; text-transform: uppercase; letter-spacing: .05em;
-      padding: .75rem 1rem; text-align: left;
-      border-bottom: 1px solid #f1f5f9; white-space: nowrap;
+      background: rgba(120, 120, 128, 0.06);
+      font-weight: 600;
+      font-size: 0.72rem;
+      color: var(--ios-label-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.85rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--ios-separator);
+      white-space: nowrap;
     }
     .part-time-schedule-table td {
-      padding: .75rem 1rem; border-bottom: 1px solid #f8fafc;
-      vertical-align: middle; color: #334155;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--ios-separator);
+      vertical-align: middle;
+      color: var(--ios-label);
+      letter-spacing: -0.005em;
     }
-    .part-time-schedule-table tr:hover td { background: #fafbff; }
-    .part-time-schedule-table tr:last-child td { border-bottom: none; }
+    .part-time-schedule-table tbody tr:hover td { background: rgba(0, 122, 255, 0.03); }
+    .part-time-schedule-table tbody tr:last-child td { border-bottom: none; }
     .pt-day-checkbox {
       margin-right: 0.4rem;
+      accent-color: var(--ios-blue);
     }
 
-    /* Mobile header adjustments */
+    /* Compact action buttons inside the attendance and part-time tables
+       (e.g. any Edit/Delete/Override row buttons rendered by JS) */
+    .attendance-table td button,
+    .part-time-schedule-table td button,
+    .attendance-table-wrapper td button {
+      min-height: 30px !important;
+      height: 30px !important;
+      padding: 0 12px !important;
+      border-radius: 999px !important;
+      font-size: 0.74rem !important;
+      font-weight: 600 !important;
+      line-height: 1 !important;
+      white-space: nowrap !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 4px !important;
+      box-shadow: none !important;
+    }
+    .attendance-table td button + button,
+    .part-time-schedule-table td button + button {
+      margin-left: 6px !important;
+    }
+
+    /* Mobile overrides */
     @media (max-width: 768px) {
-      .header {
-        flex-wrap: nowrap;
-        gap: 8px;
-      }
-      .header-right {
-        flex-shrink: 0;
-        margin-left: auto;
-      }
-      .school-header-left {
-        flex: 1 1 auto;
-        min-width: 0;
-        gap: 8px;
-      }
-      .school-name {
-        flex: 1 1 auto;
-        min-width: 0;
-      }
-      .school-name h1#schoolName {
-        font-size: 0.95rem;
-        line-height: 1.3;
-        font-weight: 700;
-        letter-spacing: -0.01em;
-        white-space: normal;
-        overflow-wrap: break-word;
-        word-break: break-word;
-        margin: 0;
-      }
-      .school-address {
-        font-size: 0.7rem;
-        line-height: 1.2;
-        white-space: normal;
-        overflow-wrap: break-word;
-        word-break: break-word;
-      }
-      .school-header-left .school-logo .camera-icon {
-        display: none !important;
-      }
-      .school-header-left .school-logo {
-        width: 44px !important;
-        height: 44px !important;
-        touch-action: manipulation;
-      }
-      .school-header-left .school-logo img {
-        pointer-events: none;
-      }
-      .header-right .subscription-badge {
-        display: none !important;
-      }
-      .attendance-summary { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-      .summary-number { font-size: 1.8rem; }
+      .attendance-summary { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      .summary-number { font-size: 1.85rem; }
+      .summary-icon { width: 44px; height: 44px; border-radius: 12px; font-size: 1.15rem; }
       .part-time-stats-row { flex-direction: column; }
-      .geofence-form { flex-direction: column; }
+      .geofence-form { flex-direction: column; align-items: stretch; }
       .geofence-form .form-group { min-width: unset; }
       .filter-row { flex-direction: column; align-items: stretch; }
+      .filter-row .form-group,
+      .filter-row input,
+      .filter-row button { width: 100%; }
+      .section-card { padding: 1.15rem; border-radius: 16px; }
     }
-    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
 
     @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(18px); }
+      from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
     }
   </style>
@@ -533,7 +924,7 @@
         <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem;align-items:center;">
           <button id="useMyLocationBtn" class="btn-primary"><i class="fa-solid fa-location-arrow"></i> Use My Current Location</button>
           <button id="saveGeofenceBtn" class="btn-success"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
-          <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:#10b981;display:none;"><i class="fa-solid fa-circle-check"></i> Saved!</span>
+          <span id="geofenceSaveMsg" style="font-size:.82rem;font-weight:700;color:var(--ios-green);display:none;"><i class="fa-solid fa-circle-check"></i> Saved!</span>
         </div>
       </div>
 
@@ -589,7 +980,7 @@
       <!-- ======== FULL-TIME ATTENDANCE TABLE ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="fa-solid fa-table-list"></i></div>
+          <div class="section-card-icon" style="background:rgba(52,199,89,.12);color:var(--ios-green);"><i class="fa-solid fa-table-list"></i></div>
           <div>
             <div class="section-card-title">Full-Time Teacher Attendance</div>
             <div class="section-card-sub">Monday–Friday only; weekends excluded</div>
@@ -622,7 +1013,7 @@
             </thead>
             <tbody id="attendanceTableBody">
               <tr>
-                <td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;">
+                <td colspan="8" style="text-align:center;color:var(--ios-label-secondary);padding:2rem;">
                   <i class="fa-solid fa-spinner fa-spin" style="margin-right:.5rem;"></i>
                   Select a date and click Load
                 </td>
@@ -635,7 +1026,7 @@
       <!-- ======== PART-TIME TEACHER SCHEDULE MANAGEMENT ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-calendar-check"></i></div>
+          <div class="section-card-icon" style="background:rgba(175,82,222,.12);color:var(--ios-purple);"><i class="fa-solid fa-calendar-check"></i></div>
           <div>
             <div class="section-card-title">Part-Time Teacher Schedule Management</div>
             <div class="section-card-sub">Assign working days and start time for each part-time teacher</div>
@@ -654,7 +1045,7 @@
             </thead>
             <tbody id="partTimeScheduleBody">
               <tr>
-                <td colspan="4" style="text-align:center;color:#94a3b8;padding:2rem;">
+                <td colspan="4" style="text-align:center;color:var(--ios-label-secondary);padding:2rem;">
                   <i class="fa-solid fa-spinner fa-spin" style="margin-right:.5rem;"></i>
                   Loading…
                 </td>
@@ -667,7 +1058,7 @@
       <!-- ======== PART-TIME ATTENDANCE TABLE ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-user-clock"></i></div>
+          <div class="section-card-icon" style="background:rgba(175,82,222,.12);color:var(--ios-purple);"><i class="fa-solid fa-user-clock"></i></div>
           <div>
             <div class="section-card-title">Part-Time Teacher Attendance</div>
             <div class="section-card-sub">Each part-time teacher is expected only on their assigned lecture days</div>
@@ -689,7 +1080,7 @@
             </thead>
             <tbody id="partTimeAttendanceTableBody">
               <tr>
-                <td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;">
+                <td colspan="7" style="text-align:center;color:var(--ios-label-secondary);padding:2rem;">
                   <i class="fa-solid fa-spinner fa-spin" style="margin-right:.5rem;"></i>
                   Select a date and click Load
                 </td>
@@ -702,7 +1093,7 @@
       <!-- ======== ADMIN OVERRIDE ======== -->
       <div class="section-card">
         <div class="section-card-header">
-          <div class="section-card-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="fa-solid fa-pen-to-square"></i></div>
+          <div class="section-card-icon" style="background:rgba(175,82,222,.12);color:var(--ios-purple);"><i class="fa-solid fa-pen-to-square"></i></div>
           <div>
             <div class="section-card-title">Admin Override</div>
             <div class="section-card-sub">Manually mark a teacher as present for a specific date</div>
@@ -744,7 +1135,7 @@
   </main>
 </div>
 
-<!-- ===================== SCRIPTS ===================== -->
+<!-- ===================== SCRIPTS (unchanged) ===================== -->
 <script type="module">
   import {
     protectAdminPage,
@@ -802,7 +1193,6 @@
       console.log('Service Worker unregistration failed: ', err);
     });
 
-    // Also delete all caches just in case.
     if (window.caches) {
       caches.keys().then(function(cacheNames) {
         cacheNames.forEach(function(cacheName) {
