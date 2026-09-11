@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Admin Dashboard</title>
 
-  <!-- Google Fonts -->
+  <!-- Google Fonts: Inter (SF Pro alternative for non-Apple devices) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- Font Awesome 6 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -19,328 +19,421 @@
 
   <style>
     /* =========================================================
-       ADMIN DASHBOARD – Page‑specific enhancements
+       iOS-STYLE ADMIN DASHBOARD
+       Visual refactor only — structure, IDs & classes untouched.
        ========================================================= */
+
+    :root {
+      /* iOS system colors */
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-pink:      #FF2D55;
+      --ios-purple:    #AF52DE;
+      --ios-red:       #FF3B30;
+      --ios-teal:      #5AC8FA;
+      --ios-yellow:    #FFCC00;
+
+      /* Surfaces */
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+      --ios-bg-secondary:  #E5E5EA;
+
+      /* Text */
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+      --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
+
+      /* Fills / separators */
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+      --ios-fill-2:    rgba(120, 120, 128, 0.08);
+
+      /* Radii */
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      /* Shadows — Apple-subtle */
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
+      --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
+
+      /* Fonts */
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+      /* Motion */
+      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    /* Apply iOS font & smoothing on this page */
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+    }
 
     /* ----- Academic badge ----- */
     .academic-badge {
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      color: white;
-      padding: 5px 14px;
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 6px 14px;
       border-radius: 999px;
       font-size: 0.78rem;
-      font-weight: 700;
+      font-weight: 600;
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      box-shadow: 0 2px 10px rgba(79,70,229,.25);
-      letter-spacing: .02em;
+      letter-spacing: -0.01em;
+      border: 1px solid rgba(0, 122, 255, 0.12);
     }
+    .academic-badge i { color: var(--ios-blue); }
     .academic-badge .override-badge {
-      background: #f59e0b;
-      color: #000;
-      padding: 2px 7px;
+      background: var(--ios-orange);
+      color: #fff;
+      padding: 2px 8px;
       border-radius: 999px;
       font-size: 0.68rem;
-      font-weight: 800;
+      font-weight: 700;
     }
 
     /* ----- School address ----- */
     .school-address {
       font-size: 0.74rem;
-      color: #64748b;
+      color: var(--ios-label-secondary);
       margin-top: 3px;
+      letter-spacing: -0.005em;
     }
 
     /* ----- Subscription badge ----- */
     .subscription-badge {
-      font-weight: 700;
-      font-size: 0.78rem;
-      padding: 4px 12px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      padding: 5px 12px;
       border-radius: 999px;
-      background: #f1f5f9;
+      background: var(--ios-fill);
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      border: 1px solid #e2e8f0;
+      gap: 6px;
+      border: none;
       white-space: nowrap;
+      color: var(--ios-label-secondary);
+      letter-spacing: -0.005em;
     }
-    .subscription-badge.active  { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
-    .subscription-badge.expired { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .subscription-badge.active  { background: rgba(52, 199, 89, 0.14); color: #1B7F3A; }
+    .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
 
-    /* ----- Payment banner (page override) ----- */
+    /* ----- Payment banner — Apple Card feel ----- */
     .payment-banner {
-      background: linear-gradient(135deg, #0d1b2a 0%, #1e3a5f 60%, #1d4ed8 100%);
-      border-radius: 18px;
-      padding: 20px 24px;
-      margin-bottom: 20px;
+      background: linear-gradient(135deg, #1C1C1E 0%, #2C2C2E 50%, #007AFF 140%);
+      border-radius: var(--ios-radius-xl);
+      padding: 24px 26px;
+      margin-bottom: 22px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      color: white;
-      box-shadow: 0 8px 30px rgba(13,27,42,.22);
-      gap: 14px;
+      color: #fff;
+      box-shadow: var(--ios-shadow-lg);
+      gap: 16px;
       position: relative;
       overflow: hidden;
+      isolation: isolate;
     }
     .payment-banner::before {
       content: '';
       position: absolute;
-      top: -50px; right: -50px;
-      width: 180px; height: 180px;
+      top: -80px; right: -80px;
+      width: 260px; height: 260px;
       border-radius: 50%;
-      background: rgba(255,255,255,.04);
+      background: radial-gradient(circle, rgba(0, 122, 255, 0.35), transparent 70%);
+      z-index: -1;
     }
-    .payment-banner-content { flex: 2; min-width: 180px; position: relative; z-index: 1; }
-    .payment-banner h3 { margin: 0 0 6px; font-size: 1.15rem; }
-    .payment-banner p  { margin: 0; opacity: .88; font-size: .875rem; }
-    .payment-buttons   { display: flex; gap: 10px; flex-wrap: wrap; position: relative; z-index: 1; }
+    .payment-banner::after {
+      content: '';
+      position: absolute;
+      bottom: -100px; left: -60px;
+      width: 240px; height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.06), transparent 70%);
+      z-index: -1;
+    }
+    .payment-banner-content { flex: 2; min-width: 200px; position: relative; z-index: 1; }
+    .payment-banner h3 {
+      margin: 0 0 8px;
+      font-size: 1.18rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .payment-banner p {
+      margin: 0;
+      opacity: 0.75;
+      font-size: 0.86rem;
+      line-height: 1.4;
+      letter-spacing: -0.005em;
+    }
+    .payment-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
+    }
     .paystack-btn {
-      background: #00b3f0; color: white; border: none;
-      padding: 10px 22px; border-radius: 9px; font-weight: 700;
-      cursor: pointer; transition: all .2s ease; font-size: .875rem;
-      display: flex; align-items: center; gap: 6px;
+      background: var(--ios-blue);
+      color: #fff;
+      border: none;
+      padding: 11px 22px;
+      border-radius: 999px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
+      font-size: 0.86rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+      letter-spacing: -0.005em;
     }
-    .paystack-btn:hover { transform: translateY(-2px); background: #0095cc; box-shadow: 0 5px 16px rgba(0,179,240,.4); }
+    .paystack-btn:hover  { background: var(--ios-blue-600); }
+    .paystack-btn:active { transform: scale(0.96); }
+
     .whatsapp-btn {
-      background: #25D366; color: white; border: none;
-      padding: 10px 18px; border-radius: 9px; font-weight: 700;
-      cursor: pointer; display: inline-flex; align-items: center;
-      gap: 7px; transition: all .2s ease; text-decoration: none; font-size: .875rem;
+      background: rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      padding: 11px 18px;
+      border-radius: 999px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
+      text-decoration: none;
+      font-size: 0.86rem;
+      letter-spacing: -0.005em;
     }
-    .whatsapp-btn:hover { transform: translateY(-2px); background: #128C7E; }
+    .whatsapp-btn:hover  { background: rgba(255, 255, 255, 0.22); }
+    .whatsapp-btn:active { transform: scale(0.96); }
     .whatsapp-icon { font-size: 1.05rem; }
 
     /* =========================================================
-       STATS GRID
+       STATS GRID — iOS clean tiles
        ========================================================= */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 20px;
-      margin-bottom: 28px;
+      gap: 16px;
+      margin-bottom: 26px;
     }
     .stat-card {
-      background: #fff;
-      border-radius: 16px;
-      padding: 22px 20px 18px;
-      box-shadow: 0 2px 0 rgba(0,0,0,.06), 0 6px 22px rgba(13,27,42,.08);
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      padding: 22px 20px 20px;
+      box-shadow: var(--ios-shadow);
       text-align: center;
-      border: 1px solid rgba(67,97,238,.07);
+      border: none;
       position: relative;
       overflow: hidden;
-      transition: transform .25s ease, box-shadow .25s ease;
-      animation: fadeSlideUp .45s ease both;
+      transition: transform 0.3s var(--ios-spring), box-shadow 0.3s var(--ios-smooth);
+      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
     }
-    .stat-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 4px;
-      border-radius: 16px 16px 0 0;
+    .stat-card:hover {
+      transform: translateY(-3px) scale(1.01);
+      box-shadow: var(--ios-shadow-lg);
     }
-    .stat-card:nth-child(1)::before { background: linear-gradient(90deg, #4361ee, #7c3aed); }
-    .stat-card:nth-child(2)::before { background: linear-gradient(90deg, #10b981, #06b6d4); }
-    .stat-card:nth-child(3)::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
-    .stat-card:nth-child(4)::before { background: linear-gradient(90deg, #8b5cf6, #f72585); }
-    .stat-card:hover { transform: translateY(-5px); box-shadow: 0 12px 36px rgba(13,27,42,.13); }
 
     .stat-icon {
-      width: 52px; height: 52px;
-      border-radius: 14px;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 10px;
-      font-size: 1.3rem;
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+      font-size: 1.5rem;
+      transition: transform 0.3s var(--ios-spring);
     }
-    .stat-card:nth-child(1) .stat-icon { background: rgba(67,97,238,.1);  color: #4361ee; }
-    .stat-card:nth-child(2) .stat-icon { background: rgba(16,185,129,.1); color: #10b981; }
-    .stat-card:nth-child(3) .stat-icon { background: rgba(245,158,11,.1); color: #f59e0b; }
-    .stat-card:nth-child(4) .stat-icon { background: rgba(139,92,246,.1); color: #8b5cf6; }
+    .stat-card:hover .stat-icon { transform: scale(1.06); }
+
+    /* iOS system color tint per card */
+    .stat-card:nth-child(1) .stat-icon { background: rgba(0, 122, 255, 0.12);  color: var(--ios-blue);   }
+    .stat-card:nth-child(2) .stat-icon { background: rgba(52, 199, 89, 0.12);  color: var(--ios-green);  }
+    .stat-card:nth-child(3) .stat-icon { background: rgba(255, 149, 0, 0.14);  color: var(--ios-orange); }
+    .stat-card:nth-child(4) .stat-icon { background: rgba(175, 82, 222, 0.12); color: var(--ios-purple); }
 
     .stat-number {
-      font-family: 'Outfit', sans-serif;
-      font-size: 2.5rem;
-      font-weight: 800;
-      margin: 4px 0 2px;
-      letter-spacing: -.04em;
+      font-family: var(--ios-font-display);
+      font-size: 2.4rem;
+      font-weight: 700;
+      margin: 6px 0 4px;
+      letter-spacing: -0.04em;
       line-height: 1;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
     }
-    .stat-card:nth-child(1) .stat-number { color: #4361ee; }
-    .stat-card:nth-child(2) .stat-number { color: #10b981; }
-    .stat-card:nth-child(3) .stat-number { color: #f59e0b; }
-    .stat-card:nth-child(4) .stat-number { color: #8b5cf6; }
 
     .stat-label {
-      color: #64748b;
-      font-size: .74rem;
-      font-weight: 700;
+      color: var(--ios-label-secondary);
+      font-size: 0.72rem;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: .06em;
+      letter-spacing: 0.05em;
     }
-    .stat-card:nth-child(1) { animation-delay: .05s; }
-    .stat-card:nth-child(2) { animation-delay: .12s; }
-    .stat-card:nth-child(3) { animation-delay: .19s; }
-    .stat-card:nth-child(4) { animation-delay: .26s; }
+
+    .stat-card:nth-child(1) { animation-delay: 0.04s; }
+    .stat-card:nth-child(2) { animation-delay: 0.10s; }
+    .stat-card:nth-child(3) { animation-delay: 0.16s; }
+    .stat-card:nth-child(4) { animation-delay: 0.22s; }
 
     /* =========================================================
-       MOBILE MENU CARDS  (≤ 768 px only)
+       MOBILE MENU SECTION (hidden on desktop)
        ========================================================= */
-    .mobile-menu-section {
-      display: none; /* hidden on desktop */
-    }
+    .mobile-menu-section { display: none; }
 
     /* =========================================================
-       MOBILE RESPONSIVE OVERRIDES
+       MOBILE RESPONSIVE
        ========================================================= */
     @media (max-width: 768px) {
+
       .mobile-menu-section {
         display: block;
-        margin-bottom: 24px;
-        animation: fadeSlideUp .4s ease both;
+        margin-bottom: 22px;
+        animation: fadeSlideUp 0.45s var(--ios-smooth) both;
       }
       .mobile-menu-title {
-        font-family: 'Outfit', sans-serif;
-        font-size: 1rem;
+        font-family: var(--ios-font-display);
+        font-size: 0.94rem;
         font-weight: 700;
-        color: #334155;
+        color: var(--ios-label);
         margin-bottom: 14px;
         display: flex;
         align-items: center;
         gap: 8px;
-        text-transform: uppercase;
-        letter-spacing: .06em;
+        letter-spacing: -0.02em;
       }
-      .mobile-menu-title i { color: #4361ee; font-size: .95rem; }
+      .mobile-menu-title i { color: var(--ios-blue); font-size: 0.9rem; }
 
       .mobile-nav-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
+        gap: 14px;
       }
 
+      /* iOS home-screen icon style */
       .mobile-nav-card {
-        background: #fff;
-        border-radius: 16px;
-        padding: 18px 14px 14px;
+        background: var(--ios-bg-elevated);
+        border-radius: var(--ios-radius-xl);
+        padding: 20px 14px 16px;
         text-decoration: none;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        border: 2px solid transparent;
-        box-shadow: 0 2px 0 rgba(0,0,0,.05), 0 5px 18px rgba(13,27,42,.07);
-        transition: all .22s ease;
+        gap: 12px;
+        border: none;
+        box-shadow: var(--ios-shadow);
+        transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-smooth);
         position: relative;
         overflow: hidden;
         text-align: center;
         cursor: pointer;
-        animation: fadeSlideUp .4s ease both;
-      }
-      .mobile-nav-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 3px;
-        border-radius: 16px 16px 0 0;
-        background: linear-gradient(90deg, var(--card-color-a), var(--card-color-b));
+        animation: fadeSlideUp 0.45s var(--ios-smooth) both;
       }
       .mobile-nav-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 10px 28px rgba(13,27,42,.12);
-        border-color: rgba(67,97,238,.12);
+        transform: translateY(-3px) scale(1.015);
+        box-shadow: var(--ios-shadow-lg);
       }
-      .mobile-nav-card.active {
-        background: linear-gradient(145deg, #4361ee, #7c3aed);
-        border-color: transparent;
-        box-shadow: 0 8px 24px rgba(67,97,238,.38);
-      }
-      .mobile-nav-card.active .mobile-nav-icon,
-      .mobile-nav-card.active .mobile-nav-label {
-        color: #fff !important;
-      }
-      .mobile-nav-card.active .mobile-nav-icon {
-        background: rgba(255,255,255,.18) !important;
-      }
+      .mobile-nav-card:active { transform: scale(0.97); }
 
       .mobile-nav-icon {
-        width: 50px; height: 50px;
-        border-radius: 14px;
+        width: 60px;
+        height: 60px;
+        border-radius: 18px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.3rem;
-        transition: transform .2s ease;
-        background: var(--icon-bg);
-        color: var(--icon-color);
-        box-shadow: 0 3px 10px rgba(0,0,0,.09);
+        font-size: 1.6rem;
+        color: #fff;
+        transition: transform 0.28s var(--ios-spring);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        background: linear-gradient(135deg, var(--icon-color-a), var(--icon-color-b));
       }
-      .mobile-nav-card:hover .mobile-nav-icon { transform: scale(1.1) rotate(-3deg); }
+      .mobile-nav-card:hover .mobile-nav-icon { transform: scale(1.06); }
 
       .mobile-nav-label {
-        font-family: 'Outfit', sans-serif;
-        font-size: .82rem;
-        font-weight: 700;
-        color: #1e293b;
-        letter-spacing: -.01em;
+        font-family: var(--ios-font);
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--ios-label);
+        letter-spacing: -0.01em;
+        line-height: 1.25;
       }
 
-      /* Color themes per card */
-      .mnc-teachers  { --card-color-a: #10b981; --card-color-b: #06b6d4; --icon-bg: rgba(16,185,129,.1); --icon-color: #10b981; }
-      .mnc-students  { --card-color-a: #f59e0b; --card-color-b: #ef4444; --icon-bg: rgba(245,158,11,.1); --icon-color: #d97706; }
-      .mnc-setup     { --card-color-a: #8b5cf6; --card-color-b: #f72585; --icon-bg: rgba(139,92,246,.1); --icon-color: #8b5cf6; }
-      .mnc-results   { --card-color-a: #0ea5e9; --card-color-b: #6366f1; --icon-bg: rgba(14,165,233,.1); --icon-color: #0ea5e9; }
+      /* iOS system color gradients per card */
+      .mnc-teachers { --icon-color-a: #34C759; --icon-color-b: #00B8A9; }
+      .mnc-students { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
+      .mnc-setup    { --icon-color-a: #AF52DE; --icon-color-b: #5856D6; }
+      .mnc-results  { --icon-color-a: #5AC8FA; --icon-color-b: #007AFF; }
 
-      /* Stagger animation */
-      .mobile-nav-card:nth-child(1) { animation-delay: .04s; }
-      .mobile-nav-card:nth-child(2) { animation-delay: .1s; }
-      .mobile-nav-card:nth-child(3) { animation-delay: .16s; }
-      .mobile-nav-card:nth-child(4) { animation-delay: .22s; }
+      .mobile-nav-card:nth-child(1) { animation-delay: 0.05s; }
+      .mobile-nav-card:nth-child(2) { animation-delay: 0.11s; }
+      .mobile-nav-card:nth-child(3) { animation-delay: 0.17s; }
+      .mobile-nav-card:nth-child(4) { animation-delay: 0.23s; }
 
-      /* Stats 2‑column on mobile */
+      /* Stats: 2 columns on mobile */
       .stats-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
       }
       .stat-card {
-        padding: 16px 12px 13px;
+        padding: 16px 12px 14px;
+        border-radius: 16px;
       }
-      .stat-number { font-size: 2rem; }
-      .stat-icon   { width: 42px; height: 42px; font-size: 1.1rem; border-radius: 11px; }
+      .stat-number { font-size: 1.9rem; }
+      .stat-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 1.15rem;
+        border-radius: 12px;
+        margin-bottom: 8px;
+      }
+      .stat-label { font-size: 0.66rem; }
 
-      /* Payment banner responsive */
+      /* Payment banner stacks */
       .payment-banner {
         flex-direction: column;
         text-align: center;
+        padding: 22px 20px;
       }
-      .payment-buttons { justify-content: center; }
+      .payment-buttons { justify-content: center; width: 100%; }
 
-      /* =========================================================
-         MOBILE HEADER: SCHOOL NAME WRAPPING
-         ========================================================= */
-      .header {
-        flex-wrap: nowrap;
-        gap: 8px;
-      }
-      .header-right {
-        flex-shrink: 0;
-        margin-left: auto;
-      }
+      /* HEADER — keep logo + name in one row, actions on the right */
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
       .school-header-left {
         flex: 1 1 auto;
         min-width: 0;
-        gap: 8px;
+        gap: 10px;
       }
-      .school-name {
-        flex: 1 1 auto;
-        min-width: 0;
-      }
+      .school-name { flex: 1 1 auto; min-width: 0; }
       .school-name h1#schoolName {
-        font-size: 0.95rem;
+        font-size: 1rem;
         line-height: 1.3;
         font-weight: 700;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.02em;
         white-space: normal;
         overflow-wrap: break-word;
         word-break: break-word;
@@ -348,28 +441,21 @@
       }
       .school-address {
         font-size: 0.7rem;
-        line-height: 1.2;
+        line-height: 1.25;
         white-space: normal;
         overflow-wrap: break-word;
         word-break: break-word;
       }
 
-      /* =========================================================
-         MOBILE LOGO FIXES – upload works via the circular logo
-         ========================================================= */
-      /* Hide camera icon on mobile */
-      .school-header-left .school-logo .camera-icon {
-        display: none !important;
-      }
-
-      /* Logo container becomes the clickable upload trigger */
+      /* Logo container becomes clickable upload trigger on mobile */
+      .school-header-left .school-logo .camera-icon { display: none !important; }
       .school-header-left .school-logo {
-        width: 44px !important;
-        height: 44px !important;
+        width: 46px !important;
+        height: 46px !important;
         flex-shrink: 0;
         border-radius: 50%;
         overflow: hidden;
-        background: #e0e7ff;
+        background: var(--ios-fill);
         cursor: pointer;
         display: flex !important;
         align-items: center;
@@ -385,19 +471,15 @@
         pointer-events: none;
       }
 
-      /* Ensure school name stays beside logo */
-      .school-header-left {
-        gap: 10px;
-      }
+      /* Hide subscription badge on mobile */
+      .header-right .subscription-badge { display: none !important; }
 
-      /* ── FIX 2: Hide subscription badge on mobile ── */
-      .header-right .subscription-badge {
-        display: none !important;
-      }
+      /* Slightly smaller academic badge on mobile */
+      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
     }
 
     /* =========================================================
-       HEADER (desktop only tweaks)
+       HEADER (desktop)
        ========================================================= */
     .header {
       display: flex;
@@ -414,16 +496,17 @@
     }
     .school-header-left .school-logo {
       position: relative;
-      width: 52px;
-      height: 52px;
+      width: 54px;
+      height: 54px;
       flex-shrink: 0;
       border-radius: 50%;
       overflow: hidden;
-      background: #e0e7ff;
+      background: var(--ios-fill);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      box-shadow: var(--ios-shadow-sm);
     }
     .school-header-left .school-logo img {
       width: 100%;
@@ -434,23 +517,23 @@
     }
     .school-header-left .school-logo .camera-icon {
       position: absolute;
-      bottom: 2px;
-      right: 2px;
-      background: rgba(0,0,0,0.6);
+      bottom: 1px;
+      right: 1px;
+      background: var(--ios-blue);
       color: #fff;
       border-radius: 50%;
-      width: 26px;
-      height: 26px;
+      width: 22px;
+      height: 22px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
-      transition: background 0.2s;
+      font-size: 10px;
+      transition: transform 0.2s var(--ios-spring);
       cursor: pointer;
       border: 2px solid #fff;
     }
     .school-header-left .school-logo .camera-icon:hover {
-      background: rgba(0,0,0,0.8);
+      transform: scale(1.1);
     }
 
     /* Hide hamburger on desktop */
@@ -459,14 +542,37 @@
     }
 
     /* =========================================================
+       WELCOME CARD (iOS-friendly)
+       ========================================================= */
+    .welcome-card {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 26px 28px;
+      margin-bottom: 22px;
+      box-shadow: var(--ios-shadow);
+      border: none;
+    }
+    .welcome-card h1 {
+      font-family: var(--ios-font-display);
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0 0 6px;
+      color: var(--ios-label);
+    }
+    .welcome-card p {
+      color: var(--ios-label-secondary);
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.5;
+      letter-spacing: -0.005em;
+    }
+
+    /* =========================================================
        KEYFRAMES
        ========================================================= */
     @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(18px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes fadeSlideDown {
-      from { opacity: 0; transform: translateY(-18px); }
+      from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
     }
   </style>
@@ -700,7 +806,7 @@
   </main>
 </div>
 
-<!-- ===================== SCRIPTS ===================== -->
+<!-- ===================== SCRIPTS (unchanged) ===================== -->
 <script src="../js/card-3d-effects.js"></script>
 <script type="module">
   import {
