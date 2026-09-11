@@ -25,6 +25,7 @@
       --ios-pink:      #FF2D55;
       --ios-purple:    #AF52DE;
       --ios-red:       #FF3B30;
+      --ios-red-600:   #D42A22;
       --ios-teal:      #5AC8FA;
       --ios-yellow:    #FFCC00;
 
@@ -562,6 +563,8 @@
 
     /* =========================================================
        ▓▓ COMPACT ACTION BUTTONS in teachers list ▓▓
+       Size unchanged — Edit = iOS blue bg + white text,
+                        Delete = iOS red bg  + white text.
        ========================================================= */
     #teachersList button,
     #teachersList .table-responsive-wrapper button,
@@ -593,25 +596,40 @@
       margin-left: 6px !important;
     }
 
-    /* Semantic colors inside list */
+    /* ---------- EDIT — iOS blue bg, WHITE text/icon ---------- */
     #teachersList .btn-secondary,
     #teachersList .btn-edit {
-      background-color: var(--ios-fill) !important;
-      color: var(--ios-blue) !important;
+      background-color: var(--ios-blue) !important;
+      color: #ffffff !important;
+      border: none !important;
+    }
+    #teachersList .btn-secondary i,
+    #teachersList .btn-edit i {
+      color: #ffffff !important;
     }
     #teachersList .btn-secondary:hover,
     #teachersList .btn-edit:hover {
-      background-color: var(--ios-fill-2) !important;
+      background-color: var(--ios-blue-600) !important;
+      color: #ffffff !important;
     }
+
+    /* ---------- DELETE — iOS red bg, WHITE text/icon ---------- */
     #teachersList .btn-danger,
     #teachersList .btn-delete {
-      background-color: rgba(255, 59, 48, 0.12) !important;
-      color: var(--ios-red) !important;
+      background-color: var(--ios-red) !important;
+      color: #ffffff !important;
+      border: none !important;
+    }
+    #teachersList .btn-danger i,
+    #teachersList .btn-delete i {
+      color: #ffffff !important;
     }
     #teachersList .btn-danger:hover,
     #teachersList .btn-delete:hover {
-      background-color: rgba(255, 59, 48, 0.20) !important;
+      background-color: var(--ios-red-600) !important;
+      color: #ffffff !important;
     }
+
     #teachersList button:active {
       transform: scale(0.94) !important;
     }
@@ -646,6 +664,11 @@
         height: 32px !important;
         padding: 0 11px !important;
         font-size: 0.72rem !important;
+        color: #ffffff !important;
+      }
+      #teachersList button i {
+        font-size: 0.7rem !important;
+        color: #ffffff !important;
       }
     }
   </style>
