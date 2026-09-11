@@ -17,6 +17,136 @@ import { toast } from './error-handler.js';
 import { sanitizeSession } from './service.js';
 import { renderFinanceReport } from './financeReportRenderer.js'; // Ensure this file exists
 
+// ─── Subscription lock state ─────────────────────
+let isSubscriptionLocked = false;
+let lockObserver = null;
+
+// CSS selector for elements that should be locked when subscription is expired.
+// Scope: only finance actions inside .content and inside modals.
+// We deliberately exclude the modal close/cancel buttons so users are never trapped in a modal,
+// and exclude the sidebar/header chrome (logout, hamburger, nav) which aren't finance actions.
+const LOCK_SELECTOR = [
+  '.content button',
+  '.content input',
+  '.content select',
+  '.content textarea',
+  '.modal button:not(.close-modal):not([data-modal-close])',
+  '.modal input',
+  '.modal select',
+  '.modal textarea'
+].join(', ');
+
+/**
+ * Read the school's current subscription status from Firestore.
+ * Path: schools/{schoolId}/subscription/current  →  field: status
+ * Read-only. Returns "active" as a safe default on error.
+ */
+async function getSubscriptionStatus(schoolId) {
+  if (!schoolId) return 'active';
+  try {
+    const subRef = doc(db, 'schools', schoolId, 'subscription', 'current');
+    const subSnap = await getDoc(subRef);
+    if (!subSnap.exists()) return 'active';
+    const data = subSnap.data() || {};
+    return (data.status || 'active').toString().toLowerCase();
+  } catch (err) {
+    console.warn('Unable to read subscription status, defaulting to active:', err);
+    return 'active';
+  }
+}
+
+function lockElement(el) {
+  if (!el) return;
+  if (el.tagName === 'INPUT' && el.type === 'hidden') return;
+  el.disabled = true;
+  el.setAttribute('aria-disabled', 'true');
+  el.classList.add('subscription-locked');
+  el.style.opacity = '0.55';
+  el.style.cursor = 'not-allowed';
+  el.title = 'Subscription expired — actions are locked until renewal.';
+}
+
+function lockAllFinanceControls() {
+  document.querySelectorAll(LOCK_SELECTOR).forEach(lockElement);
+}
+
+function showSubscriptionLockedBanner() {
+  const content = document.querySelector('.content');
+  if (!content) return;
+  if (document.getElementById('subscriptionLockedBanner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'subscriptionLockedBanner';
+  banner.style.cssText = [
+    'background:#fee2e2',
+    'border:1px solid #fca5a5',
+    'color:#991b1b',
+    'padding:14px 18px',
+    'border-radius:12px',
+    'margin-bottom:16px',
+    'font-weight:600',
+    'display:flex',
+    'align-items:center',
+    'gap:10px',
+    'box-shadow:0 2px 8px rgba(220,38,38,.15)'
+  ].join(';');
+  banner.innerHTML = `
+    <i class="fa-solid fa-lock" style="font-size:1.2rem;"></i>
+    <span>Your subscription has expired. All finance actions are locked.
+      Please renew your subscription to continue using finance features.</span>
+  `;
+  content.insertBefore(banner, content.firstChild);
+}
+
+/**
+ * Auto-lock any newly added finance controls (e.g., Set Fee / +Payment buttons
+ * re-created on every class-fee-table refresh, bulk-payment remove-row buttons, etc.).
+ */
+function setupLockObserver() {
+  if (lockObserver) lockObserver.disconnect();
+  if (!isSubscriptionLocked) return;
+
+  lockObserver = new MutationObserver((mutations) => {
+    if (!isSubscriptionLocked) return;
+    for (const m of mutations) {
+      m.addedNodes.forEach((node) => {
+        if (node.nodeType !== 1) return;
+        // If the added node itself matches, lock it
+        if (node.matches && node.matches(LOCK_SELECTOR)) {
+          lockElement(node);
+        }
+        // Lock any matching descendants
+        if (node.querySelectorAll) {
+          node.querySelectorAll(LOCK_SELECTOR).forEach(lockElement);
+        }
+      });
+    }
+  });
+  lockObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+/**
+ * Apply the subscription lock if status is "expired".
+ * Called once on page init (read-only).
+ */
+async function applySubscriptionLockIfNeeded() {
+  const schoolId = await getCurrentSchoolId();
+  if (!schoolId) return;
+
+  const status = await getSubscriptionStatus(schoolId);
+  if (status !== 'expired') return;
+
+  isSubscriptionLocked = true;
+  showSubscriptionLockedBanner();
+  lockAllFinanceControls();
+  setupLockObserver();
+
+  // Re-run once after the microtask queue settles to catch buttons created
+  // during the initial async data load (populate dropdowns, etc.).
+  setTimeout(lockAllFinanceControls, 0);
+  setTimeout(lockAllFinanceControls, 500);
+}
+
 // ─── Helper: totalOwed ───────────────────────────
 function totalOwed(feeData) {
   if (!feeData) return 0;
@@ -37,6 +167,9 @@ async function recalculateAllFeeGates(term, session) {
 // ─── Finance Page Init ──────────────────────────────
 export async function initFinancePage() {
   await initAdminPage(async () => {
+    // ─── SUBSCRIPTION LOCK (read-only check on every load) ───
+    await applySubscriptionLockIfNeeded();
+
     // Academic badge with rollover detection
     let lastKnownPeriod = null;
     subscribeToCalendar(async (state) => {
@@ -83,6 +216,7 @@ export async function initFinancePage() {
       document.getElementById('paymentForm').dataset.studentId = document.getElementById('recordPaymentBtn').dataset.studentId || '';
       updatePaymentTermDisplay(new Date());
       document.getElementById('paymentModal').style.display = 'flex';
+      if (isSubscriptionLocked) lockAllFinanceControls();
     });
 
     document.getElementById('paymentDate').addEventListener('change', (e) => {
@@ -95,6 +229,7 @@ export async function initFinancePage() {
       container.innerHTML = '';
       addBulkRow();
       document.getElementById('bulkPaymentModal').style.display = 'flex';
+      if (isSubscriptionLocked) lockAllFinanceControls();
     });
 
     document.getElementById('addBulkRowBtn').addEventListener('click', addBulkRow);
@@ -107,6 +242,7 @@ export async function initFinancePage() {
       document.getElementById('bulkClassFeeClassName').value = className;
       document.getElementById('bulkSetClassFeeForm').dataset.classId = classId;
       document.getElementById('bulkSetClassFeeModal').style.display = 'flex';
+      if (isSubscriptionLocked) lockAllFinanceControls();
     });
 
     document.getElementById('bulkSetClassFeeForm').addEventListener('submit', handleBulkSetClassFee);
@@ -172,6 +308,11 @@ export async function initFinancePage() {
     if (document.getElementById('financeClassSelect').value) {
       refreshClassFeeTable();
     }
+
+    // Final safety pass: in case any control was created during the async setup above.
+    if (isSubscriptionLocked) {
+      lockAllFinanceControls();
+    }
   });
 }
 
@@ -201,6 +342,9 @@ function addBulkRow() {
     }
   });
   container.appendChild(row);
+  if (isSubscriptionLocked) {
+    row.querySelectorAll(LOCK_SELECTOR.includes('.modal') ? 'input, select, button' : 'input, select, button').forEach(lockElement);
+  }
 }
 
 // ─── NEW: Populate session selects for expense/income forms ──
@@ -707,6 +851,7 @@ async function refreshClassFeeTable() {
         paid: currentPaid,
         balance,
         hasFee: feeDoc.exists(),
+        feeDocId: feeId,
       });
     }
 
@@ -771,8 +916,14 @@ async function refreshClassFeeTable() {
         document.getElementById('paymentForm').dataset.studentId = studentId;
         updatePaymentTermDisplay(new Date());
         document.getElementById('paymentModal').style.display = 'flex';
+        if (isSubscriptionLocked) lockAllFinanceControls();
       });
     });
+
+    // If subscription locked, disable the newly created table-action buttons immediately
+    if (isSubscriptionLocked) {
+      document.querySelectorAll('.set-fee-btn, .add-payment-btn').forEach(lockElement);
+    }
   } catch (err) {
     console.error('Refresh class fee table error:', err);
     toast.error('Failed to load fee data.');
@@ -892,6 +1043,7 @@ async function lookupStudentFee() {
       document.getElementById('editSummaryTotalPaid').value = totalPaid;
       document.getElementById('editSummaryArrears').value = Math.max(0, balance);
       document.getElementById('editSummaryModal').style.display = 'flex';
+      if (isSubscriptionLocked) lockAllFinanceControls();
     });
 
     document.querySelectorAll('.edit-payment-btn').forEach(btn => {
@@ -906,6 +1058,11 @@ async function lookupStudentFee() {
         openEditPaymentModal(paymentId, feeId, studentId, amount, date, method, note);
       });
     });
+
+    // If subscription locked, disable the newly created buttons immediately
+    if (isSubscriptionLocked) {
+      detailDiv.querySelectorAll('button').forEach(lockElement);
+    }
 
   } catch (err) {
     console.error('Student lookup error:', err);
@@ -926,6 +1083,7 @@ function openEditPaymentModal(paymentId, feeId, studentId, amount, date, method,
   document.getElementById('paymentNote').value = note;
   updatePaymentTermDisplay(new Date(date));
   document.getElementById('paymentModal').style.display = 'flex';
+  if (isSubscriptionLocked) lockAllFinanceControls();
 }
 
 // ─── handlePaymentSubmit (unchanged) ─────────────────
@@ -1143,6 +1301,7 @@ function openSetFeeModal(studentId, studentName) {
   document.getElementById('setFeeStudentName').value = studentName;
   document.getElementById('setFeeForm').dataset.studentId = studentId;
   document.getElementById('setFeeModal').style.display = 'flex';
+  if (isSubscriptionLocked) lockAllFinanceControls();
 }
 
 // ─── saveFee (unchanged) ─────────────────────────────
@@ -1572,6 +1731,7 @@ async function handleCsvImport() {
     await refreshClassFeeTable();
     await loadSummaryCards();
     await loadIncomeExpenseSummaryCards();
+    if (isSubscriptionLocked) lockAllFinanceControls();
   });
 }
 
