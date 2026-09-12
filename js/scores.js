@@ -8,6 +8,13 @@
 //      New scores are created with a deterministic document ID.
 //      Edited scores are updated in place with the current date/time in updatedAt.
 //      Any existing duplicate score documents are deleted automatically.
+// NEW: Session input is locked to the current academic session only.
+// NEW: CA and Exam input values are clamped to the school's current grading
+//      system (e.g. 40/60) both on input and again at save time.
+// NEW: Each saved score record now stores studentName and classId (the student's
+//      class at the time of saving) alongside term and session, so the score
+//      can be retrieved later by student + subject + term + session — even if
+//      the student is subsequently moved, made inactive, or graduates.
 
 import { auth } from './firebase-config.js';
 import {
@@ -129,7 +136,7 @@ async function loadGradingSetting(session, term) {
 }
 
 // ------------------- Data loading via service -------------------
-// UPDATED: Direct Firestore query to bypass cache for subjects
+// Direct Firestore query to bypass cache for subjects
 async function loadAllSubjects() {
   try {
     const q = query(
@@ -164,7 +171,7 @@ async function loadAllClasses() {
   }
 }
 
-// UPDATED: Direct Firestore getDoc for teacher to bypass cache
+// Direct Firestore getDoc for teacher to bypass cache
 async function loadTeacherAssignedSubjectsAndClasses() {
   if (!teacherId) return;
   try {
@@ -244,7 +251,7 @@ async function loadStudentsForClass(classId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// New helpers for duplicate-safe score handling
+// Helpers for duplicate-safe score handling
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -275,6 +282,12 @@ function sanitizeForDocId(value) {
 /**
  * Return every score document that matches the student, subject, term and session.
  * This deliberately bypasses the service cache.
+ *
+ * NOTE: We deliberately do NOT filter by classId here. A student's score is
+ * identified by (studentId, subjectId, schoolId, term, session). This lets us
+ * fetch a score later even if the student has moved class, become inactive,
+ * or graduated — the score remains tied to the class/term/session that was
+ * in effect at save time (stored inside the record itself).
  */
 async function getAllExistingScoreDocs(studentId, subjectId, term, session) {
   try {
@@ -310,6 +323,10 @@ async function fetchExistingScores(studentId, subjectId, term, session) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // saveAllScores – duplicate‑safe score upsert
+// Each record stores:
+//   studentId, studentName, subjectId, subjectName,
+//   schoolId, classId (at time of saving), term, session,
+//   ca, exam, createdAt, updatedAt
 // ─────────────────────────────────────────────────────────────────────────────
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
@@ -326,7 +343,23 @@ async function saveAllScores(scoresData) {
     );
 
     const subjectName = subjectsMap.get(score.subjectId) || '';
+    const className   = classesMap.get(selectedClassId)?.name || '';
     const now = new Date(); // current date and time, used for every updated record
+
+    // The identity fields that persist with the score for later retrieval.
+    const identityFields = {
+      studentId:   score.studentId,
+      studentName: score.studentName || '',
+      subjectId:   score.subjectId,
+      subjectName: subjectName,
+      schoolId:    currentSchoolId,
+      classId:     selectedClassId,
+      className:   className,
+      term:        selectedTerm,
+      session:     selectedSession,
+      ca:          score.ca,
+      exam:        score.exam
+    };
 
     let scoreRef;
 
@@ -336,14 +369,7 @@ async function saveAllScores(scoresData) {
       const deterministicId = `${score.studentId}_${score.subjectId}_${selectedTerm}_${sanitizeForDocId(selectedSession)}`;
       scoreRef = doc(db, 'scores', deterministicId);
       batch.set(scoreRef, {
-        studentId: score.studentId,
-        subjectId: score.subjectId,
-        subjectName: subjectName,
-        schoolId: currentSchoolId,
-        term: selectedTerm,
-        session: selectedSession,
-        ca: score.ca,
-        exam: score.exam,
+        ...identityFields,
         createdAt: now,
         updatedAt: now
       });
@@ -355,14 +381,7 @@ async function saveAllScores(scoresData) {
 
       scoreRef = doc(db, 'scores', canonical.id);
       batch.set(scoreRef, {
-        studentId: score.studentId,
-        subjectId: score.subjectId,
-        subjectName: subjectName,
-        schoolId: currentSchoolId,
-        term: selectedTerm,
-        session: selectedSession,
-        ca: score.ca,
-        exam: score.exam,
+        ...identityFields,
         updatedAt: now
       }, { merge: true });
 
@@ -434,9 +453,13 @@ async function renderScoreTable() {
     return;
   }
 
+  // IMPORTANT: inputs are hard-capped to the current grading system.
+  const caMax   = Number(currentGrading.ca)   || 0;
+  const examMax = Number(currentGrading.exam) || 0;
+
   let tableHtml = `<table class="scores-table">
     <thead>
-      <tr><th>Student Name</th><th>CA (${currentGrading.ca})</th><th>Exam (${currentGrading.exam})</th><th>Total</th><th>Status</th></tr>
+      <tr><th>Student Name</th><th>CA (${caMax})</th><th>Exam (${examMax})</th><th>Total</th><th>Status</th></tr>
     </thead>
     <tbody>`;
   for (const student of studentsList) {
@@ -449,20 +472,35 @@ async function renderScoreTable() {
     const statusText = isLocked ? '🔒 Not Approved' : '✅ Approved';
     tableHtml += `<tr data-student-id="${student.id}" data-locked="${isLocked}" data-student-name="${escapeHtml(student.name)}">
       <td>${escapeHtml(student.name)}</td>
-      <td><input type="number" class="score-input ca-input" value="${ca}" min="0" max="${currentGrading.ca}" ${disabledAttr}></td>
-      <td><input type="number" class="score-input exam-input" value="${exam}" min="0" max="${currentGrading.exam}" ${disabledAttr}></td>
+      <td><input type="number" class="score-input ca-input" value="${ca}" min="0" max="${caMax}" data-max="${caMax}" ${disabledAttr}></td>
+      <td><input type="number" class="score-input exam-input" value="${exam}" min="0" max="${examMax}" data-max="${examMax}" ${disabledAttr}></td>
       <td class="total-cell">${total}</td>
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
   tableHtml += `</tbody></table>`;
-  
+
   const wrapperHtml = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
   container.innerHTML = wrapperHtml;
 
   if (isScoreEntryAllowed) {
     document.querySelectorAll('.ca-input:not([disabled]), .exam-input:not([disabled])').forEach(input => {
+      // Clamp on input: prevent typing or pasting values above the grading max.
       input.addEventListener('input', function() {
+        const max = Number(this.dataset.max) || 0;
+        if (this.value === '') {
+          // allow empty so the user can clear and retype
+        } else {
+          let v = parseInt(this.value, 10);
+          if (Number.isNaN(v)) v = 0;
+          if (v < 0) v = 0;
+          if (v > max) {
+            v = max;
+            this.value = String(max);
+            toast.warning(`Maximum allowed is ${max}.`);
+          }
+        }
+
         const row = this.closest('tr');
         if (!row) return;
         const caInput = row.querySelector('.ca-input');
@@ -472,6 +510,19 @@ async function renderScoreTable() {
         const ca = parseInt(caInput.value) || 0;
         const exam = parseInt(examInput.value) || 0;
         totalCell.textContent = ca + exam;
+      });
+
+      // Also clamp on blur/change for cases where input event isn't fired
+      input.addEventListener('change', function() {
+        const max = Number(this.dataset.max) || 0;
+        let v = parseInt(this.value, 10);
+        if (Number.isNaN(v)) v = 0;
+        if (v < 0) v = 0;
+        if (v > max) {
+          v = max;
+          this.value = String(max);
+          toast.warning(`Maximum allowed is ${max}.`);
+        }
       });
     });
   }
@@ -506,6 +557,9 @@ async function saveScores() {
     return;
   }
 
+  const caMax   = Number(currentGrading.ca)   || 0;
+  const examMax = Number(currentGrading.exam) || 0;
+
   const unlockedScores = [];
   const lockedStudentNames = [];
 
@@ -519,8 +573,9 @@ async function saveScores() {
     const ca = parseInt(caInput.value) || 0;
     const exam = parseInt(examInput.value) || 0;
 
-    if (ca > currentGrading.ca || exam > currentGrading.exam) {
-      toast.error(`Invalid scores for ${studentName}. CA max = ${currentGrading.ca}, Exam max = ${currentGrading.exam}`);
+    // Hard cap check at save time (defensive – UI already clamps).
+    if (ca > caMax || exam > examMax) {
+      toast.error(`Invalid scores for ${studentName}. CA max = ${caMax}, Exam max = ${examMax}`);
       return;
     }
 
@@ -529,7 +584,14 @@ async function saveScores() {
       continue;
     }
 
-    unlockedScores.push({ studentId, subjectId: selectedSubjectId, ca, exam });
+    // Include studentName so it's persisted with the score record.
+    unlockedScores.push({
+      studentId,
+      studentName,
+      subjectId: selectedSubjectId,
+      ca,
+      exam
+    });
   }
 
   if (lockedStudentNames.length) {
@@ -605,22 +667,20 @@ async function initScoresPage() {
   populateSubjectDropdown();
   populateClassDropdown();
 
-  const currentSession = getCurrentSession();
-  const currentTermName = getCurrentTerm();
-  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
-  const defaultTermNum = termMap[currentTermName] || '1';
+  const currentSession   = getCurrentSession();
+  const currentTermName  = getCurrentTerm();
+  const termMap          = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const defaultTermNum   = termMap[currentTermName] || '1';
 
-  const distinctSessions = await loadSessionOptions(currentSchoolId);
-  if (!distinctSessions.includes(currentSession)) {
-    distinctSessions.unshift(currentSession);
-  }
-
+  // FIXED: Session selector is locked to the current session only.
+  // No past or future sessions are populated.
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
-    sessionSelect.innerHTML = distinctSessions.map(s =>
-      `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
-    ).join('');
+    sessionSelect.innerHTML = `<option value="${currentSession}">${currentSession}</option>`;
+    sessionSelect.value = currentSession;
+    sessionSelect.disabled = true;
   }
+
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;
 
@@ -628,6 +688,7 @@ async function initScoresPage() {
 
   const classSelect = document.getElementById('classSelect');
   const subjectSelect = document.getElementById('subjectSelect');
+
   if (classSelect) {
     classSelect.addEventListener('change', async () => {
       selectedClassId = classSelect.value;
@@ -642,12 +703,16 @@ async function initScoresPage() {
       }
     });
   }
+
   if (subjectSelect) {
     subjectSelect.addEventListener('change', () => {
       selectedSubjectId = subjectSelect.value;
       renderScoreTable();
     });
   }
+
+  // Session change listener is kept for safety, but the input is disabled,
+  // so this will rarely (if ever) fire. It still works if unlocked elsewhere.
   if (sessionSelect) {
     sessionSelect.addEventListener('change', async () => {
       selectedSession = sessionSelect.value;
@@ -660,6 +725,7 @@ async function initScoresPage() {
       renderScoreTable();
     });
   }
+
   if (termSelect) {
     termSelect.addEventListener('change', async (e) => {
       selectedTerm = e.target.value;
@@ -676,8 +742,10 @@ async function initScoresPage() {
   const saveBtn = document.getElementById('saveScoresBtn');
   if (saveBtn) saveBtn.addEventListener('click', saveScores);
 
+  // Set state defaults to the locked current session.
   selectedSession = currentSession;
-  selectedTerm = defaultTermNum;
+  selectedTerm    = defaultTermNum;
+
   if (selectedClassId) {
     await loadGradingSettingByClassLevel(selectedClassId, selectedSession, selectedTerm);
   } else {
