@@ -8,6 +8,9 @@
 // NEW: "Enable Position" toggle – persisted to localStorage per school. When ON,
 //      report card displays student's class position calculated from broadsheet.
 // NEW: fetchStudentScores now includes createdAt/updatedAt for duplicate subject resolution.
+// NEW: Report save stores classId + term + session at time of saving so that results can
+//      be fetched later, even if the student is later moved / inactive / graduated.
+//      Fetch path also uses classId + term + session.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
@@ -79,7 +82,6 @@ function savePositionTogglePreference(schoolId, value) {
 // ------------------- Helper: Check if requested session/term is current -------------------
 function isCurrentSessionTerm(session, term) {
   if (!currentAcademicSession || !currentAcademicTerm) return false;
-  const termName = term;
   const termNumFromName = (name) => ({ 'First Term': '1', 'Second Term': '2', 'Third Term': '3' }[name] || name);
   return session === currentAcademicSession && termNumFromName(term) === termNumFromName(currentAcademicTerm);
 }
@@ -152,7 +154,7 @@ async function fetchClassScores(classId, term, session) {
   }
 }
 
-// UPDATED: Preserve createdAt/updatedAt for duplicate subject resolution
+// Preserve createdAt/updatedAt for duplicate subject resolution
 async function fetchStudentScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
@@ -238,7 +240,7 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
   if (!classStudents.length) return new Map();
   const allScores = await fetchClassScores(classId, term, session);
   const subjectMap = new Map();
-  let targetSubjectIds = subjectIdsToInclude ? new Set(subjectIdsToInclude) : new Set(subjectsMap.keys());
+  const targetSubjectIds = subjectIdsToInclude ? new Set(subjectIdsToInclude) : new Set(subjectsMap.keys());
   for (const subjId of targetSubjectIds) subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
   for (const score of allScores) {
     if (!targetSubjectIds.has(score.subjectId)) continue;
@@ -253,7 +255,7 @@ async function computeSubjectStats(classId, term, session, subjectIdsToInclude =
       stat.classAverage = avg.toFixed(1);
       let rank = 1;
       for (let i = 0; i < stat.totals.length; i++) {
-        if (i > 0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
+        if (i > 0 && stat.totals[i].total < stat.totals[i - 1].total) rank = i + 1;
         stat.rankMap.set(stat.totals[i].studentId, rank);
       }
     }
@@ -269,7 +271,6 @@ async function getRelevantSubjectsForClass(classId, session) {
   if (levelSubjects.length === 0) levelSubjects = allSubjectsList;
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return levelSubjects;
-  const studentIds = classStudents.map(s => s.id);
   const subjectIdsWithScores = new Set();
   for (const term of ['1', '2', '3']) {
     const scores = await fetchClassScores(classId, term, session);
@@ -332,7 +333,7 @@ async function getStudentClassPosition(studentId, classId, term, session) {
     const sorted = Array.from(totalsMap.entries()).sort((a, b) => b[1].average - a[1].average);
     let rank = 1;
     for (let i = 0; i < sorted.length; i++) {
-      if (i > 0 && sorted[i][1].average < sorted[i-1][1].average) rank = i + 1;
+      if (i > 0 && sorted[i][1].average < sorted[i - 1][1].average) rank = i + 1;
       if (sorted[i][0] === studentId) return rank;
     }
     return null;
@@ -400,7 +401,10 @@ async function renderReportCard(studentId, studentName) {
 
   let subjectStats = new Map();
   if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
-  await loadExistingEditorReport(studentId);
+
+  // Fetch the existing report using classId + term + session so that a student's
+  // historical report can be retrieved even after they've been moved/graduated.
+  await loadExistingEditorReport(studentId, classId);
 
   let classPosition = null;
   if (positionEnabled && classId) {
@@ -456,12 +460,18 @@ async function renderReportCard(studentId, studentName) {
   }
 }
 
-// ── FIX: load report without fallback (term is already numeric) ──
-async function loadExistingEditorReport(studentId) {
+/**
+ * Fetch the existing saved report scoped to (studentId, schoolId, term, session, classId).
+ * The classId ensures we retrieve the report saved while the student was in that class,
+ * even if the student has since been promoted / moved / made inactive.
+ */
+async function loadExistingEditorReport(studentId, classId) {
   editorState.psychomotor = getDefaultRatings();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
 
-  const report = await service.getReportByStudent(studentId, currentSchoolId, editorState.term, editorState.session);
+  const report = await service.getReportByStudent(
+    studentId, currentSchoolId, editorState.term, editorState.session, classId
+  );
   if (report) {
     if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
     editorState.teacherComment   = report.teacherComment   || '';
@@ -473,7 +483,7 @@ async function loadExistingEditorReport(studentId) {
   }
 }
 
-// ── Save: term is numeric, we store that ──
+// ── Save: term is numeric, we store that; classId is the editor's selected class ──
 async function saveEditorReport() {
   if (!isSubscriptionActive) {
     toast.error('Cannot save report – subscription inactive.');
@@ -491,9 +501,14 @@ async function saveEditorReport() {
   const present         = parseInt(document.querySelector('.rc-att-input.present')?.value) || 0;
   const absent          = parseInt(document.querySelector('.rc-att-input.absent')?.value) || 0;
   const attendance = { schoolOpened, present, absent };
+
+  const classId = document.getElementById('editorClassSelect')?.value;
+
+  // The report is stamped with classId + term + session so it can be uniquely
+  // retrieved later, regardless of any later changes to the student's class/status.
   const reportData = {
     studentId: editorState.selectedStudent.id,
-    classId: document.getElementById('editorClassSelect')?.value,
+    classId,
     schoolId: currentSchoolId,
     term: editorState.term,
     session: editorState.session,
@@ -696,7 +711,7 @@ async function generateBroadsheet() {
     for (const student of classStudents) {
       const averages = {};
       let sumCombined = 0, termsWithData = 0;
-      for (const t of [1,2,3]) {
+      for (const t of [1, 2, 3]) {
         const studentScoreMap = scoresByStudentTerm.get(student.id)?.get(t) || new Map();
         let totalScore = 0, subjectCount = 0;
         for (const subj of relevantSubjects) {
@@ -730,17 +745,17 @@ async function generateBroadsheet() {
       studentResults.push({
         studentId: student.id, studentName: student.name,
         totalScore: totalScoreOverall, average, grade, remark, subjectDetails,
-        term1Avg: tAvg ? (tAvg[1] !== null ? tAvg[1]+'%' : '—') : '—',
-        term2Avg: tAvg ? (tAvg[2] !== null ? tAvg[2]+'%' : '—') : '—',
-        term3Avg: tAvg ? (tAvg[3] !== null ? tAvg[3]+'%' : '—') : '—',
-        combinedAvg: tAvg && tAvg.combined ? tAvg.combined+'%' : '—'
+        term1Avg: tAvg ? (tAvg[1] !== null ? tAvg[1] + '%' : '—') : '—',
+        term2Avg: tAvg ? (tAvg[2] !== null ? tAvg[2] + '%' : '—') : '—',
+        term3Avg: tAvg ? (tAvg[3] !== null ? tAvg[3] + '%' : '—') : '—',
+        combinedAvg: tAvg && tAvg.combined ? tAvg.combined + '%' : '—'
       });
     }
 
     studentResults.sort((a, b) => b.average - a.average);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
-      if (i > 0 && studentResults[i].average < studentResults[i-1].average) rank = i+1;
+      if (i > 0 && studentResults[i].average < studentResults[i - 1].average) rank = i + 1;
       studentResults[i].position = rank;
     }
 
@@ -754,10 +769,10 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td class="sn-cell">${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td class="sn-cell">${i + 1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td class="exam-cell">${sub.exam}</td><td class="total-cell">${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td class="term1-cell">${r.term1Avg}</td><td class="term2-cell">${r.term2Avg}</td><td class="term3-cell">${r.term3Avg}</td><td class="combined-cell">${r.combinedAvg}</td><td class="grade-cell">${r.grade}</td>`;
-      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td class="remark-cell">${r.remark}</td></tr>`;
+      html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td><td class="remark-cell">${r.remark}</td></tr>`;
     }
     html += `</tbody></table></div>`;
     const container = document.getElementById('broadsheetContainer');
@@ -937,7 +952,7 @@ function updateSubscriptionUI() {
     }
   }
 
-  const btns = ['saveGradingBtn','savePrimaryGradingBtn','generateBroadsheetBtn','saveBroadsheetBtn','printBroadsheetBtn','saveReportBtn','printReportBtn'];
+  const btns = ['saveGradingBtn', 'savePrimaryGradingBtn', 'generateBroadsheetBtn', 'saveBroadsheetBtn', 'printBroadsheetBtn', 'saveReportBtn', 'printReportBtn'];
   btns.forEach(id => {
     const btn = document.getElementById(id);
     if (btn) { btn.disabled = !isSubscriptionActive; btn.style.opacity = isSubscriptionActive ? '1' : '0.5'; }
