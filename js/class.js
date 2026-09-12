@@ -3,6 +3,11 @@
 // FIXED: loadTeacherHostClasses now uses auth.currentUser.uid instead of teacherData.uid.
 // NEW: fetchScores now includes createdAt/updatedAt for duplicate subject resolution.
 //       Student list selection highlights the active student.
+// NEW: Report card & broadsheet session selectors are FIXED to the current session only
+//      (from the academic calendar). No previous or upcoming sessions are shown.
+// NEW: Report save now stores the student's classId at time of saving alongside term &
+//      session, so results can be fetched later (in results.js) irrespective of the
+//      student's current class or status. Fetch also uses classId + term + session.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
@@ -41,7 +46,7 @@ const psychomotorSkillsList_local = psychomotorSkillsList;
 const affectiveSkillsList_local = affectiveSkillsList;
 
 let reportState = {
-  selectedStudent: null,
+  selectedStudent: null,   // { id, name, classId }
   term: '1',
   session: '',
   psychomotor: {},
@@ -55,6 +60,10 @@ let reportState = {
   const key = getSkillKey(skill);
   reportState.psychomotor[key] = 3;
 });
+
+/* ------------------------------------------------------------------ */
+/* Subscription                                                        */
+/* ------------------------------------------------------------------ */
 
 async function checkSubscription() {
   try {
@@ -116,6 +125,10 @@ function enableSubscriptionFeatures() {
   if (warning) warning.remove();
 }
 
+/* ------------------------------------------------------------------ */
+/* Teacher / class loading                                             */
+/* ------------------------------------------------------------------ */
+
 async function loadTeacherHostClasses() {
   try {
     const user = auth.currentUser;
@@ -147,10 +160,6 @@ async function loadTeacherHostClasses() {
     toast.error('Unable to load your assigned classes. Please refresh the page.');
     return false;
   }
-}
-
-async function loadSessionOptions(schoolId) {
-  return await service.loadSessionOptions(schoolId);
 }
 
 async function loadGradingSettingByLevel(level, session, term) {
@@ -214,7 +223,7 @@ async function fetchClassName() {
     if (classData) {
       classesMap.set(currentClassId, { name: classData.name, level: classData.level });
     }
-  } catch(e) {
+  } catch (e) {
     console.warn(e);
     classNameCache = currentClassId;
   }
@@ -256,6 +265,10 @@ async function loadStudentsList() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Score / stats helpers                                               */
+/* ------------------------------------------------------------------ */
+
 async function fetchScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
@@ -289,12 +302,12 @@ async function computeSubjectStats(classId, term, session) {
     }
     for (const [subjId, stat] of subjectMap.entries()) {
       if (stat.totals.length) {
-        stat.totals.sort((a,b) => b.total - a.total);
-        const avg = stat.totals.reduce((s,t) => s + t.total, 0) / stat.totals.length;
+        stat.totals.sort((a, b) => b.total - a.total);
+        const avg = stat.totals.reduce((s, t) => s + t.total, 0) / stat.totals.length;
         stat.classAverage = avg.toFixed(1);
         let rank = 1;
-        for (let i=0; i<stat.totals.length; i++) {
-          if (i>0 && stat.totals[i].total < stat.totals[i-1].total) rank = i+1;
+        for (let i = 0; i < stat.totals.length; i++) {
+          if (i > 0 && stat.totals[i].total < stat.totals[i - 1].total) rank = i + 1;
           stat.rankMap.set(stat.totals[i].studentId, rank);
         }
       }
@@ -325,6 +338,10 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Report card                                                         */
+/* ------------------------------------------------------------------ */
+
 async function loadReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -341,12 +358,15 @@ async function loadReportCard(studentId, studentName) {
     return;
   }
 
-  reportState.selectedStudent = { id: studentId, name: studentName };
   reportState.term    = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
 
-  const student       = studentsList.find(s => s.id === studentId);
+  const student        = studentsList.find(s => s.id === studentId);
   const studentClassId = student ? student.classId : currentClassId;
+
+  // Save classId together with the selected student so we can persist it correctly.
+  reportState.selectedStudent = { id: studentId, name: studentName, classId: studentClassId };
+
   let classLevel = null;
   if (studentClassId && classesMap.has(studentClassId)) {
     classLevel = classesMap.get(studentClassId).level;
@@ -357,11 +377,7 @@ async function loadReportCard(studentId, studentName) {
   await loadGradingSetting(reportState.session, reportState.term, classLevel);
   const isPrimary = (classLevel === 'primary');
 
-  if (student && student.parentPhone) {
-    reportState.selectedStudent.parentPhone = student.parentPhone;
-  } else {
-    reportState.selectedStudent.parentPhone = null;
-  }
+  reportState.selectedStudent.parentPhone = (student && student.parentPhone) ? student.parentPhone : null;
 
   showLoader();
   try {
@@ -377,17 +393,19 @@ async function loadReportCard(studentId, studentName) {
     }));
 
     const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
-    await loadExistingReport(studentId);
+
+    // Fetch any previously saved report by student + class + term + session.
+    await loadExistingReport(studentId, studentClassId);
 
     const studentData = {
       id: studentId, name: studentName, schoolId: currentSchoolId,
       classId: studentClassId,
-      admissionNumber: student.admissionNumber || '—',
-      gender:   student.gender   || '—',
-      dob:      student.dob      || '',
-      club:     student.club     || '—',
-      passport: student.passport || null,
-      parentPhone: student.parentPhone || null
+      admissionNumber: student?.admissionNumber || '—',
+      gender:   student?.gender   || '—',
+      dob:      student?.dob      || '',
+      club:     student?.club     || '—',
+      passport: student?.passport || null,
+      parentPhone: student?.parentPhone || null
     };
 
     await renderReportCardUI({
@@ -411,9 +429,16 @@ async function loadReportCard(studentId, studentName) {
   }
 }
 
-async function loadExistingReport(studentId) {
+/**
+ * Fetch the saved report for a student, scoped to the given classId + term + session.
+ * Passing classId disambiguates reports when a student has moved between classes
+ * while keeping the same term/session.
+ */
+async function loadExistingReport(studentId, classId) {
   try {
-    const report = await service.getReportByStudent(studentId, currentSchoolId, reportState.term, reportState.session);
+    const report = await service.getReportByStudent(
+      studentId, currentSchoolId, reportState.term, reportState.session, classId
+    );
     if (report) {
       if (report.psychomotor) Object.assign(reportState.psychomotor, report.psychomotor);
       reportState.teacherComment   = report.teacherComment   || '';
@@ -449,9 +474,17 @@ async function saveReportCard() {
   const average         = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
   const overallGrade    = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
 
+  // Persist the class the student was in at the time of saving (not necessarily the
+  // teacher's current class). Together with term + session this uniquely identifies
+  // the report so it can be fetched later regardless of any class/status change.
+  const classIdForSave = reportState.selectedStudent.classId || currentClassId;
+
   const reportData = {
-    studentId: reportState.selectedStudent.id, classId: currentClassId, schoolId: currentSchoolId,
-    term: reportState.term, session: reportState.session,
+    studentId: reportState.selectedStudent.id,
+    classId:   classIdForSave,
+    schoolId:  currentSchoolId,
+    term:      reportState.term,
+    session:   reportState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: reportState.psychomotor,
     teacherComment: reportState.teacherComment, principalComment: reportState.principalComment,
@@ -475,6 +508,10 @@ async function saveReportCard() {
     hideLoader();
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Print / WhatsApp                                                    */
+/* ------------------------------------------------------------------ */
 
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
@@ -596,6 +633,10 @@ function sendToWhatsApp() {
   window.open(whatsappUrl, '_blank');
 }
 
+/* ------------------------------------------------------------------ */
+/* Broadsheet                                                          */
+/* ------------------------------------------------------------------ */
+
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -688,21 +729,21 @@ async function generateBroadsheet() {
       const grade    = calculateGrade(average);
       const remark   = getGradeRemark(grade);
       const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
-      const combinedAvg = termValues.length ? (termValues.reduce((a,b)=>a+b,0)/termValues.length).toFixed(1) : null;
+      const combinedAvg = termValues.length ? (termValues.reduce((a, b) => a + b, 0) / termValues.length).toFixed(1) : null;
       studentResults.push({
         studentId: student.id, studentName: student.name,
         totalScore, average, grade, remark, subjectDetails,
-        term1Avg: term1Averages.get(student.id) !== null ? term1Averages.get(student.id).toFixed(1)+'%' : '—',
-        term2Avg: term2Averages.get(student.id) !== null ? term2Averages.get(student.id).toFixed(1)+'%' : '—',
-        term3Avg: term3Averages.get(student.id) !== null ? term3Averages.get(student.id).toFixed(1)+'%' : '—',
-        combinedAvg: combinedAvg !== null ? combinedAvg+'%' : '—'
+        term1Avg: term1Averages.get(student.id) !== null ? term1Averages.get(student.id).toFixed(1) + '%' : '—',
+        term2Avg: term2Averages.get(student.id) !== null ? term2Averages.get(student.id).toFixed(1) + '%' : '—',
+        term3Avg: term3Averages.get(student.id) !== null ? term3Averages.get(student.id).toFixed(1) + '%' : '—',
+        combinedAvg: combinedAvg !== null ? combinedAvg + '%' : '—'
       });
     }
 
-    studentResults.sort((a,b) => b.totalScore - a.totalScore);
+    studentResults.sort((a, b) => b.totalScore - a.totalScore);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
-      if (i > 0 && studentResults[i].totalScore < studentResults[i-1].totalScore) rank = i+1;
+      if (i > 0 && studentResults[i].totalScore < studentResults[i - 1].totalScore) rank = i + 1;
       studentResults[i].position = rank;
     }
 
@@ -716,10 +757,10 @@ async function generateBroadsheet() {
     html += `<th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead><tbody>`;
     for (let i = 0; i < studentResults.length; i++) {
       const r = studentResults[i];
-      html += `<tr><td class="sn-cell">${i+1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
+      html += `<tr><td class="sn-cell">${i + 1}</td><td class="student-name-cell">${escapeHtml(r.studentName)}</td>`;
       for (const sub of r.subjectDetails) html += `<td>${sub.ca}</td><td>${sub.exam}</td><td>${sub.total}</td>`;
       html += `<td>${r.totalScore}</td><td>${r.term1Avg}</td><td>${r.term2Avg}</td><td>${r.term3Avg}</td><td>${r.combinedAvg}</td><td>${r.grade}</td>`;
-      html += `<td>${r.position}${r.position===1?'st':r.position===2?'nd':r.position===3?'rd':'th'}</td><td>${r.remark}</td></tr>`;
+      html += `<td>${r.position}${r.position === 1 ? 'st' : r.position === 2 ? 'nd' : r.position === 3 ? 'rd' : 'th'}</td><td>${r.remark}</td></tr>`;
     }
     html += `</tbody></table></div>`;
     container.innerHTML = html;
@@ -795,13 +836,17 @@ function printBroadsheet() {
   printWindow.print();
 }
 
+/* ------------------------------------------------------------------ */
+/* UI population / navigation                                          */
+/* ------------------------------------------------------------------ */
+
 async function loadClassStudents() {
   if (!currentClassId) return;
-  
+
   reportState.term    = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
   await loadGradingSetting(reportState.session, reportState.term);
-  
+
   const classStudents = studentsList.filter(s => s.classId === currentClassId);
   const container = document.getElementById('studentListContainer');
   if (!container) return;
@@ -885,56 +930,59 @@ async function populateClassSelectors() {
       reportClassWrapper.style.display = 'none';
     }
   }
-  
+
   currentClassId = hostClassIds[0];
   await fetchClassName();
   await loadClassStudents();
 }
 
+/* ------------------------------------------------------------------ */
+/* Init                                                                */
+/* ------------------------------------------------------------------ */
+
 export async function initClassReportPage() {
   teacherData = getTeacherData();
   if (!teacherData) return;
-  
+
   currentSchoolId = teacherData.schoolId || localStorage.getItem('userSchoolId');
   if (!currentSchoolId) { toast.error('School ID missing. Please log in again.'); return; }
 
   await initAcademicCalendar();
   await checkSubscription();
-  
+
   const success = await loadTeacherHostClasses();
   if (!success) return;
-  
+
   await loadSubjectsAndClasses();
   await loadStudentsList();
   await populateClassSelectors();
-  
-  const distinctSessions = await loadSessionOptions(currentSchoolId);
-  const currentSession   = getCurrentSession();
-  if (!distinctSessions.includes(currentSession)) distinctSessions.unshift(currentSession);
-  const currentTermNum = getCurrentTerm();
-  const termMap = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
-  const defaultTermNum = termMap[currentTermNum] || '1';
-  
+
+  const currentSession  = getCurrentSession();
+  const currentTermNum  = getCurrentTerm();
+  const termMap         = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
+  const defaultTermNum  = termMap[currentTermNum] || '1';
+
+  // FIXED: Session selectors are locked to the current session only.
+  // No previous or upcoming sessions are populated.
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
-    sessionSelect.innerHTML = distinctSessions.map(s =>
-      `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
-    ).join('');
+    sessionSelect.innerHTML = `<option value="${currentSession}">${currentSession}</option>`;
+    sessionSelect.value = currentSession;
+    sessionSelect.disabled = true;
   }
   const broadsheetSessionSelect = document.getElementById('broadsheetSessionSelect');
   if (broadsheetSessionSelect) {
-    broadsheetSessionSelect.innerHTML = distinctSessions.map(s =>
-      `<option value="${s}" ${s === currentSession ? 'selected' : ''}>${s}</option>`
-    ).join('');
+    broadsheetSessionSelect.innerHTML = `<option value="${currentSession}">${currentSession}</option>`;
+    broadsheetSessionSelect.value = currentSession;
+    broadsheetSessionSelect.disabled = true;
   }
-  
+
   const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
   if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTermNum;
   const termSelect = document.getElementById('termSelect');
   if (termSelect) termSelect.value = defaultTermNum;
-  
+
   document.getElementById('termSelect')?.addEventListener('change', () => loadClassStudents());
-  document.getElementById('sessionSelect')?.addEventListener('change', () => loadClassStudents());
   document.getElementById('refreshStudentsBtn')?.addEventListener('click', () => loadClassStudents());
   document.getElementById('saveReportBtn')?.addEventListener('click', saveReportCard);
   document.getElementById('printReportBtn')?.addEventListener('click', handlePrint);
@@ -942,7 +990,7 @@ export async function initClassReportPage() {
   document.getElementById('generateBroadsheetBtn')?.addEventListener('click', generateBroadsheet);
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
-  
+
   if (hostClassIds.length === 1) {
     await loadClassStudents();
   }
