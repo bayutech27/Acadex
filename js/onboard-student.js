@@ -7,9 +7,31 @@
 // NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
 // REMOVED: "Promote" button and promotion logic – only admins can promote students.
 // All other functionality remains unchanged.
+//
+// NEW: The `required` attribute on the email input is toggled at runtime based on
+//      the current class level (currentClassLevel):
+//        • nursery / primary → email input is NOT required.
+//        • secondary         → email input IS required.
+//      No HTML changes needed.
+//
+// NEW: Auto-recovery from auth/email-already-in-use. If a previous save created
+//      an auth account but failed to write the Firestore student document, the
+//      next save attempt signs in with the default password to recover the same
+//      uid and completes the Firestore write — healing the orphan auth account.
+//
+// NEW: Per-step diagnostic logs ([ONBOARD-SAVE] ...) so the exact failing step is
+//      always visible in the browser console.
+//
+// NEW: Cache invalidation after every successful student write so downstream
+//      pages (results.js, class.js, scores.js) always read fresh data.
 
 import { auth, db } from './firebase-config.js';
-import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut
+} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import { firebaseConfig } from './firebase-config.js';
 import {
@@ -41,6 +63,9 @@ let editingStudentId = null;
 let schoolName = '';
 let isClassTeacher = false;
 
+// Original `required` state of the email input, captured on init from the HTML.
+let originalEmailRequired = false;
+
 // DOM elements
 let studentForm, modal, admissionNoInput;
 let surnameInput, firstNameInput, otherNameInput;
@@ -58,6 +83,50 @@ function getSecondaryAuth() {
     secondaryAuth = getAuth(secondaryApp);
   }
   return secondaryAuth;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// DIAGNOSTIC + CACHE HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/** Diagnostic logger — makes it obvious WHERE a save fails. */
+function logStep(step, data = {}) {
+  console.log(`[ONBOARD-SAVE] ${step}`, {
+    schoolId: currentSchoolId,
+    classId: currentClassId,
+    ...data
+  });
+}
+
+/** Best-effort cache invalidation for student-related caches in service.js. */
+function invalidateStudentCaches() {
+  try { service.invalidateStudents?.(); } catch (_) {}
+  try { service.invalidateStudent?.();  } catch (_) {}
+  try { service.invalidateScores?.();   } catch (_) {}
+}
+
+/**
+ * Toggle the `required` attribute on the email input based on the given level.
+ *   • 'nursery' | 'primary' → NOT required (email optional)
+ *   • 'secondary'           → required (original HTML behavior)
+ *   • '' / unknown          → restore original HTML state
+ *
+ * Purely runtime — does not touch the HTML file.
+ */
+function updateEmailRequiredForLevel(level) {
+  if (!emailInput) return;
+  const lvl = String(level || '').toLowerCase();
+  if (lvl === 'nursery' || lvl === 'primary') {
+    emailInput.required = false;
+    emailInput.removeAttribute('required');
+  } else if (lvl === 'secondary') {
+    emailInput.required = true;
+    emailInput.setAttribute('required', 'required');
+  } else {
+    emailInput.required = originalEmailRequired;
+    if (originalEmailRequired) emailInput.setAttribute('required', 'required');
+    else emailInput.removeAttribute('required');
+  }
 }
 
 // Nigerian states & countries
@@ -374,7 +443,7 @@ async function loadAndDisplayStudents() {
   let students;
   try {
     const allStudents = await service.getStudentsBySchool(currentSchoolId);
-    students = allStudents.filter(s => s.classId === currentClassId && s.status === 'active');
+    students = allStudents.filter(s => s.classId === currentClassId && (s.status || 'active') === 'active');
     students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
     console.error('Load students error:', err);
@@ -434,6 +503,7 @@ async function loadAndDisplayStudents() {
       const newStatus = select.value;
       try {
         await updateDoc(doc(db, 'students', studentId), { status: newStatus, updatedAt: new Date() });
+        invalidateStudentCaches();
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
         toast.success('Student status updated.');
@@ -460,6 +530,7 @@ async function loadAndDisplayStudents() {
         if (studentData && studentData.uid) {
           await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
         }
+        invalidateStudentCaches();
 
         await loadAndDisplayStudents();
         toast.success('Student and related data deleted.');
@@ -495,6 +566,10 @@ function openModal(studentId = null) {
   if (levelHidden) levelHidden.value = currentClassLevel;
   if (classDisplay) classDisplay.value = currentClassName;
   if (classHidden) classHidden.value = currentClassId;
+
+  // Toggle the email `required` state based on the current class level.
+  updateEmailRequiredForLevel(currentClassLevel);
+
   if (currentClassLevel) loadSubjectsByLevel(currentClassLevel);
   if (studentId) {
     modalTitle.textContent = 'Edit Student';
@@ -525,6 +600,11 @@ async function loadStudentData(studentId) {
     if (stateSelect) stateSelect.value = studentData.state || '';
     if (religionSelect) religionSelect.value = studentData.religion || '';
     if (parentPhoneInput) parentPhoneInput.value = studentData.parentPhone || '';
+
+    // The student's level is always the current class's level on this page.
+    // Re-assert the email `required` state in case it changed.
+    updateEmailRequiredForLevel(currentClassLevel || studentData.level);
+
     const subjectIds = studentData.subjects || [];
     if (subjectsSelect) {
       Array.from(subjectsSelect.options).forEach(opt => {
@@ -550,6 +630,8 @@ function closeModal() {
   studentForm.reset();
   if (passportPreviewContainer) passportPreviewContainer.innerHTML = '';
   if (passportInput) passportInput.dataset.base64 = '';
+  // Restore original email `required` state when the modal closes.
+  updateEmailRequiredForLevel('');
 }
 
 // Save / Update student
@@ -564,9 +646,8 @@ async function handleStudentSubmit(e) {
   const firstName = capitalizeWords(firstNameInput?.value ?? '');
   const otherName = capitalizeWords(otherNameInput?.value ?? '');
   const fullName = formatFullName(surname, firstName, otherName);
-  const email = emailInput?.value.trim() ?? '';
   const classId = currentClassId;
-  const level = currentClassLevel;
+  const level = (currentClassLevel || '').toLowerCase();
   const selectedSubjects = Array.from(subjectsSelect?.selectedOptions ?? []).map(o => o.value);
   const status = statusSelect?.value ?? 'active';
   const gender = genderSelect?.value ?? '';
@@ -578,12 +659,22 @@ async function handleStudentSubmit(e) {
   const religion = religionSelect?.value ?? '';
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // EMAIL HANDLING BY LEVEL
+  // -------------------------------------------------------------------------
+  // Nursery & Primary: email is optional and ignored on save. No auth account.
+  // Secondary: email is required and a login account is created.
+  // ─────────────────────────────────────────────────────────────────────────
+  const isLowerLevel   = (level === 'nursery' || level === 'primary');
+  const emailFromInput = emailInput?.value.trim() ?? '';
+  const email          = isLowerLevel ? '' : emailFromInput;
+
   // Required fields: email only required for Secondary
   if (!surname || !firstName || !gender || !dob || !nationality || !state || !religion || !parentPhone) {
     toast.error('Please fill all required fields (*).');
     return;
   }
-  if (level === 'secondary' && !email) {
+  if (level === 'secondary' && !emailFromInput) {
     toast.error('Email is required for Secondary level students.');
     return;
   }
@@ -618,22 +709,22 @@ async function handleStudentSubmit(e) {
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email,
-    level,
+    email: email || '',                              // "" for Nursery/Primary, actual for Secondary
+    level: level || 'primary',
     classId,
-    subjects: selectedSubjects,
-    status,
-    gender,
-    dob,
+    subjects: Array.isArray(selectedSubjects) ? selectedSubjects : [],
+    status: status || 'active',                      // never undefined
+    gender: gender || '',
+    dob: dob || '',
     club: club || null,
     passport: passport || null,
     schoolId: currentSchoolId,
     updatedAt: timestamp,
     subscriptionCovered: false,
-    nationality,
-    state,
-    religion,
-    parentPhone
+    nationality: nationality || '',
+    state: state || '',
+    religion: religion || '',
+    parentPhone: parentPhone || ''
   };
   if (!editingStudentId) {
     studentBaseData.locked = lockedValue;
@@ -641,53 +732,130 @@ async function handleStudentSubmit(e) {
   }
 
   try {
+    // ======================= UPDATE =======================
     if (editingStudentId) {
-      delete studentBaseData.locked;
+      delete studentBaseData.locked; // don't overwrite lock flag on edits
+      logStep('update:start', { id: editingStudentId });
       await service.updateStudent(editingStudentId, studentBaseData);
+      logStep('update:success', { id: editingStudentId });
+      invalidateStudentCaches();
       toast.success('Student updated successfully.');
       closeModal();
       await loadAndDisplayStudents();
       return;
     }
 
-    // Determine if we need to create an auth account.
-    const shouldCreateAuth = Boolean(email);
+    // ======================= CREATE =======================
+    // A student auth account is created ONLY for Secondary students with a valid email.
+    const shouldCreateAuth = (level === 'secondary') && Boolean(emailFromInput);
 
     if (shouldCreateAuth) {
-      // Create auth account for new student
+      // ---------- Secondary flow ----------
       const secondaryAuthInstance = getSecondaryAuth();
       const defaultPassword = '$Acadex123';
-      let userCredential;
+      let uid = null;
+
+      // --- STEP 1: create (or recover) auth account ---
       try {
-        userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
+        logStep('step1:create-auth', { email: emailFromInput });
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuthInstance, emailFromInput, defaultPassword
+        );
+        uid = userCredential.user.uid;
+        logStep('step1:create-auth:success', { uid });
       } catch (authError) {
         if (authError.code === 'auth/email-already-in-use') {
-          toast.error('A user with this email already exists. Use a different email.');
+          // RECOVERY: an auth account already exists — likely from a previous
+          // partial save where the Firestore write failed. Try to sign in with
+          // the default password to recover the same uid, then continue.
+          logStep('step1:recover-auth:start', { email: emailFromInput });
+          try {
+            const cred = await signInWithEmailAndPassword(
+              secondaryAuthInstance, emailFromInput, defaultPassword
+            );
+            uid = cred.user.uid;
+            logStep('step1:recover-auth:success', { uid });
+            toast.warning('Recovered an existing login account. Completing student record…');
+          } catch (signinErr) {
+            console.error('Recovery sign-in failed:', signinErr);
+            toast.error(
+              'A login account already exists for this email but could not be recovered. ' +
+              'Please use a different email, or reset the existing account.'
+            );
+            return;
+          }
         } else {
-          toast.error('Failed to create login account. Please check your internet connection.');
+          console.error('Student Auth creation error:', authError);
+          toast.error(`Failed to create login account (${authError.code || 'unknown'}).`);
+          return;
         }
+      }
+
+      if (!uid) {
+        toast.error('Could not obtain a user ID. Please try again.');
         return;
       }
-      const uid = userCredential.user.uid;
-      const studentDocData = { ...studentBaseData, uid: uid };
-      await setDoc(doc(db, 'students', uid), studentDocData);
+
+      // --- STEP 2: write the student document to Firestore (DIRECT) ---
+      const studentDocData = { ...studentBaseData, uid };
+      try {
+        logStep('step2:write-student', { uid, classId, schoolId: currentSchoolId });
+        await setDoc(doc(db, 'students', uid), studentDocData, { merge: true });
+        logStep('step2:write-student:success', { uid });
+      } catch (studentWriteErr) {
+        console.error('Student document write failed:', studentWriteErr);
+        // Sign out of secondary auth so the caller isn't left signed in as the student.
+        try { await firebaseSignOut(secondaryAuthInstance); } catch (_) {}
+        toast.error(
+          `Failed to save student data to database (${studentWriteErr.code || 'unknown'}). ` +
+          `Click Save again — the system will recover the existing login and retry.`
+        );
+        return;
+      }
+
+      // --- STEP 3: write the user document (DIRECT) ---
       const userDocData = {
-        uid: uid,
-        email: email,
+        uid,
+        email: emailFromInput,
         role: 'student',
         schoolId: currentSchoolId,
-        fullName: fullName,
+        fullName,
         studentId: uid,
-        classId: classId,
-        level: level,
+        classId,
+        level,
         createdAt: serverTimestamp(),
       };
-      await setDoc(doc(db, 'users', uid), userDocData);
-      showCredentialsModal(fullName, email, defaultPassword);
+      try {
+        logStep('step3:write-user', { uid });
+        await setDoc(doc(db, 'users', uid), userDocData, { merge: true });
+        logStep('step3:write-user:success', { uid });
+      } catch (userErr) {
+        console.error('User document write failed:', userErr);
+        toast.warning('Student saved, but login profile could not be created. Please contact support.');
+      }
+
+      invalidateStudentCaches();
+      showCredentialsModal(fullName, emailFromInput, defaultPassword);
+
     } else {
-      // No auth account: create student document with auto ID and uid: null
-      const newStudentRef = doc(collection(db, 'students'));
-      await setDoc(newStudentRef, { ...studentBaseData, uid: null });
+      // ---------- Nursery / Primary flow ----------
+      // No auth account. Direct setDoc with auto-ID. uid: null, email: ''.
+      try {
+        const newStudentRef = doc(collection(db, 'students'));
+        const studentDocData = { ...studentBaseData, uid: null, email: '' };
+        logStep('nursery-primary:write-student', {
+          autoId: newStudentRef.id,
+          classId,
+          schoolId: currentSchoolId
+        });
+        await setDoc(newStudentRef, studentDocData);
+        logStep('nursery-primary:write-student:success', { id: newStudentRef.id });
+        invalidateStudentCaches();
+      } catch (err) {
+        console.error('Nursery/Primary student save failed:', err);
+        toast.error(`Failed to save student (${err.code || 'unknown'}). Please try again.`);
+        return;
+      }
     }
 
     closeModal();
@@ -779,6 +947,11 @@ export async function initOnboardStudentPage() {
     classInfoContainer = document.getElementById('classInfoContainer');
     classSelectDropdown = document.getElementById('classSelect');
     classSelectorRow = document.getElementById('classSelectorRow');
+
+    // Capture the ORIGINAL `required` state from HTML once.
+    if (emailInput) {
+      originalEmailRequired = emailInput.required === true || emailInput.hasAttribute('required');
+    }
 
     // Populate country & state dropdowns
     if (nationalitySelect) {
