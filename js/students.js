@@ -1,15 +1,41 @@
 // students.js - Manage students with name parts, level filtering, dynamic class/subject loading
 // FULLY INTEGRATED with Central Academic Calendar (via admin.js exports)
-// ... (same comments as before, plus new note)
-// NEW: Status filter buttons for "Inactive" and "Graduated" students. Active students are shown by default.
-// FIX: Direct Firestore query to fetch all students when status filter is selected, bypassing service caching.
 //
-// All Firestore operations go through service.js where possible.
+// NEW: Status filter buttons for "Inactive" and "Graduated" students. Active students shown by default.
+// FIX: Direct Firestore query to fetch all students when status filter is selected, bypassing service caching.
 // FIX: Admission number generation uses direct Firestore (bypassing cache) to guarantee uniqueness.
+// FIX: ALL student list reads now bypass service cache so newly saved students appear immediately.
+// FIX: Missing `status` on legacy records defaults to 'active' so they still appear.
+//
+// NEW: Email is OPTIONAL for Nursery/Primary levels. When level is nursery or primary, the
+//      email input is ignored on save: no auth account is created, and the stored email
+//      field is set to an empty string. For Secondary, existing behavior is preserved
+//      (email required, auth account created, credentials displayed).
+//
+// NEW: Student save uses DIRECT Firestore setDoc (bypassing service.createStudent) for
+//      both Nursery/Primary AND Secondary flows, so no hidden subscription/cache/validation
+//      layer can silently break the write.
+//
+// NEW: Auto-recovery from auth/email-already-in-use. If a previous save created an auth
+//      account but failed to write the Firestore student document, the next save attempt
+//      signs in with the default password to recover the same uid and completes the
+//      Firestore write — healing the orphan auth account.
+//
+// NEW: Per-step diagnostic logs ([STUDENT-SAVE] ...) so the exact failing step is always
+//      visible in the browser console, per school.
+//
+// NEW: Cache invalidation after every successful student write so downstream pages
+//      (results.js, class.js, scores.js) always read fresh data.
+//
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, firebaseConfig } from './firebase-config.js';
-import { getAuth, createUserWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut
+} from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js';
 import {
   collection, getDocs, query, where, doc, setDoc, serverTimestamp, updateDoc
@@ -34,6 +60,30 @@ let surnameInput, firstNameInput, otherNameInput;
 let emailInput, levelSelect, classSelect, subjectsSelect, statusSelect;
 let genderSelect, dobInput, ageDisplay, clubInput, passportInput, passportPreviewContainer, passportErrorSpan;
 let nationalitySelect, stateSelect, religionSelect, parentPhoneInput;
+
+// ───────────────────────────────────────────────────────────────────────────────
+// DIAGNOSTIC + CACHE HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Diagnostic logger — makes it obvious WHERE a save fails, per school.
+ */
+function logStep(step, data = {}) {
+  console.log(`[STUDENT-SAVE] ${step}`, {
+    schoolId: currentSchoolId,
+    ...data
+  });
+}
+
+/**
+ * Best-effort cache invalidation for student-related caches in service.js.
+ * Safe no-op if the methods don't exist.
+ */
+function invalidateStudentCaches() {
+  try { service.invalidateStudents?.(); } catch (_) {}
+  try { service.invalidateStudent?.();  } catch (_) {}
+  try { service.invalidateScores?.();   } catch (_) {}
+}
 
 // ───────────────────────────────────────────────────────────────────────────────
 // LISTS FOR DROPDOWNS (unchanged)
@@ -242,30 +292,30 @@ export async function initStudentsPage() {
 
   await loadAllClasses();
   await loadAllSubjects();
-  
+
   await generateClassFilterButtons();
 
   // Set up bulk promote button event
   document.getElementById('bulkPromoteBtn')?.addEventListener('click', openBulkPromoteModal);
-  
+
   // Set up filter button delegation
   const filterContainer = document.getElementById('classFilterContainer');
   if (filterContainer) {
     filterContainer.addEventListener('click', (e) => {
       const btn = e.target.closest('.filter-btn');
       if (!btn) return;
-      
+
       // Remove active from all buttons
       filterContainer.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      
+
       // Determine filter type
       if (btn.dataset.status) {
         currentFilter = btn.dataset.status; // 'inactive' or 'graduated'
       } else {
         currentFilter = btn.dataset.class || 'all';
       }
-      
+
       toggleBulkPromoteButton();
       loadAndDisplayStudents();
     });
@@ -481,6 +531,7 @@ function calculateAndDisplayAge() {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // ADMISSION NUMBER HELPERS
+// ───────────────────────────────────────────────────────────────────────────────
 function getSchoolCode() {
   if (!schoolName) return 'XX';
   return schoolName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2);
@@ -518,10 +569,22 @@ async function generateAdmissionNumber() {
   return `${schoolCode}/${currentYear}/${String(nextSeq).padStart(3, '0')}`;
 }
 
+/**
+ * FIX: Direct Firestore read so the uniqueness check is never based on stale cache.
+ */
 async function isAdmissionNumberUnique(admissionNo, excludeStudentId = null) {
   try {
-    const allStudents = await service.getStudentsBySchool(currentSchoolId);
-    const duplicate = allStudents.find(s => s.admissionNumber === admissionNo && s.id !== excludeStudentId);
+    if (!admissionNo) return false;
+    const snap = await getDocs(
+      query(
+        collection(db, 'students'),
+        where('schoolId', '==', currentSchoolId),
+        where('admissionNumber', '==', admissionNo)
+      )
+    );
+    const duplicate = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .find(s => s.id !== excludeStudentId);
     return !duplicate;
   } catch (err) {
     console.error('Check admission number uniqueness error:', err);
@@ -602,51 +665,57 @@ async function handlePassportUpload(e) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// STUDENT LIST DISPLAY (using service or direct Firestore for status filters)
+// STUDENT LIST DISPLAY
+// FIX: ALWAYS reads fresh from Firestore (never trusts a cache) so newly saved
+//      students appear immediately, on every school.
+// FIX: Legacy records with missing `status` default to 'active' so they appear.
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadAndDisplayStudents() {
-  let students;
+  const container = document.getElementById('studentsList');
+  if (!container) return;
+
+  if (!currentSchoolId) {
+    container.innerHTML = '<p>School ID missing. Please refresh and log in again.</p>';
+    toast.error('School ID missing. Please refresh the page.');
+    return;
+  }
+
+  let students = [];
   try {
-    if (currentFilter === 'all' || currentFilter === 'inactive' || currentFilter === 'graduated') {
-      // For 'all' or status filters, we need ALL students of the school.
-      // Use direct Firestore query to ensure we get all statuses (avoid service caching/filtering).
-      const snapshot = await getDocs(
-        query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
-      );
-      const allStudents = [];
-      snapshot.forEach(doc => {
-        allStudents.push({ id: doc.id, ...doc.data() });
-      });
-      
-      if (currentFilter === 'all') {
-        students = allStudents.filter(s => s.status === 'active');
-      } else {
-        students = allStudents.filter(s => s.status === currentFilter);
-      }
+    // ALWAYS fetch fresh from Firestore — never trust a cache for the student list.
+    const snapshot = await getDocs(
+      query(collection(db, 'students'), where('schoolId', '==', currentSchoolId))
+    );
+    const allStudents = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    if (currentFilter === 'all') {
+      students = allStudents.filter(s => (s.status || 'active') === 'active');
+    } else if (currentFilter === 'inactive') {
+      students = allStudents.filter(s => s.status === 'inactive');
+    } else if (currentFilter === 'graduated') {
+      students = allStudents.filter(s => s.status === 'graduated');
     } else {
-      // Specific class filter: find classId and fetch students by class, then filter active
+      // Specific class filter — find classId by name, then filter locally.
       let classId = null;
       for (const [id, data] of classesMap.entries()) {
         if (data.name === currentFilter) { classId = id; break; }
       }
       if (!classId) {
-        const container = document.getElementById('studentsList');
-        if (container) container.innerHTML = '<p>No students found for this class.</p>';
+        container.innerHTML = '<p>No students found for this class.</p>';
         return;
       }
-      const classStudents = await service.getStudentsByClass(currentSchoolId, classId);
-      students = classStudents.filter(s => s.status === 'active');
+      students = allStudents.filter(
+        s => s.classId === classId && (s.status || 'active') === 'active'
+      );
     }
   } catch (err) {
     console.error('Load and display students error:', err);
     toast.error('Unable to load students. Please refresh the page.');
+    container.innerHTML = '<p>Unable to load students. Please refresh.</p>';
     return;
   }
 
   students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-  const container = document.getElementById('studentsList');
-  if (!container) return;
 
   if (students.length === 0) {
     let message = 'No students found';
@@ -686,8 +755,9 @@ async function loadAndDisplayStudents() {
           ${students.map(student => {
             const className   = classesMap.get(student.classId)?.name ?? 'Unknown';
             const passportSrc = student.passport || '';
+            const currentStatus = student.status || 'active';
             // Show promote button only for active students during first term
-            const showPromote = isFirstTerm && student.status === 'active';
+            const showPromote = isFirstTerm && currentStatus === 'active';
             return `
               <tr>
                 <td>
@@ -701,10 +771,10 @@ async function loadAndDisplayStudents() {
                   <td>${escapeHtml(student.email || '—')}</td>
                   <td>${escapeHtml(className)}</td>
                   <td>
-                  <select class="status-select" data-id="${student.id}" data-current="${student.status || 'active'}">
-                    <option value="active"    ${(student.status || 'active') === 'active'    ? 'selected' : ''}>Active</option>
-                    <option value="inactive"  ${student.status === 'inactive'  ? 'selected' : ''}>Inactive</option>
-                    <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
+                  <select class="status-select" data-id="${student.id}" data-current="${currentStatus}">
+                    <option value="active"    ${currentStatus === 'active'    ? 'selected' : ''}>Active</option>
+                    <option value="inactive"  ${currentStatus === 'inactive'  ? 'selected' : ''}>Inactive</option>
+                    <option value="graduated" ${currentStatus === 'graduated' ? 'selected' : ''}>Graduated</option>
                   </select>
                 </td>
                   <td>${student.locked ? 'Yes' : 'No'}</td>
@@ -737,6 +807,7 @@ async function loadAndDisplayStudents() {
       showLoader();
       try {
         await service.updateStudent(studentId, { status: newStatus, updatedAt: new Date() });
+        invalidateStudentCaches();
         select.setAttribute('data-current', newStatus);
         await loadAndDisplayStudents();
         toast.success('Student status updated.');
@@ -764,10 +835,11 @@ async function loadAndDisplayStudents() {
       const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
       for (const d of reportsSnap.docs) await deleteDoc(d.ref);
 
-      // ======= NEW: Mark user as disabled =======
+      // Mark user as disabled (if the student had an auth account)
       if (studentData && studentData.uid) {
         await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
       }
+      invalidateStudentCaches();
 
       await loadAndDisplayStudents();
       toast.success('Student and all associated data deleted successfully.');
@@ -837,6 +909,7 @@ async function promoteStudentToClass(studentId, newClassId) {
       level: newLevel,
       updatedAt: new Date()
     });
+    invalidateStudentCaches();
     toast.success('Student promoted successfully.');
     await loadAndDisplayStudents();
   } catch (err) {
@@ -925,7 +998,7 @@ async function promoteClassToNewClass(currentClassId, newClassId) {
 
     // Fetch all students in the current class (active only)
     const students = await service.getStudentsByClass(currentSchoolId, currentClassId);
-    const activeStudents = students.filter(s => s.status === 'active');
+    const activeStudents = students.filter(s => (s.status || 'active') === 'active');
 
     if (activeStudents.length === 0) {
       toast.warning('No active students found in this class to promote.');
@@ -941,6 +1014,7 @@ async function promoteClassToNewClass(currentClassId, newClassId) {
           level: newClassInfo.level || 'primary',
           updatedAt: new Date()
         });
+        invalidateStudentCaches();
         successCount++;
       } catch (err) {
         console.error(`Failed to promote student ${student.id}:`, err);
@@ -1069,7 +1143,17 @@ function closeModal() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// FORM SUBMIT — CREATE / UPDATE STUDENT (using service.createStudent/updateStudent)
+// FORM SUBMIT — CREATE / UPDATE STUDENT
+//
+// CREATE FLOW:
+//   • Secondary  → create (or recover) auth account, then DIRECT setDoc to
+//                  students/{uid}, then setDoc to users/{uid}. Credentials shown.
+//   • Nursery /
+//     Primary   → DIRECT setDoc to students/{autoId} with uid:null, email:''.
+//                  No auth account, no user document.
+//
+// UPDATE FLOW:
+//   • Direct updateDoc on students/{id}. Email field always included.
 // ───────────────────────────────────────────────────────────────────────────────
 async function handleStudentSubmit(e) {
   e.preventDefault();
@@ -1079,7 +1163,6 @@ async function handleStudentSubmit(e) {
   const firstName = capitalizeWords(firstNameInput?.value ?? '');
   const otherName = capitalizeWords(otherNameInput?.value ?? '');
   const fullName  = formatFullName(surname, firstName, otherName);
-  const email     = emailInput?.value.trim() ?? '';
   const level     = (levelSelect?.value ?? '').toLowerCase();
   const classId   = classSelect?.value ?? '';
   const selectedSubjects = Array.from(subjectsSelect?.selectedOptions ?? []).map(o => o.value);
@@ -1093,12 +1176,29 @@ async function handleStudentSubmit(e) {
   const religion = religionSelect?.value ?? '';
   const parentPhone = parentPhoneInput?.value.trim() ?? '';
 
-  // Required fields validation: email is only required for Secondary level
+  // ─────────────────────────────────────────────────────────────────────────
+  // EMAIL HANDLING BY LEVEL
+  // -------------------------------------------------------------------------
+  // Nursery & Primary do NOT require an email or a student login account.
+  // For these levels, the email input is ignored entirely: we never use the
+  // value typed by the admin, we never create an auth account, and we store
+  // an empty string in the `email` field of the student document.
+  //
+  // Secondary retains the existing behaviour:
+  //   • Email is REQUIRED.
+  //   • A student auth account is created with a default temporary password.
+  //   • Login credentials are shown in a modal after save.
+  // ─────────────────────────────────────────────────────────────────────────
+  const isLowerLevel   = (level === 'nursery' || level === 'primary');
+  const emailFromInput = emailInput?.value.trim() ?? '';
+  const email          = isLowerLevel ? '' : emailFromInput;
+
+  // Required fields validation: email is only required for Secondary.
   if (!surname || !firstName || !classId || !gender || !dob || !level) {
     toast.error('Please fill in all required fields (Surname, First Name, Level, Class, Gender, Date of Birth).');
     return;
   }
-  if (level === 'secondary' && !email) {
+  if (level === 'secondary' && !emailFromInput) {
     toast.error('Email is required for Secondary level students.');
     return;
   }
@@ -1125,93 +1225,177 @@ async function handleStudentSubmit(e) {
   }
 
   const timestamp = new Date();
+
+  // Normalize payload: ALWAYS include status, subjects, email, locked defaults
+  // so downstream reads never encounter missing fields.
   const studentBaseData = {
-    admissionNumber,
+    admissionNumber: admissionNumber || '',
     surname,
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email: email, // may be empty for Nursery/Primary without email
-    level,
-    classId,
-    subjects: selectedSubjects,
-    status,
-    gender,
-    dob,
+    email: email || '',                              // "" for Nursery/Primary, actual for Secondary
+    level: level || 'secondary',
+    classId: classId || '',
+    subjects: Array.isArray(selectedSubjects) ? selectedSubjects : [],
+    status: status || 'active',                      // never undefined
+    gender: gender || '',
+    dob: dob || '',
     club: club || null,
     passport: passport || null,
     schoolId: currentSchoolId,
     updatedAt: timestamp,
     subscriptionCovered: false,
-    nationality,
-    state,
-    religion,
-    parentPhone
+    nationality: nationality || '',
+    state: state || '',
+    religion: religion || '',
+    parentPhone: parentPhone || ''
   };
   if (!editingStudentId) {
     studentBaseData.locked = lockedValue;
     studentBaseData.createdAt = timestamp;
   }
 
+  // Guard: schoolId must be present before ANY write.
+  if (!currentSchoolId) {
+    toast.error('School ID missing. Please refresh the page and log in again.');
+    return;
+  }
+
   showLoader();
   try {
+    // ======================= UPDATE =======================
     if (editingStudentId) {
-      delete studentBaseData.locked;
-      await service.updateStudent(editingStudentId, studentBaseData);
+      delete studentBaseData.locked; // don't overwrite lock flag on edits
+      logStep('update:start', { id: editingStudentId });
+      await updateDoc(doc(db, 'students', editingStudentId), studentBaseData);
+      logStep('update:success', { id: editingStudentId });
+
+      invalidateStudentCaches();
       toast.success('Student updated successfully.');
       closeModal();
       await loadAndDisplayStudents();
       return;
     }
 
-    // Determine if we need to create an auth account.
-    // For Nursery/Primary without email, skip auth entirely.
-    const shouldCreateAuth = Boolean(email);
+    // ======================= CREATE =======================
+    // A student auth account is created ONLY for Secondary students with a valid email.
+    // Nursery / Primary students are always saved without an auth account.
+    const shouldCreateAuth = (level === 'secondary') && Boolean(emailFromInput);
 
     if (shouldCreateAuth) {
-      // Existing flow: create auth account, then student doc with UID, then user doc.
+      // ---------- Secondary flow ----------
       const secondaryAuthInstance = getSecondaryAuth();
       const defaultPassword = '$Acadex123';
-      let userCredential;
+      let uid = null;
+
+      // --- STEP 1: create (or recover) auth account ---
       try {
-        userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
+        logStep('step1:create-auth', { email: emailFromInput });
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuthInstance, emailFromInput, defaultPassword
+        );
+        uid = userCredential.user.uid;
+        logStep('step1:create-auth:success', { uid });
       } catch (authError) {
-        console.error('Student Auth creation error:', authError);
         if (authError.code === 'auth/email-already-in-use') {
-          toast.error('A user with this email already exists. Please use a different email.');
+          // RECOVERY: an auth account already exists — likely from a previous
+          // partial save where the Firestore write failed. Try to sign in with
+          // the default password to recover the same uid, then continue.
+          logStep('step1:recover-auth:start', { email: emailFromInput });
+          try {
+            const cred = await signInWithEmailAndPassword(
+              secondaryAuthInstance, emailFromInput, defaultPassword
+            );
+            uid = cred.user.uid;
+            logStep('step1:recover-auth:success', { uid });
+            toast.warning('Recovered an existing login account. Completing student record…');
+          } catch (signinErr) {
+            console.error('Recovery sign-in failed:', signinErr);
+            toast.error(
+              'A login account already exists for this email but could not be recovered. ' +
+              'Please use a different email, or reset the existing account.'
+            );
+            return;
+          }
         } else {
-          toast.error('Failed to create login account. Please check your internet connection.');
+          console.error('Student Auth creation error:', authError);
+          toast.error(`Failed to create login account (${authError.code || 'unknown'}).`);
+          return;
         }
+      }
+
+      if (!uid) {
+        toast.error('Could not obtain a user ID. Please try again.');
         return;
       }
 
-      const uid = userCredential.user.uid;
-      const studentDocData = { ...studentBaseData, uid: uid };
-      await service.createStudent(uid, studentDocData);
+      // --- STEP 2: write the student document to Firestore (DIRECT) ---
+      const studentDocData = { ...studentBaseData, uid };
+      try {
+        logStep('step2:write-student', { uid, classId, schoolId: currentSchoolId });
+        await setDoc(doc(db, 'students', uid), studentDocData, { merge: true });
+        logStep('step2:write-student:success', { uid });
+      } catch (studentWriteErr) {
+        console.error('Student document write failed:', studentWriteErr);
+        // Sign out of secondary auth so the caller isn't left signed in as the student.
+        try { await firebaseSignOut(secondaryAuthInstance); } catch (_) {}
+        toast.error(
+          `Failed to save student data to database (${studentWriteErr.code || 'unknown'}). ` +
+          `Click Save again — the system will recover the existing login and retry.`
+        );
+        return;
+      }
 
+      // --- STEP 3: write the user document (DIRECT) ---
       const userDocData = {
-        uid: uid,
-        email: email,
+        uid,
+        email: emailFromInput,
         role: 'student',
         schoolId: currentSchoolId,
         fullName: fullName,
         studentId: uid,
-        classId: classId,
-        level: level,
+        classId,
+        level,
         createdAt: serverTimestamp(),
       };
-      await setDoc(doc(db, 'users', uid), userDocData);
+      try {
+        logStep('step3:write-user', { uid });
+        await setDoc(doc(db, 'users', uid), userDocData, { merge: true });
+        logStep('step3:write-user:success', { uid });
+      } catch (userErr) {
+        console.error('User document write failed:', userErr);
+        // Student doc was saved — the record exists. Just warn.
+        toast.warning('Student saved, but login profile could not be created. Please contact support.');
+      }
 
+      invalidateStudentCaches();
       await handleNewStudentAddition(currentSchoolId, 1);
-      showCredentialsModal(fullName, email, defaultPassword);
+      showCredentialsModal(fullName, emailFromInput, defaultPassword);
+
     } else {
-      // New flow: no auth account, no user document.
-      // Create student document with auto-generated ID and uid: null.
-      const newStudentRef = doc(collection(db, 'students'));
-      await setDoc(newStudentRef, { ...studentBaseData, uid: null });
+      // ---------- Nursery / Primary flow ----------
+      // No auth account. Direct setDoc with auto-ID. uid: null, email: ''.
+      try {
+        const newStudentRef = doc(collection(db, 'students'));
+        const studentDocData = { ...studentBaseData, uid: null, email: '' };
+        logStep('nursery-primary:write-student', {
+          autoId: newStudentRef.id,
+          classId,
+          schoolId: currentSchoolId
+        });
+        await setDoc(newStudentRef, studentDocData);
+        logStep('nursery-primary:write-student:success', { id: newStudentRef.id });
 
-      // Still call the subscription handler for new student.
-      await handleNewStudentAddition(currentSchoolId, 1);
+        invalidateStudentCaches();
+        await handleNewStudentAddition(currentSchoolId, 1);
+      } catch (err) {
+        console.error('Nursery/Primary student save failed:', err);
+        toast.error(
+          `Failed to save student (${err.code || 'unknown'}). Please try again.`
+        );
+        return;
+      }
     }
 
     closeModal();
@@ -1268,7 +1452,7 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  // ======= NEW: payment reference logging =======
+  // Payment reference logging
   document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
     const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
     await setDoc(doc(db, 'paymentReferences', ref), {
