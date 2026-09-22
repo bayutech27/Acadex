@@ -24,6 +24,10 @@
 //
 // NEW: Cache invalidation after every successful student write so downstream
 //      pages (results.js, class.js, scores.js) always read fresh data.
+//
+// NEW: All newly-created students are ALWAYS locked (locked: true) on creation,
+//      irrespective of the school's subscription state. Only a super-admin can
+//      unlock a student later.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -696,11 +700,14 @@ async function handleStudentSubmit(e) {
     return;
   }
 
-  let lockedValue = false;
-  if (!editingStudentId) {
-    const isRawActive = await getRawSubscription(currentSchoolId);
-    lockedValue = isRawActive ? true : false;
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOCKED ON CREATION
+  // -------------------------------------------------------------------------
+  // Every newly created student is ALWAYS locked, regardless of whether the
+  // school's subscription is currently active. Only a super-admin can unlock
+  // a student later (enforced by Firestore rules).
+  // ─────────────────────────────────────────────────────────────────────────
+  const lockedValue = true;
 
   const timestamp = new Date();
   const studentBaseData = {
@@ -799,7 +806,7 @@ async function handleStudentSubmit(e) {
       // --- STEP 2: write the student document to Firestore (DIRECT) ---
       const studentDocData = { ...studentBaseData, uid };
       try {
-        logStep('step2:write-student', { uid, classId, schoolId: currentSchoolId });
+        logStep('step2:write-student', { uid, classId, schoolId: currentSchoolId, locked: true });
         await setDoc(doc(db, 'students', uid), studentDocData, { merge: true });
         logStep('step2:write-student:success', { uid });
       } catch (studentWriteErr) {
@@ -840,13 +847,15 @@ async function handleStudentSubmit(e) {
     } else {
       // ---------- Nursery / Primary flow ----------
       // No auth account. Direct setDoc with auto-ID. uid: null, email: ''.
+      // locked: true is always set (see lockedValue above).
       try {
         const newStudentRef = doc(collection(db, 'students'));
         const studentDocData = { ...studentBaseData, uid: null, email: '' };
         logStep('nursery-primary:write-student', {
           autoId: newStudentRef.id,
           classId,
-          schoolId: currentSchoolId
+          schoolId: currentSchoolId,
+          locked: true
         });
         await setDoc(newStudentRef, studentDocData);
         logStep('nursery-primary:write-student:success', { id: newStudentRef.id });
