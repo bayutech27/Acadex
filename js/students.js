@@ -12,6 +12,12 @@
 //      field is set to an empty string. For Secondary, existing behavior is preserved
 //      (email required, auth account created, credentials displayed).
 //
+// NEW: The `required` attribute on the email input is dynamically toggled by level:
+//        • Nursery / Primary → email input is NOT required.
+//        • Secondary         → email input IS required (original HTML behavior).
+//        • No level selected → original HTML `required` state is restored.
+//      This is done entirely from students.js — no HTML changes needed.
+//
 // NEW: Student save uses DIRECT Firestore setDoc (bypassing service.createStudent) for
 //      both Nursery/Primary AND Secondary flows, so no hidden subscription/cache/validation
 //      layer can silently break the write.
@@ -54,6 +60,9 @@ let currentFilter = 'all'; // 'all', class name, 'inactive', 'graduated'
 let schoolName = '';
 let unsubscribeSub = null;
 
+// Original `required` state of the email input, captured on init from the HTML.
+let originalEmailRequired = false;
+
 // DOM elements
 let studentForm, modal, admissionNoInput;
 let surnameInput, firstNameInput, otherNameInput;
@@ -83,6 +92,31 @@ function invalidateStudentCaches() {
   try { service.invalidateStudents?.(); } catch (_) {}
   try { service.invalidateStudent?.();  } catch (_) {}
   try { service.invalidateScores?.();   } catch (_) {}
+}
+
+/**
+ * Toggle the `required` attribute on the email input based on the selected level.
+ *   • 'nursery' | 'primary'  → NOT required (email optional)
+ *   • 'secondary'            → required (original HTML behavior)
+ *   • '' (nothing selected)  → restore original HTML state
+ *
+ * Purely runtime — does not touch the HTML file.
+ */
+function updateEmailRequiredForLevel(level) {
+  if (!emailInput) return;
+  const lvl = String(level || '').toLowerCase();
+  if (lvl === 'nursery' || lvl === 'primary') {
+    emailInput.required = false;
+    emailInput.removeAttribute('required');
+  } else if (lvl === 'secondary') {
+    emailInput.required = true;
+    emailInput.setAttribute('required', 'required');
+  } else {
+    // Empty level: restore whatever the HTML declared.
+    emailInput.required = originalEmailRequired;
+    if (originalEmailRequired) emailInput.setAttribute('required', 'required');
+    else emailInput.removeAttribute('required');
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -251,6 +285,12 @@ export async function initStudentsPage() {
   religionSelect           = document.getElementById('studentReligion');
   parentPhoneInput         = document.getElementById('studentParentPhone');
 
+  // Capture the ORIGINAL `required` state from HTML so we can restore it
+  // whenever no level is selected. This is a one-time capture.
+  if (emailInput) {
+    originalEmailRequired = emailInput.required === true || emailInput.hasAttribute('required');
+  }
+
   // Populate dropdowns
   if (nationalitySelect) {
     nationalitySelect.innerHTML = '<option value="">-- Select Country --</option>';
@@ -337,6 +377,9 @@ export async function initStudentsPage() {
   if (levelSelect) {
     levelSelect.addEventListener('change', async (e) => {
       const level = e.target.value;
+      // Toggle the email field's `required` state based on the selected level.
+      updateEmailRequiredForLevel(level);
+
       if (level) {
         await loadClassesByLevel(level);
         await loadSubjectsByLevel(level);
@@ -1070,6 +1113,9 @@ function openModal(studentId = null) {
     subjectsSelect.disabled = true;
   }
 
+  // Reset the email `required` state to the HTML default (no level selected yet).
+  updateEmailRequiredForLevel('');
+
   if (studentId) {
     modalTitle.textContent = 'Edit Student';
     loadStudentData(studentId);
@@ -1094,6 +1140,9 @@ async function loadStudentData(studentId) {
 
     const studentLevel = (student.level || 'secondary').toLowerCase();
     if (levelSelect) levelSelect.value = studentLevel;
+
+    // Ensure the email `required` state matches the student's actual level.
+    updateEmailRequiredForLevel(studentLevel);
 
     if (studentLevel) {
       await loadClassesByLevel(studentLevel);
@@ -1140,6 +1189,8 @@ function closeModal() {
   studentForm.reset();
   if (passportPreviewContainer) passportPreviewContainer.innerHTML = '';
   if (passportInput)            passportInput.dataset.base64 = '';
+  // Restore original email `required` state when modal closes.
+  updateEmailRequiredForLevel('');
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
