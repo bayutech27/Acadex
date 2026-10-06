@@ -8,6 +8,22 @@
 // UPDATED: New school document is created with status = 'expired' to match security rules.
 // UPDATED: New subscription document is also created with status = 'expired' and locked = true.
 // UPDATED: Initial subscription plan is now 'freemium' (was 'basic').
+//
+// DIAGNOSTIC UPDATES (this revision):
+//   • Added structured developer logging (logAuthError) for every authentication failure.
+//     Logs include: operation, Firebase error code, Firebase error message, name, and
+//     timestamp. Passwords, tokens, and user records are NEVER logged.
+//   • Added getFriendlyAuthErrorMessage() — a single, central map of Firebase error
+//     codes to safe user-facing messages that do not leak technical detail and do not
+//     enable account enumeration.
+//   • Removed the previous catch-all "check your internet connection" behaviour.
+//     Network errors are ONLY shown as network errors when Firebase actually returns
+//     auth/network-request-failed (or a Firestore 'unavailable' / 'deadline-exceeded').
+//   • Unknown errors are logged for developers but the user only sees a safe generic
+//     message that does NOT claim the failure was caused by the internet.
+//   • No automatic retries were added — see summary. This keeps the actual error code
+//     visible when you reproduce the Airtel problem.
+//   • Nothing else in the authentication flow was changed.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -44,6 +60,159 @@ const ROLE_REDIRECTS = {
   'parent':      '/parent/parent-portal.html',
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DIAGNOSTIC HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Structured, safe diagnostic logger for authentication failures.
+ *
+ * What it logs:  operation name, Firebase error code, error name, error message,
+ *                timestamp, and (for network-request-failed) a diagnostic hint.
+ *
+ * What it NEVER logs: passwords, tokens, ID tokens, refresh tokens, security codes,
+ *                     full user records, or anything else that could expose secrets.
+ *
+ * @param {string} operation  Human-readable operation name, e.g. 'login', 'signup'.
+ * @param {Error|*} error     The caught error (or any value).
+ * @param {object} [extra]    Optional extra safe context (e.g. { phase: 'create-user' }).
+ */
+function logAuthError(operation, error, extra = {}) {
+  const err = (error && typeof error === 'object') ? error : { message: String(error) };
+
+  const safeInfo = {
+    operation,
+    code: err.code || '(none)',
+    name: err.name || '(none)',
+    message: err.message || '(none)',
+    timestamp: new Date().toISOString(),
+    ...extra
+  };
+
+  // Add a diagnostic hint specifically for genuine network failures so that the
+  // Airtel-style connectivity issue is easy to spot in the console.
+  if (err.code === 'auth/network-request-failed') {
+    safeInfo.diagnostic =
+      'Firebase could not reach the authentication service. Likely causes: ' +
+      'blocked / misconfigured mobile network, DNS interference, firewall or VPN ' +
+      'filtering, captive portal, TLS interception, or a temporary Firebase outage. ' +
+      'Check the browser DevTools Network tab for failed requests to ' +
+      'identitytoolkit.googleapis.com / securetoken.googleapis.com.';
+  }
+
+  // eslint-disable-next-line no-console
+  console.error(`[Acadex Auth] ${operation} failed`, safeInfo);
+}
+
+/**
+ * Map a Firebase Auth (or Firestore) error code to a safe, non-technical message
+ * suitable for end users (teachers, parents, students, admins).
+ *
+ * Security notes:
+ *   • Account enumeration is prevented — "user not found" and "wrong password"
+ *     produce the SAME message on login.
+ *   • Technical details (codes, endpoints, rule names, UID, schoolId) are never
+ *     included in the returned string.
+ *   • Genuine network failures are the ONLY case that mentions the user's
+ *     connection. All other errors get an honest, accurate description.
+ *
+ * @param {Error|*} error
+ * @param {string} [operation]  Reserved for future operation-specific wording.
+ * @returns {string}
+ */
+function getFriendlyAuthErrorMessage(error, operation = 'auth') { // eslint-disable-line no-unused-vars
+  const code = (error && typeof error === 'object' && error.code) ? error.code : '';
+
+  // ── Credential errors ─────────────────────────────────────────────────
+  // Grouped deliberately so login cannot be used to enumerate accounts.
+  if (
+    code === 'auth/invalid-credential' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/user-not-found' ||
+    code === 'auth/invalid-login-credentials'
+  ) {
+    return 'Email or password is incorrect. Please check your details and try again.';
+  }
+
+  // ── Account state ─────────────────────────────────────────────────────
+  if (code === 'auth/user-disabled') {
+    return 'This account is currently unavailable. Please contact your school administrator.';
+  }
+  if (code === 'auth/requires-recent-login') {
+    return 'For your security, please log in again to continue.';
+  }
+
+  // ── Input problems ────────────────────────────────────────────────────
+  if (code === 'auth/invalid-email') {
+    return 'Please enter a valid email address.';
+  }
+  if (code === 'auth/missing-email') {
+    return 'Please enter your email address.';
+  }
+  if (code === 'auth/missing-password') {
+    return 'Please enter your password.';
+  }
+
+  // ── Rate limiting ─────────────────────────────────────────────────────
+  if (code === 'auth/too-many-requests') {
+    return 'Too many attempts. Please wait a little while and try again.';
+  }
+
+  // ── Genuine network failures ──────────────────────────────────────────
+  // Only these codes receive a message that mentions the user's connection.
+  if (
+    code === 'auth/network-request-failed' ||
+    code === 'unavailable' ||        // Firestore offline / service unreachable
+    code === 'deadline-exceeded'     // Firestore timeout
+  ) {
+    return "We couldn't complete your request right now. Please check your connection and try again.";
+  }
+
+  // ── Signup-specific ───────────────────────────────────────────────────
+  if (code === 'auth/email-already-in-use') {
+    return 'This email is already registered. Please log in or use a different email.';
+  }
+  if (code === 'auth/weak-password') {
+    return 'Password is too weak. Please use at least 6 characters.';
+  }
+  if (code === 'auth/account-exists-with-different-credential') {
+    return 'An account already exists with this email using a different sign-in method.';
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return 'This sign-in method is currently unavailable. Please try again later.';
+  }
+
+  // ── Password reset link problems ──────────────────────────────────────
+  if (code === 'auth/expired-action-code' || code === 'auth/invalid-action-code') {
+    return 'This link is no longer valid. Please request a new one.';
+  }
+
+  // ── Service / configuration problems ──────────────────────────────────
+  // These are NOT the user's fault and must not be blamed on their internet.
+  if (
+    code === 'auth/api-key-not-valid' ||
+    code === 'auth/invalid-api-key' ||
+    code === 'auth/app-deleted' ||
+    code === 'auth/internal-error'
+  ) {
+    return "We're having trouble completing this right now. Please try again shortly. " +
+           'If the problem continues, please contact Acadex support.';
+  }
+
+  // ── Firestore permission-denied (surfaces during signup / reads) ──────
+  if (code === 'permission-denied') {
+    return "We couldn't complete this action right now. Please try again later.";
+  }
+
+  // ── Safe fallback ─────────────────────────────────────────────────────
+  return "We couldn't complete your request right now. Please try again. " +
+         'If the problem continues, contact Acadex support.';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERNAL HELPERS (unchanged behaviour, only error handling improved below)
+// ─────────────────────────────────────────────────────────────────────────────
+
 function redirectByRole(role) {
   const destination = ROLE_REDIRECTS[role];
   if (destination) {
@@ -71,7 +240,7 @@ async function isUsernameTaken(username) {
     const querySnapshot = await getDocs(q);
     return !querySnapshot.empty;
   } catch (err) {
-    console.error('Username check error:', err);
+    logAuthError('username-check', err, { phase: 'schools-query' });
     toast.error('Unable to check username availability. Please try again.');
     return true;
   }
@@ -98,7 +267,7 @@ async function isEmailAlreadyRegistered(email) {
     const methods = await fetchSignInMethodsForEmail(auth, email);
     return methods.length > 0;
   } catch (error) {
-    console.warn('Email check failed:', error);
+    logAuthError('email-check', error, { phase: 'fetchSignInMethodsForEmail' });
     toast.warning('Unable to verify email. Please try again.');
     return false;
   }
@@ -124,6 +293,10 @@ function getTermStartEndDates(term, session) {
   const endDate   = new Date(Date.UTC(year, monthEnd,   dayEnd));
   return { startDate, endDate };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGNUP
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function signupSchool(schoolName, username, address, phone, email, password) {
   if (!username) {
@@ -213,42 +386,44 @@ export async function signupSchool(schoolName, username, address, phone, email, 
     localStorage.setItem('schoolSlug', username);
     localStorage.setItem('userSchoolId', schoolId);
     localStorage.setItem('userRole', 'admin');
-    
+
     toast.success('Account created successfully! Redirecting to your dashboard...');
-    
+
     setTimeout(() => {
       window.location.href = `/admin/admin-dashboard.html?school=${username}`;
     }, 1500);
-    
+
   } catch (error) {
-    console.error('Signup error:', error);
-    let errorMessage = 'Signup failed. ';
-    
-    if (error.code === 'auth/email-already-in-use') {
-      errorMessage = 'This email is already registered. Please log in instead.';
-    } else if (error.code === 'auth/weak-password') {
-      errorMessage = 'Password is too weak. Please use at least 6 characters.';
-    } else if (error.code === 'permission-denied') {
-      errorMessage = 'Unable to create your school at the moment. Please try again later.';
-    } else if (error.message === 'User document was not saved properly') {
+    logAuthError('signup', error);
+
+    // Custom non-Firebase error — preserve its specific wording.
+    let errorMessage;
+    if (error && error.message === 'User document was not saved properly') {
       errorMessage = 'Account created but setup incomplete. Please contact support.';
+    } else if (error && error.code === 'permission-denied') {
+      // Signup surfaces permission-denied when security rules reject the batch write.
+      errorMessage = 'Unable to create your school at the moment. Please try again later.';
     } else {
-      errorMessage = 'Unable to create account. Please check your internet connection and try again.';
+      errorMessage = getFriendlyAuthErrorMessage(error, 'signup');
     }
-    
+
     toast.error(errorMessage);
-    
-    if (userCredential && error.message !== 'User document was not saved properly') {
+
+    if (userCredential && (!error || error.message !== 'User document was not saved properly')) {
       try {
         await userCredential.user.delete();
       } catch (deleteError) {
-        console.error('Failed to delete auth user after signup error:', deleteError);
+        logAuthError('signup-cleanup', deleteError, { phase: 'delete-orphan-auth-user' });
       }
     }
   } finally {
     hideLoader();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function loginUser(email, password) {
   showLoader();
@@ -259,7 +434,7 @@ export async function loginUser(email, password) {
     let userDocSnap = null;
     let retries = 0;
     const maxRetries = 3;
-    
+
     while (retries < maxRetries && !userDocSnap?.exists()) {
       if (retries > 0) {
         await new Promise(resolve => setTimeout(resolve, 1000 * retries));
@@ -267,9 +442,19 @@ export async function loginUser(email, password) {
       userDocSnap = await getDoc(doc(db, 'users', user.uid));
       retries++;
     }
-    
+
     if (!userDocSnap.exists()) {
-      console.error('User document missing for UID:', user.uid);
+      // Developer diagnostic — user-facing message is intentionally generic.
+      // eslint-disable-next-line no-console
+      console.error('[Acadex Auth] login failed', {
+        operation: 'login',
+        phase: 'user-doc-missing',
+        code: '(no-doc)',
+        message: 'Firestore user document not found after retries.',
+        uidPresent: Boolean(user && user.uid),
+        retries,
+        timestamp: new Date().toISOString()
+      });
       await signOut(auth);
       toast.error('Account exists but is not fully set up. Please contact support or try again in a few moments.');
       return;
@@ -327,24 +512,16 @@ export async function loginUser(email, password) {
     redirectByRole(role);
 
   } catch (error) {
-    console.error('Login error:', error);
-    let errorMessage = 'Login failed. ';
-    if (
-      error.code === 'auth/user-not-found' ||
-      error.code === 'auth/wrong-password' ||
-      error.code === 'auth/invalid-credential'
-    ) {
-      errorMessage = 'Invalid email or password. Please try again.';
-    } else if (error.message === 'Network error') {
-      errorMessage = 'Network error. Please check your internet connection.';
-    } else {
-      errorMessage = 'Unable to log in. Please check your internet connection and try again.';
-    }
-    toast.error(errorMessage);
+    logAuthError('login', error);
+    toast.error(getFriendlyAuthErrorMessage(error, 'login'));
   } finally {
     hideLoader();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGOUT
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function logoutUser() {
   try {
@@ -357,10 +534,14 @@ export async function logoutUser() {
     toast.success('Logged out successfully.');
     window.location.href = '/';
   } catch (error) {
-    console.error('Logout error:', error);
-    toast.error('Logout failed. Please try again.');
+    logAuthError('logout', error);
+    toast.error(getFriendlyAuthErrorMessage(error, 'logout'));
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASSWORD RESET
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function resetPassword(email) {
   showLoader();
@@ -368,18 +549,25 @@ export async function resetPassword(email) {
     await sendPasswordResetEmail(auth, email);
     toast.success('Password reset email sent! Check your inbox or spam folder.');
   } catch (error) {
-    console.error('Reset password error:', error);
-    let errorMessage = 'Reset failed. ';
-    if (error.code === 'auth/user-not-found') {
+    logAuthError('password-reset', error);
+
+    // Preserve the existing specific wording for user-not-found. Changing it
+    // would alter product behaviour, and that is outside the scope of this task.
+    let errorMessage;
+    if (error && error.code === 'auth/user-not-found') {
       errorMessage = 'No account found with this email address.';
     } else {
-      errorMessage = 'Unable to send reset email. Please check your internet connection.';
+      errorMessage = getFriendlyAuthErrorMessage(error, 'password-reset');
     }
     toast.error(errorMessage);
   } finally {
     hideLoader();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH GUARD / PAGE INITIALISERS
+// ─────────────────────────────────────────────────────────────────────────────
 
 function handleAlreadyLoggedIn(user, onNotLoggedIn) {
   onAuthStateChanged(auth, async (user) => {
@@ -394,8 +582,8 @@ function handleAlreadyLoggedIn(user, onNotLoggedIn) {
           }
         }
       } catch (err) {
-        console.error('Auth guard error:', err);
-        toast.error('Failed to verify user session. Please try again.');
+        logAuthError('auth-guard', err, { phase: 'get-user-doc' });
+        toast.error('We had trouble verifying your session. Please try again.');
       }
     }
     if (typeof onNotLoggedIn === 'function') onNotLoggedIn();
@@ -510,7 +698,7 @@ export async function initAdminDashboard() {
       const schoolNameEl = document.getElementById('schoolName');
       if (schoolNameEl) schoolNameEl.textContent = school ? school.name : 'Unknown School';
     } catch (err) {
-      console.error('Admin dashboard error:', err);
+      logAuthError('admin-dashboard', err, { phase: 'load-dashboard-data' });
       toast.error('Failed to load dashboard data. Please refresh the page.');
     }
   });
@@ -557,7 +745,7 @@ export function initStudentPortal() {
       localStorage.setItem('userRole', 'student');
       localStorage.setItem('studentId', user.uid);
     } catch (err) {
-      console.error('Student portal guard error:', err);
+      logAuthError('student-portal-guard', err);
       toast.error('Failed to verify student session. Please log in again.');
       await signOut(auth);
       window.location.href = '/';
@@ -600,7 +788,7 @@ export function initParentPortal() {
       localStorage.setItem('userRole', 'parent');
       localStorage.setItem('parentId', user.uid);
     } catch (err) {
-      console.error('Parent portal guard error:', err);
+      logAuthError('parent-portal-guard', err);
       toast.error('Failed to verify parent session. Please log in again.');
       await signOut(auth);
       window.location.href = '/';
@@ -612,6 +800,10 @@ export function initParentPortal() {
     logoutBtn.addEventListener('click', async () => await logoutUser());
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASSWORD VISIBILITY TOGGLES (unchanged)
+// ─────────────────────────────────────────────────────────────────────────────
 
 function setupPasswordToggles() {
   document.querySelectorAll('.toggle-password').forEach(button => {
