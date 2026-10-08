@@ -6,6 +6,15 @@
 //      (scores, reports, and teacher assignments tied to it will be affected,
 //      and the data cannot be recovered). Its Confirm button performs the
 //      actual deletion.
+//
+// UPDATED: Delete error handling is now accurate. The outcome is classified by
+//          whether the MAIN subject document was deleted from Firestore:
+//            • Main subject deleted → GREEN success toast. Refreshing the list
+//              afterwards is best-effort; if it fails, the deletion is still
+//              reported as successful (details logged to the console).
+//            • Main subject NOT deleted → RED error toast. No misleading success.
+//          The toast color always matches whether the subject is actually gone.
+//
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support deleteSubject or updateSubject – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
@@ -46,13 +55,12 @@ export async function initSubjects() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Helper: Delete confirmation modal (NEW — mirrors students.js / teachers.js)
+// Helper: Delete confirmation modal
 // Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
 // The Confirm (Delete) button is the ONLY path that proceeds with deletion.
 // ───────────────────────────────────────────────────────────────────────────────
 function showDeleteConfirmModal(subjectName) {
   return new Promise((resolve) => {
-    // Ensure only one delete-confirm modal exists at a time.
     document.getElementById('deleteConfirmModal')?.remove();
 
     const overlay = document.createElement('div');
@@ -146,11 +154,17 @@ async function loadSubjects() {
 
     container.innerHTML = createScrollableWrapper(tableHtml);
 
-    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
-    // browser's native confirm(). The modal warns the admin about the
-    // implications. Only its Confirm button performs the actual deletion.
+    // ─────────────────────────────────────────────────────────────────────────
+    // DELETE SUBJECT — accurate outcome reporting
+    //
+    // The outcome is classified by whether the MAIN subject document is deleted
+    // from Firestore:
+    //   • Main subject deleted → GREEN success toast. Refreshing the list is
+    //     best-effort; if it fails, the deletion is still reported as a success
+    //     (details logged to the console).
+    //   • Main subject NOT deleted → RED error toast. No misleading success.
+    // ─────────────────────────────────────────────────────────────────────────
     window.deleteSubject = async (id) => {
-      // Find the subject's display name for the modal message (safe fallback).
       const subjectForModal = subjects.find(s => s.id === id);
       const subjectDisplayName = subjectForModal?.name || 'this subject';
 
@@ -158,16 +172,35 @@ async function loadSubjects() {
       if (!confirmed) return;
 
       showLoader();
+
+      // ── STEP 1 (critical): delete the main subject document ──
+      let mainDeleteSucceeded = false;
       try {
         await deleteDoc(doc(db, 'subjects', id));
-        toast.success('Subject deleted successfully.');
-        await loadSubjects();
-      } catch (err) {
-        console.error('Delete subject error:', err);
+        mainDeleteSucceeded = true;
+      } catch (deleteErr) {
+        console.error('[Delete Subject] Failed to delete subject document:', deleteErr);
         toast.error('Failed to delete subject. Please try again.');
-      } finally {
-        hideLoader();
       }
+
+      if (!mainDeleteSucceeded) {
+        hideLoader();
+        return; // red error already shown — no misleading success
+      }
+
+      // ── STEP 2 (best-effort): refresh the subject list ──
+      // The subject is already deleted at this point. If the refresh fails, the
+      // deletion is still a success; we just log the refresh failure.
+      try {
+        await loadSubjects();
+      } catch (refreshErr) {
+        console.warn('[Delete Subject] List refresh after successful delete failed:', refreshErr);
+      }
+
+      hideLoader();
+
+      // ── STEP 3: report the outcome truthfully ──
+      toast.success('Subject deleted successfully.');
     };
 
     window.editSubject = (id) => openEditSubjectModal(id);
