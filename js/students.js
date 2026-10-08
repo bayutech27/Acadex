@@ -37,6 +37,10 @@
 //      irrespective of the school's subscription state. Only a super-admin can
 //      unlock a student later.
 //
+// NEW: Delete confirmation is now a styled in-page modal (not browser confirm()).
+//      The modal warns the user that all student data will be lost and cannot be
+//      recovered. Its Confirm button performs the actual deletion.
+//
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, firebaseConfig } from './firebase-config.js';
@@ -252,6 +256,65 @@ function showCredentialsModal(fullName, email, tempPassword) {
 
   document.getElementById('closeCredsBtn').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Helper: Delete confirmation modal (NEW)
+// Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
+// The Confirm button is the ONLY way the deletion proceeds.
+// ───────────────────────────────────────────────────────────────────────────────
+function showDeleteConfirmModal(studentName) {
+  return new Promise((resolve) => {
+    // Ensure only one delete-confirm modal exists at a time.
+    document.getElementById('deleteConfirmModal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteConfirmModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+      align-items:center;justify-content:center;z-index:9999;
+      font-family:inherit;
+    `;
+
+    const safeName = escapeHtml(studentName || 'this student');
+
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:26px 28px;max-width:440px;
+                  width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+        <h3 style="margin:0 0 8px;font-size:1.1rem;color:#b91c1c;">
+          ⚠️ Delete Student
+        </h3>
+        <p style="margin:0 0 14px;color:#334155;font-size:.95rem;line-height:1.5;">
+          Are you sure you want to delete <strong>${safeName}</strong>?
+        </p>
+        <p style="margin:0 0 20px;color:#ef4444;font-size:.85rem;line-height:1.5;">
+          All data will be lost and cannot be recovered.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="cancelDeleteBtn" style="padding:9px 16px;border:1px solid #e2e8f0;
+            border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;
+            font-size:.9rem;">
+            Cancel
+          </button>
+          <button id="confirmDeleteBtn" style="padding:9px 16px;border:none;border-radius:8px;
+            background:#dc2626;color:#fff;font-weight:600;cursor:pointer;font-size:.9rem;">
+            Delete
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    document.getElementById('cancelDeleteBtn').addEventListener('click', () => cleanup(false));
+    document.getElementById('confirmDeleteBtn').addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -867,8 +930,19 @@ async function loadAndDisplayStudents() {
   });
 
   window.editStudent = (id) => openModal(id);
+
+  // UPDATED: Delete uses a styled in-page confirmation modal instead of the
+  // browser's native confirm(). The modal clearly warns the user that all
+  // data will be lost and cannot be recovered. Only its Confirm button
+  // performs the actual deletion.
   window.deleteStudent = async (id) => {
-    if (!confirm('Delete this student permanently? All scores and reports will be removed. This action cannot be undone.')) return;
+    // Find the student's display name for the modal message (safe fallback).
+    const studentForModal = students.find(s => s.id === id);
+    const studentDisplayName = studentForModal?.name || 'this student';
+
+    const confirmed = await showDeleteConfirmModal(studentDisplayName);
+    if (!confirmed) return;
+
     showLoader();
     try {
       // Fetch student data to get UID before deletion
