@@ -41,6 +41,15 @@
 //      The modal warns the user that all student data will be lost and cannot be
 //      recovered. Its Confirm button performs the actual deletion.
 //
+// UPDATED: Delete error handling is now accurate. The outcome is classified by
+//          whether the MAIN student document was deleted from Firestore:
+//            • Main student deleted → GREEN success toast. Cleanup of scores,
+//              reports and user record is best-effort; if any cleanup step fails,
+//              the toast is STILL green but the message notes that some related
+//              data may need manual cleanup (details logged to the console).
+//            • Main student NOT deleted → RED error toast. No misleading success.
+//          The toast color always matches whether the student is actually gone.
+//
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, firebaseConfig } from './firebase-config.js';
@@ -259,13 +268,12 @@ function showCredentialsModal(fullName, email, tempPassword) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Helper: Delete confirmation modal (NEW)
+// Helper: Delete confirmation modal
 // Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
 // The Confirm button is the ONLY way the deletion proceeds.
 // ───────────────────────────────────────────────────────────────────────────────
 function showDeleteConfirmModal(studentName) {
   return new Promise((resolve) => {
-    // Ensure only one delete-confirm modal exists at a time.
     document.getElementById('deleteConfirmModal')?.remove();
 
     const overlay = document.createElement('div');
@@ -931,12 +939,18 @@ async function loadAndDisplayStudents() {
 
   window.editStudent = (id) => openModal(id);
 
-  // UPDATED: Delete uses a styled in-page confirmation modal instead of the
-  // browser's native confirm(). The modal clearly warns the user that all
-  // data will be lost and cannot be recovered. Only its Confirm button
-  // performs the actual deletion.
+  // ─────────────────────────────────────────────────────────────────────────
+  // DELETE STUDENT — accurate outcome reporting
+  //
+  // The outcome is classified by whether the MAIN student document is deleted
+  // from Firestore:
+  //   • Main student deleted   → GREEN success toast. Cleanup of scores,
+  //     reports and the user record is best-effort; failures there do NOT
+  //     turn the operation into a failure — they are logged for developers
+  //     and (if any occurred) mentioned briefly in the success message.
+  //   • Main student NOT deleted → RED error toast. No cleanup attempted.
+  // ─────────────────────────────────────────────────────────────────────────
   window.deleteStudent = async (id) => {
-    // Find the student's display name for the modal message (safe fallback).
     const studentForModal = students.find(s => s.id === id);
     const studentDisplayName = studentForModal?.name || 'this student';
 
@@ -944,28 +958,84 @@ async function loadAndDisplayStudents() {
     if (!confirmed) return;
 
     showLoader();
+
     try {
-      // Fetch student data to get UID before deletion
-      const studentData = await service.getStudentById(id);
-      await service.deleteStudent(id);
-      const { collection, getDocs, query, where, deleteDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
-      const { db: localDb } = await import('./firebase-config.js');
-      const scoresSnap = await getDocs(query(collection(localDb, 'scores'), where('studentId', '==', id)));
-      for (const d of scoresSnap.docs) await deleteDoc(d.ref);
-      const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
-      for (const d of reportsSnap.docs) await deleteDoc(d.ref);
-
-      // Mark user as disabled (if the student had an auth account)
-      if (studentData && studentData.uid) {
-        await updateDoc(doc(db, 'users', studentData.uid), { disabled: true, disabledAt: new Date() });
+      // Fetch uid BEFORE deletion (best-effort — the student record may lack one).
+      let studentUid = null;
+      try {
+        const studentData = await service.getStudentById(id);
+        studentUid = studentData?.uid || null;
+      } catch (fetchErr) {
+        console.warn('[Delete Student] Could not fetch student before deletion:', fetchErr);
       }
-      invalidateStudentCaches();
 
+      // ── STEP 1 (critical): delete the main student document ──
+      let mainDeleteSucceeded = false;
+      try {
+        await service.deleteStudent(id);
+        mainDeleteSucceeded = true;
+      } catch (deleteErr) {
+        console.error('[Delete Student] Failed to delete student document:', deleteErr);
+        toast.error('Failed to delete student. Please try again.');
+      }
+
+      if (!mainDeleteSucceeded) {
+        return; // red error already shown — no cleanup, no misleading success
+      }
+
+      // ── STEP 2 (best-effort): clean up related data ──
+      // The student is already deleted at this point. Any failure below is
+      // logged for developers but does NOT change the success outcome.
+      const cleanupIssues = [];
+
+      try {
+        const { collection, getDocs, query, where, deleteDoc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+        const { db: localDb } = await import('./firebase-config.js');
+
+        // Scores
+        try {
+          const scoresSnap = await getDocs(query(collection(localDb, 'scores'), where('studentId', '==', id)));
+          for (const d of scoresSnap.docs) await deleteDoc(d.ref);
+        } catch (scoresErr) {
+          cleanupIssues.push('scores');
+          console.error('[Delete Student] Cleanup scores failed:', scoresErr);
+        }
+
+        // Reports
+        try {
+          const reportsSnap = await getDocs(query(collection(localDb, 'reports'), where('studentId', '==', id)));
+          for (const d of reportsSnap.docs) await deleteDoc(d.ref);
+        } catch (reportsErr) {
+          cleanupIssues.push('reports');
+          console.error('[Delete Student] Cleanup reports failed:', reportsErr);
+        }
+      } catch (importErr) {
+        cleanupIssues.push('related data');
+        console.error('[Delete Student] Could not load cleanup helpers:', importErr);
+      }
+
+      // Disable the linked user account (if any)
+      if (studentUid) {
+        try {
+          await updateDoc(doc(db, 'users', studentUid), { disabled: true, disabledAt: new Date() });
+        } catch (userErr) {
+          cleanupIssues.push('user account');
+          console.error('[Delete Student] Disabling user account failed:', userErr);
+        }
+      }
+
+      invalidateStudentCaches();
       await loadAndDisplayStudents();
-      toast.success('Student and all associated data deleted successfully.');
-    } catch (err) {
-      console.error('Delete student error:', err);
-      toast.error('Failed to delete student. Please try again.');
+
+      // ── STEP 3: report the outcome truthfully ──
+      if (cleanupIssues.length === 0) {
+        toast.success('Student and all associated data deleted successfully.');
+      } else {
+        // Main delete succeeded → still GREEN success.
+        // The note is honest: some related data may need manual cleanup.
+        toast.success('Student deleted successfully. (Some related data may need manual cleanup.)');
+        console.warn('[Delete Student] Cleanup issues (main delete succeeded):', cleanupIssues);
+      }
     } finally {
       hideLoader();
     }
@@ -1272,20 +1342,6 @@ function closeModal() {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // FORM SUBMIT — CREATE / UPDATE STUDENT
-//
-// CREATE FLOW:
-//   • Secondary  → create (or recover) auth account, then DIRECT setDoc to
-//                  students/{uid}, then setDoc to users/{uid}. Credentials shown.
-//   • Nursery /
-//     Primary   → DIRECT setDoc to students/{autoId} with uid:null, email:''.
-//                  No auth account, no user document.
-//
-// UPDATE FLOW:
-//   • Direct updateDoc on students/{id}. Email field always included.
-//
-// LOCKED: Every newly created student is saved with `locked: true`, regardless
-//         of the school's subscription state. Only a super-admin can unlock a
-//         student later.
 // ───────────────────────────────────────────────────────────────────────────────
 async function handleStudentSubmit(e) {
   e.preventDefault();
@@ -1310,16 +1366,6 @@ async function handleStudentSubmit(e) {
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMAIL HANDLING BY LEVEL
-  // -------------------------------------------------------------------------
-  // Nursery & Primary do NOT require an email or a student login account.
-  // For these levels, the email input is ignored entirely: we never use the
-  // value typed by the admin, we never create an auth account, and we store
-  // an empty string in the `email` field of the student document.
-  //
-  // Secondary retains the existing behaviour:
-  //   • Email is REQUIRED.
-  //   • A student auth account is created with a default temporary password.
-  //   • Login credentials are shown in a modal after save.
   // ─────────────────────────────────────────────────────────────────────────
   const isLowerLevel   = (level === 'nursery' || level === 'primary');
   const emailFromInput = emailInput?.value.trim() ?? '';
@@ -1361,19 +1407,17 @@ async function handleStudentSubmit(e) {
 
   const timestamp = new Date();
 
-  // Normalize payload: ALWAYS include status, subjects, email, locked defaults
-  // so downstream reads never encounter missing fields.
   const studentBaseData = {
     admissionNumber: admissionNumber || '',
     surname,
     firstName,
     otherName: otherName || null,
     name: fullName,
-    email: email || '',                              // "" for Nursery/Primary, actual for Secondary
+    email: email || '',
     level: level || 'secondary',
     classId: classId || '',
     subjects: Array.isArray(selectedSubjects) ? selectedSubjects : [],
-    status: status || 'active',                      // never undefined
+    status: status || 'active',
     gender: gender || '',
     dob: dob || '',
     club: club || null,
@@ -1391,7 +1435,6 @@ async function handleStudentSubmit(e) {
     studentBaseData.createdAt = timestamp;
   }
 
-  // Guard: schoolId must be present before ANY write.
   if (!currentSchoolId) {
     toast.error('School ID missing. Please refresh the page and log in again.');
     return;
@@ -1414,8 +1457,6 @@ async function handleStudentSubmit(e) {
     }
 
     // ======================= CREATE =======================
-    // A student auth account is created ONLY for Secondary students with a valid email.
-    // Nursery / Primary students are always saved without an auth account.
     const shouldCreateAuth = (level === 'secondary') && Boolean(emailFromInput);
 
     if (shouldCreateAuth) {
@@ -1434,9 +1475,6 @@ async function handleStudentSubmit(e) {
         logStep('step1:create-auth:success', { uid });
       } catch (authError) {
         if (authError.code === 'auth/email-already-in-use') {
-          // RECOVERY: an auth account already exists — likely from a previous
-          // partial save where the Firestore write failed. Try to sign in with
-          // the default password to recover the same uid, then continue.
           logStep('step1:recover-auth:start', { email: emailFromInput });
           try {
             const cred = await signInWithEmailAndPassword(
@@ -1473,7 +1511,6 @@ async function handleStudentSubmit(e) {
         logStep('step2:write-student:success', { uid });
       } catch (studentWriteErr) {
         console.error('Student document write failed:', studentWriteErr);
-        // Sign out of secondary auth so the caller isn't left signed in as the student.
         try { await firebaseSignOut(secondaryAuthInstance); } catch (_) {}
         toast.error(
           `Failed to save student data to database (${studentWriteErr.code || 'unknown'}). ` +
@@ -1500,7 +1537,6 @@ async function handleStudentSubmit(e) {
         logStep('step3:write-user:success', { uid });
       } catch (userErr) {
         console.error('User document write failed:', userErr);
-        // Student doc was saved — the record exists. Just warn.
         toast.warning('Student saved, but login profile could not be created. Please contact support.');
       }
 
@@ -1510,8 +1546,6 @@ async function handleStudentSubmit(e) {
 
     } else {
       // ---------- Nursery / Primary flow ----------
-      // No auth account. Direct setDoc with auto-ID. uid: null, email: ''.
-      // locked: true is always set (see lockedValue above).
       try {
         const newStudentRef = doc(collection(db, 'students'));
         const studentDocData = { ...studentBaseData, uid: null, email: '' };
@@ -1589,12 +1623,11 @@ function showPaymentBanner() {
   `;
   container.appendChild(banner);
 
-  // Payment reference logging
   document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
     const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
     await setDoc(doc(db, 'paymentReferences', ref), {
       schoolId: currentSchoolId,
-      amount: 0, // update with actual amount when available
+      amount: 0,
       reason: 'renewal',
       createdAt: new Date(),
       status: 'pending',
