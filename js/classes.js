@@ -8,6 +8,15 @@
 //      (students, scores, reports, and teacher assignments tied to it will be
 //      affected, and the data cannot be recovered). Its Confirm button
 //      performs the actual deletion.
+//
+// UPDATED: Delete error handling is now accurate. The outcome is classified by
+//          whether the MAIN class document was deleted from Firestore:
+//            • Main class deleted → GREEN success toast. Refreshing the list
+//              afterwards is best-effort; if it fails, the deletion is still
+//              reported as successful (details logged to the console).
+//            • Main class NOT deleted → RED error toast. No misleading success.
+//          The toast color always matches whether the class is actually gone.
+//
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
@@ -63,13 +72,12 @@ function getClassLevel(className) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Helper: Delete confirmation modal (NEW — mirrors students.js / teachers.js)
+// Helper: Delete confirmation modal
 // Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
 // The Confirm (Delete) button is the ONLY path that proceeds with deletion.
 // ───────────────────────────────────────────────────────────────────────────────
 function showDeleteConfirmModal(className) {
   return new Promise((resolve) => {
-    // Ensure only one delete-confirm modal exists at a time.
     document.getElementById('deleteConfirmModal')?.remove();
 
     const overlay = document.createElement('div');
@@ -159,11 +167,17 @@ async function loadClasses() {
 
     container.innerHTML = createScrollableWrapper(tableHtml);
 
-    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
-    // browser's native confirm(). The modal warns the admin about the
-    // implications. Only its Confirm button performs the actual deletion.
+    // ─────────────────────────────────────────────────────────────────────────
+    // DELETE CLASS — accurate outcome reporting
+    //
+    // The outcome is classified by whether the MAIN class document is deleted
+    // from Firestore:
+    //   • Main class deleted → GREEN success toast. Refreshing the list is
+    //     best-effort; if it fails, the deletion is still reported as a success
+    //     (details logged to the console).
+    //   • Main class NOT deleted → RED error toast. No misleading success.
+    // ─────────────────────────────────────────────────────────────────────────
     window.deleteClass = async (id) => {
-      // Find the class's display name for the modal message (safe fallback).
       const classForModal = classes.find(c => c.id === id);
       const classDisplayName = classForModal?.name || 'this class';
 
@@ -171,16 +185,35 @@ async function loadClasses() {
       if (!confirmed) return;
 
       showLoader();
+
+      // ── STEP 1 (critical): delete the main class document ──
+      let mainDeleteSucceeded = false;
       try {
         await deleteDoc(doc(db, 'classes', id));
-        toast.success('Class deleted successfully.');
-        await loadClasses();
-      } catch (err) {
-        console.error('Class deletion error:', err);
+        mainDeleteSucceeded = true;
+      } catch (deleteErr) {
+        console.error('[Delete Class] Failed to delete class document:', deleteErr);
         toast.error('Failed to delete class. Please try again.');
-      } finally {
-        hideLoader();
       }
+
+      if (!mainDeleteSucceeded) {
+        hideLoader();
+        return; // red error already shown — no misleading success
+      }
+
+      // ── STEP 2 (best-effort): refresh the class list ──
+      // The class is already deleted at this point. If the refresh fails, the
+      // deletion is still a success; we just log the refresh failure.
+      try {
+        await loadClasses();
+      } catch (refreshErr) {
+        console.warn('[Delete Class] List refresh after successful delete failed:', refreshErr);
+      }
+
+      hideLoader();
+
+      // ── STEP 3: report the outcome truthfully ──
+      toast.success('Class deleted successfully.');
     };
 
     window.editClass = (id) => openEditClassModal(id);
