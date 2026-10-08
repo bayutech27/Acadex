@@ -3,6 +3,11 @@
 // TODO: service.js does not yet provide createClass/deleteClass/updateClass – direct Firestore writes kept temporarily.
 // ADDED: Guaranteed horizontal and vertical scrolling using inline styles.
 // NEW: Added Nursery level support and Edit functionality with modal.
+// NEW: Delete confirmation is now a styled in-page modal (not browser confirm()).
+//      The modal informs the admin of the implications of deleting a class
+//      (students, scores, reports, and teacher assignments tied to it will be
+//      affected, and the data cannot be recovered). Its Confirm button
+//      performs the actual deletion.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 
 import * as service from './service.js';
@@ -22,13 +27,13 @@ export async function initClasses() {
   try {
     currentSchoolId = await getCurrentSchoolId();
     console.log('Classes initialized, schoolId:', currentSchoolId);
-    
+
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => loadClassesAndSetupForm());
     } else {
       loadClassesAndSetupForm();
     }
-    
+
     setupSubscriptionUI();
     initSubscriptionListener();
   } catch (error) {
@@ -55,6 +60,67 @@ function getClassLevel(className) {
     return 'secondary';
   }
   return 'secondary';
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Helper: Delete confirmation modal (NEW — mirrors students.js / teachers.js)
+// Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
+// The Confirm (Delete) button is the ONLY path that proceeds with deletion.
+// ───────────────────────────────────────────────────────────────────────────────
+function showDeleteConfirmModal(className) {
+  return new Promise((resolve) => {
+    // Ensure only one delete-confirm modal exists at a time.
+    document.getElementById('deleteConfirmModal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteConfirmModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+      align-items:center;justify-content:center;z-index:9999;
+      font-family:inherit;
+    `;
+
+    const safeName = escapeHtml(className || 'this class');
+
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:26px 28px;max-width:460px;
+                  width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+        <h3 style="margin:0 0 8px;font-size:1.1rem;color:#b91c1c;">
+          ⚠️ Delete Class
+        </h3>
+        <p style="margin:0 0 14px;color:#334155;font-size:.95rem;line-height:1.5;">
+          Are you sure you want to delete <strong>${safeName}</strong>?
+        </p>
+        <p style="margin:0 0 14px;color:#475569;font-size:.85rem;line-height:1.55;">
+          Deleting this class may affect any students, scores, reports, or
+          teacher assignments linked to it. All data will be lost and cannot
+          be recovered.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="cancelDeleteBtn" style="padding:9px 16px;border:1px solid #e2e8f0;
+            border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;
+            font-size:.9rem;">
+            Cancel
+          </button>
+          <button id="confirmDeleteBtn" style="padding:9px 16px;border:none;border-radius:8px;
+            background:#dc2626;color:#fff;font-weight:600;cursor:pointer;font-size:.9rem;">
+            Delete
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    document.getElementById('cancelDeleteBtn').addEventListener('click', () => cleanup(false));
+    document.getElementById('confirmDeleteBtn').addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
 }
 
 async function loadClasses() {
@@ -90,22 +156,30 @@ async function loadClasses() {
       </tr>`;
     }
     tableHtml += `</tbody>`;
-    
+
     container.innerHTML = createScrollableWrapper(tableHtml);
-    
+
+    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
+    // browser's native confirm(). The modal warns the admin about the
+    // implications. Only its Confirm button performs the actual deletion.
     window.deleteClass = async (id) => {
-      if (confirm('Delete this class permanently? This action cannot be undone.')) {
-        showLoader();
-        try {
-          await deleteDoc(doc(db, 'classes', id));
-          toast.success('Class deleted successfully.');
-          await loadClasses();
-        } catch (err) {
-          console.error('Class deletion error:', err);
-          toast.error('Failed to delete class. Please try again.');
-        } finally {
-          hideLoader();
-        }
+      // Find the class's display name for the modal message (safe fallback).
+      const classForModal = classes.find(c => c.id === id);
+      const classDisplayName = classForModal?.name || 'this class';
+
+      const confirmed = await showDeleteConfirmModal(classDisplayName);
+      if (!confirmed) return;
+
+      showLoader();
+      try {
+        await deleteDoc(doc(db, 'classes', id));
+        toast.success('Class deleted successfully.');
+        await loadClasses();
+      } catch (err) {
+        console.error('Class deletion error:', err);
+        toast.error('Failed to delete class. Please try again.');
+      } finally {
+        hideLoader();
       }
     };
 
