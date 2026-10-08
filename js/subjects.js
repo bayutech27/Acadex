@@ -1,6 +1,11 @@
 // subjects.js - Manage subjects with Nursery/Primary/Secondary levels, manual entry, and formatting
 // MODIFIED: Guaranteed horizontal and vertical scrolling using inline styles.
 // NEW: Added Nursery level support and Edit functionality with modal.
+// NEW: Delete confirmation is now a styled in-page modal (not browser confirm()).
+//      The modal informs the admin of the implications of deleting a subject
+//      (scores, reports, and teacher assignments tied to it will be affected,
+//      and the data cannot be recovered). Its Confirm button performs the
+//      actual deletion.
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support deleteSubject or updateSubject – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
@@ -22,7 +27,7 @@ export async function initSubjects() {
   try {
     currentSchoolId = await getCurrentSchoolId();
     console.log('initSubjects called, schoolId:', currentSchoolId);
-    
+
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
         loadSubjects();
@@ -40,19 +45,80 @@ export async function initSubjects() {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Helper: Delete confirmation modal (NEW — mirrors students.js / teachers.js)
+// Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
+// The Confirm (Delete) button is the ONLY path that proceeds with deletion.
+// ───────────────────────────────────────────────────────────────────────────────
+function showDeleteConfirmModal(subjectName) {
+  return new Promise((resolve) => {
+    // Ensure only one delete-confirm modal exists at a time.
+    document.getElementById('deleteConfirmModal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteConfirmModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+      align-items:center;justify-content:center;z-index:9999;
+      font-family:inherit;
+    `;
+
+    const safeName = escapeHtml(subjectName || 'this subject');
+
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:26px 28px;max-width:460px;
+                  width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+        <h3 style="margin:0 0 8px;font-size:1.1rem;color:#b91c1c;">
+          ⚠️ Delete Subject
+        </h3>
+        <p style="margin:0 0 14px;color:#334155;font-size:.95rem;line-height:1.5;">
+          Are you sure you want to delete <strong>${safeName}</strong>?
+        </p>
+        <p style="margin:0 0 14px;color:#475569;font-size:.85rem;line-height:1.55;">
+          Deleting this subject may affect any scores, reports, or teacher
+          assignments linked to it. All data will be lost and cannot be
+          recovered.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="cancelDeleteBtn" style="padding:9px 16px;border:1px solid #e2e8f0;
+            border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;
+            font-size:.9rem;">
+            Cancel
+          </button>
+          <button id="confirmDeleteBtn" style="padding:9px 16px;border:none;border-radius:8px;
+            background:#dc2626;color:#fff;font-weight:600;cursor:pointer;font-size:.9rem;">
+            Delete
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    document.getElementById('cancelDeleteBtn').addEventListener('click', () => cleanup(false));
+    document.getElementById('confirmDeleteBtn').addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
+}
+
 async function loadSubjects() {
   const container = document.getElementById('subjectsList');
   if (!container) return;
-  
+
   try {
     let subjects = await service.getSubjectsBySchool(currentSchoolId);
     subjects.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     if (subjects.length === 0) {
       container.innerHTML = '<h3>Existing Subjects</h3><p>No subjects yet. Add one above.</p>';
       return;
     }
-    
+
     // Build table with inline styles to force horizontal scroll
     let tableHtml = `<table class="data-table" style="min-width: 500px; width: 100%; border-collapse: collapse;">
       <thead>
@@ -77,22 +143,30 @@ async function loadSubjects() {
       </tr>`;
     }
     tableHtml += `</tbody>`;
-    
+
     container.innerHTML = createScrollableWrapper(tableHtml);
-    
+
+    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
+    // browser's native confirm(). The modal warns the admin about the
+    // implications. Only its Confirm button performs the actual deletion.
     window.deleteSubject = async (id) => {
-      if (confirm('Delete this subject permanently? This action cannot be undone.')) {
-        showLoader();
-        try {
-          await deleteDoc(doc(db, 'subjects', id));
-          toast.success('Subject deleted successfully.');
-          await loadSubjects();
-        } catch (err) {
-          console.error('Delete subject error:', err);
-          toast.error('Failed to delete subject. Please try again.');
-        } finally {
-          hideLoader();
-        }
+      // Find the subject's display name for the modal message (safe fallback).
+      const subjectForModal = subjects.find(s => s.id === id);
+      const subjectDisplayName = subjectForModal?.name || 'this subject';
+
+      const confirmed = await showDeleteConfirmModal(subjectDisplayName);
+      if (!confirmed) return;
+
+      showLoader();
+      try {
+        await deleteDoc(doc(db, 'subjects', id));
+        toast.success('Subject deleted successfully.');
+        await loadSubjects();
+      } catch (err) {
+        console.error('Delete subject error:', err);
+        toast.error('Failed to delete subject. Please try again.');
+      } finally {
+        hideLoader();
       }
     };
 
@@ -147,27 +221,27 @@ async function updateSubjectInFirestore(id, name, code, level) {
 function setupSecondaryForm() {
   const form = document.getElementById('secondarySubjectForm');
   if (!form) return;
-  
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const select = document.getElementById('subjectName');
     const manualInput = document.getElementById('manualSecondarySubject');
     const codeInput = document.getElementById('secondarySubjectCode');
-    
+
     let name = '';
     if (manualInput && manualInput.value.trim()) {
       name = manualInput.value.trim();
     } else if (select && select.value) {
       name = select.value;
     }
-    
+
     if (!name) {
       toast.error('Please select a subject from the list or enter a subject name manually.');
       return;
     }
-    
+
     const code = codeInput ? codeInput.value.trim() : '';
-    
+
     showLoader();
     try {
       await addSubjectToFirestore(name, code, 'secondary');
@@ -189,16 +263,16 @@ function setupSecondaryForm() {
 function setupNurseryPrimaryForm() {
   const form = document.getElementById('nurseryPrimarySubjectForm');
   if (!form) return;
-  
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const nameInput = document.getElementById('nurseryPrimarySubjectName');
     const levelSelect = document.getElementById('nurseryPrimaryLevel');
     const codeInput = document.getElementById('nurseryPrimarySubjectCode');
-    
+
     const name = nameInput ? nameInput.value.trim() : '';
     const level = levelSelect ? levelSelect.value : '';
-    
+
     if (!name) {
       toast.error('Please enter a subject name.');
       return;
@@ -207,9 +281,9 @@ function setupNurseryPrimaryForm() {
       toast.error('Please select a level (Nursery or Primary).');
       return;
     }
-    
+
     const code = codeInput ? codeInput.value.trim() : '';
-    
+
     showLoader();
     try {
       await addSubjectToFirestore(name, code, level);
