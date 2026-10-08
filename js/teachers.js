@@ -7,6 +7,17 @@
 // NEW: Delete confirmation is now a styled in-page modal (not browser confirm()).
 //      The modal warns the user that all teacher data will be lost and cannot be
 //      recovered. Its Confirm button performs the actual deletion.
+//
+// UPDATED: Delete error handling is now accurate. The outcome is classified by
+//          whether the MAIN teacher document was deleted from Firestore:
+//            • Main teacher deleted → GREEN success toast. Cleanup of the user
+//              document and the Firebase Auth account is best-effort; if any
+//              cleanup step fails, the toast is STILL green but the message
+//              notes that the login account may need manual cleanup (details
+//              logged to the console).
+//            • Main teacher NOT deleted → RED error toast. No misleading success.
+//          The toast color always matches whether the teacher is actually gone.
+//
 // All other functionality unchanged.
 
 import { db, auth, functions } from './firebase-config.js';
@@ -45,7 +56,7 @@ export async function initTeachersPage() {
   modal = document.getElementById('teacherModal');
   nameInput = document.getElementById('teacherName');
   emailInput = document.getElementById('teacherEmail');
-  typeSelect = document.getElementById('teacherType');  // NEW
+  typeSelect = document.getElementById('teacherType');
   levelSelect = document.getElementById('teacherLevel');
   subjectsSelect = document.getElementById('teacherSubjects');
   classesSelect = document.getElementById('teacherClasses');
@@ -242,13 +253,12 @@ async function loadClassTeacherOptions(level) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Helper: Delete confirmation modal (NEW — mirrors students.js)
+// Helper: Delete confirmation modal
 // Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
 // The Confirm (Delete) button is the ONLY path that proceeds with deletion.
 // ───────────────────────────────────────────────────────────────────────────────
 function showDeleteConfirmModal(teacherName) {
   return new Promise((resolve) => {
-    // Ensure only one delete-confirm modal exists at a time.
     document.getElementById('deleteConfirmModal')?.remove();
 
     const overlay = document.createElement('div');
@@ -364,12 +374,18 @@ async function loadTeachers() {
 
     window.editTeacher = (id) => openModal(id);
 
-    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
-    // browser's native confirm(). The modal clearly warns that all data will
-    // be lost and cannot be recovered. Only its Confirm button performs the
-    // actual deletion.
+    // ─────────────────────────────────────────────────────────────────────────
+    // DELETE TEACHER — accurate outcome reporting
+    //
+    // The outcome is classified by whether the MAIN teacher document is deleted
+    // from Firestore:
+    //   • Main teacher deleted   → GREEN success toast. Cleanup of the user doc
+    //     and the Firebase Auth account is best-effort; failures there do NOT
+    //     turn the operation into a failure — they are logged for developers
+    //     and (if any occurred) mentioned briefly in the success message.
+    //   • Main teacher NOT deleted → RED error toast. No misleading success.
+    // ─────────────────────────────────────────────────────────────────────────
     window.deleteTeacher = async (id) => {
-      // Find the teacher's display name for the modal message (safe fallback).
       const teacherForModal = teachers.find(t => t.id === id);
       const teacherDisplayName = teacherForModal?.name || 'this teacher';
 
@@ -377,22 +393,57 @@ async function loadTeachers() {
       if (!confirmed) return;
 
       showLoader();
+
+      // ── STEP 1 (critical): delete the main teacher document ──
+      let mainDeleteSucceeded = false;
       try {
         await deleteDoc(doc(db, 'teachers', id));
-        try {
-          await deleteDoc(doc(db, 'users', id));
-        } catch (e) {
-          console.warn('User document may not exist:', e);
-        }
-        const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
-        await deleteTeacherAccount({ teacherUid: id });
-        toast.success('Teacher and login account deleted successfully.');
-      } catch (err) {
-        console.error('Delete teacher error:', err);
-        toast.error('Failed to delete teacher. Firestore data removed, but authentication may still exist. Please contact support.');
-      } finally {
+        mainDeleteSucceeded = true;
+      } catch (deleteErr) {
+        console.error('[Delete Teacher] Failed to delete teacher document:', deleteErr);
+        toast.error('Failed to delete teacher. Please try again.');
+      }
+
+      if (!mainDeleteSucceeded) {
         hideLoader();
         await loadTeachers();
+        return;
+      }
+
+      // ── STEP 2 (best-effort): clean up related records ──
+      // The teacher is already deleted at this point. Any failure below is
+      // logged for developers but does NOT change the success outcome.
+      const cleanupIssues = [];
+
+      // Delete user document — its absence is not treated as a failure.
+      try {
+        await deleteDoc(doc(db, 'users', id));
+      } catch (userErr) {
+        // User doc may not exist; that's fine. Log for diagnostics only.
+        console.warn('[Delete Teacher] Could not delete user document (may not exist):', userErr);
+      }
+
+      // Delete Firebase Auth account via Cloud Function.
+      try {
+        const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
+        await deleteTeacherAccount({ teacherUid: id });
+      } catch (cloudErr) {
+        cleanupIssues.push('login account');
+        console.error('[Delete Teacher] Failed to delete auth account via Cloud Function:', cloudErr);
+      }
+
+      hideLoader();
+      await loadTeachers();
+
+      // ── STEP 3: report the outcome truthfully ──
+      if (cleanupIssues.length === 0) {
+        toast.success('Teacher and login account deleted successfully.');
+      } else {
+        // Main delete succeeded → still GREEN success.
+        // The note is honest: the login account may still exist and needs
+        // manual cleanup by support.
+        toast.success('Teacher deleted successfully. (The login account could not be removed automatically.)');
+        console.warn('[Delete Teacher] Cleanup issues (main delete succeeded):', cleanupIssues);
       }
     };
   } catch (err) {
@@ -420,7 +471,7 @@ function openModal(teacherId = null) {
   classTeacherSelect.disabled = true;
 
   levelSelect.value = '';
-  typeSelect.value = ''; // NEW
+  typeSelect.value = '';
   currentTeacherLevel = null;
 
   if (teacherId) {
@@ -440,7 +491,7 @@ async function loadTeacherData(teacherId) {
     if (teacher) {
       if (nameInput) nameInput.value = teacher.name;
       if (emailInput) emailInput.value = teacher.email;
-      if (typeSelect) typeSelect.value = teacher.type || ''; // NEW
+      if (typeSelect) typeSelect.value = teacher.type || '';
 
       const teacherLevel = teacher.level || 'secondary';
       if (levelSelect) levelSelect.value = teacherLevel;
@@ -518,7 +569,7 @@ async function handleTeacherSubmit(e) {
   e.preventDefault();
   const name = nameInput ? nameInput.value.trim() : '';
   const email = emailInput ? emailInput.value.trim() : '';
-  const type = typeSelect ? typeSelect.value : ''; // NEW
+  const type = typeSelect ? typeSelect.value : '';
   const level = levelSelect ? levelSelect.value : '';
   const selectedSubjectIds = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const selectedClassIds = classesSelect ? Array.from(classesSelect.selectedOptions).map(opt => opt.value) : [];
@@ -542,7 +593,7 @@ async function handleTeacherSubmit(e) {
   const teacherDataObj = {
     name,
     email,
-    type, // NEW
+    type,
     level,
     subjectIds: selectedSubjectIds,
     classIds: selectedClassIds,
@@ -584,7 +635,7 @@ async function handleTeacherSubmit(e) {
         role: 'teacher',
         schoolId: currentSchoolId,
         level,
-        type, // NEW
+        type,
         subjects: selectedSubjectIds,
         classId: selectedClassIds.length === 1 ? selectedClassIds[0] : null,
         isClassTeacher: isClassTeacher,
