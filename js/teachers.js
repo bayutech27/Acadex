@@ -4,6 +4,9 @@
 // MODIFIED: Fixed malformed HTML table cells.
 // MODIFIED: Added Nursery level support. When selected, saved as "nursery".
 // NEW: Added "Type" dropdown (full-time/part-time) to teacher form and save it in Firestore.
+// NEW: Delete confirmation is now a styled in-page modal (not browser confirm()).
+//      The modal warns the user that all teacher data will be lost and cannot be
+//      recovered. Its Confirm button performs the actual deletion.
 // All other functionality unchanged.
 
 import { db, auth, functions } from './firebase-config.js';
@@ -60,7 +63,7 @@ export async function initTeachersPage() {
 
   currentSchoolId = await getCurrentSchoolId();
   initSecondaryAuth();
-  
+
   await loadAllSubjects();
   await loadAllClasses();
   await loadTeachers();
@@ -130,12 +133,12 @@ async function loadSubjectsByLevel(level) {
     subjectsSelect.disabled = true;
     return;
   }
-  
+
   showLoader();
   try {
     const subjects = await service.getSubjectsByLevel(currentSchoolId, level);
     subjects.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     subjectsSelect.innerHTML = '';
     if (subjects.length === 0) {
       const option = document.createElement('option');
@@ -168,12 +171,12 @@ async function loadClassesByLevel(level) {
     classesSelect.disabled = true;
     return;
   }
-  
+
   showLoader();
   try {
     const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
     classes.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     classesSelect.innerHTML = '';
     if (classes.length === 0) {
       const option = document.createElement('option');
@@ -211,20 +214,20 @@ async function loadClassTeacherOptions(level) {
     classTeacherSelect.disabled = true;
     return;
   }
-  
+
   try {
     const classes = await service.getClassesBySchoolAndLevel(currentSchoolId, level);
     classes.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     while (classTeacherSelect.options.length) classTeacherSelect.remove(0);
-    
+
     for (const cls of classes) {
       const option = document.createElement('option');
       option.value = cls.id;
       option.textContent = cls.name;
       classTeacherSelect.appendChild(option);
     }
-    
+
     classTeacherSelect.disabled = false;
   } catch (err) {
     console.error('Load class teacher options error:', err);
@@ -236,6 +239,65 @@ async function loadClassTeacherOptions(level) {
     classTeacherSelect.appendChild(errorOption);
     classTeacherSelect.disabled = true;
   }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Helper: Delete confirmation modal (NEW — mirrors students.js)
+// Returns a Promise<boolean> — true if the user confirms deletion, false otherwise.
+// The Confirm (Delete) button is the ONLY path that proceeds with deletion.
+// ───────────────────────────────────────────────────────────────────────────────
+function showDeleteConfirmModal(teacherName) {
+  return new Promise((resolve) => {
+    // Ensure only one delete-confirm modal exists at a time.
+    document.getElementById('deleteConfirmModal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteConfirmModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+      align-items:center;justify-content:center;z-index:9999;
+      font-family:inherit;
+    `;
+
+    const safeName = escapeHtml(teacherName || 'this teacher');
+
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;padding:26px 28px;max-width:440px;
+                  width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+        <h3 style="margin:0 0 8px;font-size:1.1rem;color:#b91c1c;">
+          ⚠️ Delete Teacher
+        </h3>
+        <p style="margin:0 0 14px;color:#334155;font-size:.95rem;line-height:1.5;">
+          Are you sure you want to delete <strong>${safeName}</strong>?
+        </p>
+        <p style="margin:0 0 20px;color:#ef4444;font-size:.85rem;line-height:1.5;">
+          All data will be lost and cannot be recovered.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="cancelDeleteBtn" style="padding:9px 16px;border:1px solid #e2e8f0;
+            border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;
+            font-size:.9rem;">
+            Cancel
+          </button>
+          <button id="confirmDeleteBtn" style="padding:9px 16px;border:none;border-radius:8px;
+            background:#dc2626;color:#fff;font-weight:600;cursor:pointer;font-size:.9rem;">
+            Delete
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    document.getElementById('cancelDeleteBtn').addEventListener('click', () => cleanup(false));
+    document.getElementById('confirmDeleteBtn').addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
 }
 
 async function loadTeachers() {
@@ -299,29 +361,38 @@ async function loadTeachers() {
       </div>
     `;
     container.innerHTML = html;
-    
+
     window.editTeacher = (id) => openModal(id);
 
+    // UPDATED: Delete uses a styled in-page confirmation modal instead of the
+    // browser's native confirm(). The modal clearly warns that all data will
+    // be lost and cannot be recovered. Only its Confirm button performs the
+    // actual deletion.
     window.deleteTeacher = async (id) => {
-      if (confirm('Delete this teacher permanently? This action cannot be undone.')) {
-        showLoader();
+      // Find the teacher's display name for the modal message (safe fallback).
+      const teacherForModal = teachers.find(t => t.id === id);
+      const teacherDisplayName = teacherForModal?.name || 'this teacher';
+
+      const confirmed = await showDeleteConfirmModal(teacherDisplayName);
+      if (!confirmed) return;
+
+      showLoader();
+      try {
+        await deleteDoc(doc(db, 'teachers', id));
         try {
-          await deleteDoc(doc(db, 'teachers', id));
-          try {
-            await deleteDoc(doc(db, 'users', id));
-          } catch (e) {
-            console.warn('User document may not exist:', e);
-          }
-          const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
-          await deleteTeacherAccount({ teacherUid: id });
-          toast.success('Teacher and login account deleted successfully.');
-        } catch (err) {
-          console.error('Delete teacher error:', err);
-          toast.error('Failed to delete teacher. Firestore data removed, but authentication may still exist. Please contact support.');
-        } finally {
-          hideLoader();
-          await loadTeachers();
+          await deleteDoc(doc(db, 'users', id));
+        } catch (e) {
+          console.warn('User document may not exist:', e);
         }
+        const deleteTeacherAccount = httpsCallable(functions, 'deleteTeacherAccount');
+        await deleteTeacherAccount({ teacherUid: id });
+        toast.success('Teacher and login account deleted successfully.');
+      } catch (err) {
+        console.error('Delete teacher error:', err);
+        toast.error('Failed to delete teacher. Firestore data removed, but authentication may still exist. Please contact support.');
+      } finally {
+        hideLoader();
+        await loadTeachers();
       }
     };
   } catch (err) {
@@ -334,7 +405,7 @@ function openModal(teacherId = null) {
   editingTeacherId = teacherId;
   const modalTitle = document.getElementById('modalTitle');
   if (!modalTitle) return;
-  
+
   teacherForm.reset();
   subjectsSelect.innerHTML = '<option value="">-- Select level first --</option>';
   subjectsSelect.disabled = true;
@@ -347,11 +418,11 @@ function openModal(teacherId = null) {
   helperOption.textContent = 'Select level first';
   classTeacherSelect.appendChild(helperOption);
   classTeacherSelect.disabled = true;
-  
+
   levelSelect.value = '';
   typeSelect.value = ''; // NEW
   currentTeacherLevel = null;
-  
+
   if (teacherId) {
     modalTitle.textContent = 'Edit Teacher';
     if (emailInput) emailInput.readOnly = true;
@@ -370,15 +441,15 @@ async function loadTeacherData(teacherId) {
       if (nameInput) nameInput.value = teacher.name;
       if (emailInput) emailInput.value = teacher.email;
       if (typeSelect) typeSelect.value = teacher.type || ''; // NEW
-      
+
       const teacherLevel = teacher.level || 'secondary';
       if (levelSelect) levelSelect.value = teacherLevel;
       currentTeacherLevel = teacherLevel;
-      
+
       await loadSubjectsByLevel(teacherLevel);
       await loadClassesByLevel(teacherLevel);
       await loadClassTeacherOptions(teacherLevel);
-      
+
       const subjectIds = teacher.subjectIds || [];
       if (subjectsSelect) {
         Array.from(subjectsSelect.options).forEach(opt => {
@@ -414,7 +485,7 @@ function closeModal() {
 
 async function checkClassTeacherConflict(hostClassIds, level, excludeTeacherId = null) {
   if (!hostClassIds || hostClassIds.length === 0) return null;
-  
+
   try {
     const teachers = await service.getTeachersBySchool(currentSchoolId);
     const conflictingClasses = [];
@@ -451,7 +522,7 @@ async function handleTeacherSubmit(e) {
   const level = levelSelect ? levelSelect.value : '';
   const selectedSubjectIds = subjectsSelect ? Array.from(subjectsSelect.selectedOptions).map(opt => opt.value) : [];
   const selectedClassIds = classesSelect ? Array.from(classesSelect.selectedOptions).map(opt => opt.value) : [];
-  const selectedHostClassIds = classTeacherSelect 
+  const selectedHostClassIds = classTeacherSelect
     ? Array.from(classTeacherSelect.selectedOptions)
         .filter(opt => opt.value && opt.value !== '' && !opt.disabled)
         .map(opt => opt.value)
@@ -491,7 +562,7 @@ async function handleTeacherSubmit(e) {
     } else {
       const defaultPassword = '$Acadex123';
       const secondaryAuthInstance = initSecondaryAuth();
-      
+
       let userCredential;
       try {
         userCredential = await createUserWithEmailAndPassword(secondaryAuthInstance, email, defaultPassword);
@@ -504,10 +575,10 @@ async function handleTeacherSubmit(e) {
         }
         return;
       }
-      
+
       const uid = userCredential.user.uid;
       const timestamp = serverTimestamp();
-      
+
       const userDocData = {
         email,
         role: 'teacher',
@@ -519,18 +590,18 @@ async function handleTeacherSubmit(e) {
         isClassTeacher: isClassTeacher,
         createdAt: timestamp
       };
-      
+
       const teacherDocData = {
         ...teacherDataObj,
         authUid: uid,
         createdAt: timestamp
       };
-      
+
       await setDoc(doc(db, 'users', uid), userDocData);
       await service.createTeacher(uid, teacherDocData);
-      
+
       toast.success(`Teacher created successfully! Email: ${email} | Password: ${defaultPassword}`);
-      
+
       closeModal();
       await loadTeachers();
     }
