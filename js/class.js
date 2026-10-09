@@ -1,13 +1,15 @@
 // class.js - Teacher report card page + broadsheet (full functionality)
-// MODIFIED: Supports multiple class teacher assignments (hostClassIds array).
-// FIXED: loadTeacherHostClasses now uses auth.currentUser.uid instead of teacherData.uid.
-// NEW: fetchScores now includes createdAt/updatedAt for duplicate subject resolution.
-//       Student list selection highlights the active student.
-// NEW: Report card & broadsheet session selectors are FIXED to the current session only
-//      (from the academic calendar). No previous or upcoming sessions are shown.
-// NEW: Report save now stores the student's classId at time of saving alongside term &
-//      session, so results can be fetched later (in results.js) irrespective of the
-//      student's current class or status. Fetch also uses classId + term + session.
+//
+// UPDATED (snapshot refactor):
+//  • The teacher's class and current session remain FIXED. Term remains selectable.
+//  • When a report is saved, a complete snapshot is persisted alongside the
+//    identity fields (schoolId/studentId/classId/className/term/session). This
+//    lets the admin page faithfully re-render historical cards even after the
+//    student has moved, been made inactive or graduated.
+//  • Existing report lookups now reliably use classId (5th arg) thanks to the
+//    service.js change.
+//
+// All existing UI and behaviour is otherwise unchanged.
 
 import * as service from './service.js';
 import { getTeacherData } from './teacher-dashboard.js';
@@ -46,14 +48,24 @@ const psychomotorSkillsList_local = psychomotorSkillsList;
 const affectiveSkillsList_local = affectiveSkillsList;
 
 let reportState = {
-  selectedStudent: null,   // { id, name, classId }
+  selectedStudent: null,
   term: '1',
   session: '',
   psychomotor: {},
   teacherComment: '',
   principalComment: '',
   attendance: { schoolOpened: 0, present: 0, absent: 0 },
-  savedReportId: null
+  savedReportId: null,
+  savedReport: null,
+  // snapshot inputs
+  currentScores: [],
+  currentSubjectStats: null,
+  currentClassName: '',
+  currentClassId: '',
+  currentClassLevel: '',
+  currentIsPrimary: false,
+  currentGrading: { ca: 40, exam: 60 },
+  currentStudentData: null
 };
 
 [...psychomotorSkillsList_local, ...affectiveSkillsList_local].forEach(skill => {
@@ -61,19 +73,13 @@ let reportState = {
   reportState.psychomotor[key] = 3;
 });
 
-/* ------------------------------------------------------------------ */
-/* Subscription                                                        */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- Subscription ---------------- */
 async function checkSubscription() {
   try {
     const subData = await service.getSubscription(currentSchoolId);
     isSubscriptionActive = subData ? (subData.status === 'active' && subData.locked !== true) : false;
-    if (isSubscriptionActive) {
-      enableSubscriptionFeatures();
-    } else {
-      disableSubscriptionFeatures();
-    }
+    if (isSubscriptionActive) enableSubscriptionFeatures();
+    else disableSubscriptionFeatures();
     return isSubscriptionActive;
   } catch (err) {
     console.error('Subscription check error:', err);
@@ -83,22 +89,10 @@ async function checkSubscription() {
     return false;
   }
 }
-
 function disableSubscriptionFeatures() {
-  const saveBtn = document.getElementById('saveReportBtn');
-  const printBtn = document.getElementById('printReportBtn');
-  const whatsappBtn = document.getElementById('whatsappReportBtn');
-  const generateBtn = document.getElementById('generateBroadsheetBtn');
-  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
-  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '0.5'; }
-  if (printBtn) { printBtn.disabled = true; printBtn.style.opacity = '0.5'; }
-  if (whatsappBtn) { whatsappBtn.disabled = true; whatsappBtn.style.opacity = '0.5'; }
-  if (generateBtn) generateBtn.disabled = true;
-  if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = true;
-  if (printBroadsheetBtn) printBroadsheetBtn.disabled = true;
-  const warningDiv = document.querySelector('.subscription-warning');
-  if (!warningDiv) {
+  const ids = ['saveReportBtn','printReportBtn','whatsappReportBtn','generateBroadsheetBtn','saveBroadsheetBtn','printBroadsheetBtn'];
+  ids.forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = true; b.style.opacity = '0.5'; } });
+  if (!document.querySelector('.subscription-warning')) {
     const div = document.createElement('div');
     div.className = 'subscription-warning';
     div.style.cssText = 'background:#fee2e2;color:#991b1b;padding:12px;margin-bottom:16px;border-radius:8px;';
@@ -107,53 +101,22 @@ function disableSubscriptionFeatures() {
     if (container) container.prepend(div);
   }
 }
-
 function enableSubscriptionFeatures() {
-  const saveBtn = document.getElementById('saveReportBtn');
-  const printBtn = document.getElementById('printReportBtn');
-  const whatsappBtn = document.getElementById('whatsappReportBtn');
-  const generateBtn = document.getElementById('generateBroadsheetBtn');
-  const saveBroadsheetBtn = document.getElementById('saveBroadsheetBtn');
-  const printBroadsheetBtn = document.getElementById('printBroadsheetBtn');
-  if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; }
-  if (printBtn) { printBtn.disabled = false; printBtn.style.opacity = '1'; }
-  if (whatsappBtn) { whatsappBtn.disabled = false; whatsappBtn.style.opacity = '1'; }
-  if (generateBtn) generateBtn.disabled = false;
-  if (saveBroadsheetBtn) saveBroadsheetBtn.disabled = false;
-  if (printBroadsheetBtn) printBroadsheetBtn.disabled = false;
-  const warning = document.querySelector('.subscription-warning');
-  if (warning) warning.remove();
+  const ids = ['saveReportBtn','printReportBtn','whatsappReportBtn','generateBroadsheetBtn','saveBroadsheetBtn','printBroadsheetBtn'];
+  ids.forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = false; b.style.opacity = '1'; } });
+  document.querySelector('.subscription-warning')?.remove();
 }
 
-/* ------------------------------------------------------------------ */
-/* Teacher / class loading                                             */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- Teacher / class loading ---------------- */
 async function loadTeacherHostClasses() {
   try {
     const user = auth.currentUser;
-    if (!user || !user.uid) {
-      console.error('No authenticated user');
-      toast.error('You are not logged in. Please refresh the page.');
-      return false;
-    }
-    const teacherUid = user.uid;
-    const teacher = await service.getTeacherById(teacherUid);
-    if (!teacher) {
-      console.error('Teacher document not found for UID:', teacherUid);
-      toast.error('Teacher record not found. Please contact support.');
-      return false;
-    }
-    if (teacher.hostClassIds && teacher.hostClassIds.length > 0) {
-      hostClassIds = teacher.hostClassIds;
-    } else if (teacher.hostClassId) {
-      hostClassIds = [teacher.hostClassId];
-    } else {
-      hostClassIds = [];
-      toast.error('You are not assigned as a class teacher for any class.');
-      window.location.href = 'teacher-dashboard.html';
-      return false;
-    }
+    if (!user || !user.uid) { toast.error('You are not logged in. Please refresh the page.'); return false; }
+    const teacher = await service.getTeacherById(user.uid);
+    if (!teacher) { toast.error('Teacher record not found. Please contact support.'); return false; }
+    if (teacher.hostClassIds && teacher.hostClassIds.length > 0) hostClassIds = teacher.hostClassIds;
+    else if (teacher.hostClassId) hostClassIds = [teacher.hostClassId];
+    else { hostClassIds = []; toast.error('You are not assigned as a class teacher for any class.'); window.location.href = 'teacher-dashboard.html'; return false; }
     return true;
   } catch (err) {
     console.error('Load teacher host classes error:', err);
@@ -172,83 +135,60 @@ async function loadGradingSettingByLevel(level, session, term) {
       grading = data.grading || `${data.caWeight}/${data.examWeight}`;
     }
     if (!grading) {
-      const fallbackConfigs = await service.getScoringConfig(currentSchoolId);
-      if (fallbackConfigs && fallbackConfigs.length > 0) {
-        grading = fallbackConfigs[0].grading || `${fallbackConfigs[0].caWeight}/${fallbackConfigs[0].examWeight}`;
-      }
+      const fallback = await service.getScoringConfig(currentSchoolId);
+      if (fallback && fallback.length > 0) grading = fallback[0].grading || `${fallback[0].caWeight}/${fallback[0].examWeight}`;
     }
     if (!grading) {
       const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
       const { db } = await import('./firebase-config.js');
       const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
-      const docSnap = await getDoc(doc(db, 'scoring', docId));
-      if (docSnap.exists()) grading = docSnap.data().grading;
+      const snap = await getDoc(doc(db, 'scoring', docId));
+      if (snap.exists()) grading = snap.data().grading;
     }
-    if (grading) {
-      const [ca, exam] = grading.split('/').map(Number);
-      currentGrading = { ca, exam };
-    } else {
-      currentGrading = { ca: 40, exam: 60 };
-    }
+    if (grading) { const [ca, exam] = grading.split('/').map(Number); currentGrading = { ca, exam }; }
+    else currentGrading = { ca: 40, exam: 60 };
   } catch (err) {
     console.error('Grading load error:', err);
     toast.warning('Unable to load grading settings. Using default values (CA=40, Exam=60).');
     currentGrading = { ca: 40, exam: 60 };
   }
 }
-
 async function loadGradingSetting(session, term, classLevel = null) {
-  if (classLevel) {
-    await loadGradingSettingByLevel(classLevel, session, term);
-  } else {
-    try {
-      const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
-      const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
-      const { db } = await import('./firebase-config.js');
-      const docSnap = await getDoc(doc(db, 'scoring', docId));
-      let grading = '40/60';
-      if (docSnap.exists()) grading = docSnap.data().grading;
-      const [ca, exam] = grading.split('/').map(Number);
-      currentGrading = { ca, exam };
-    } catch (err) {
-      currentGrading = { ca: 40, exam: 60 };
-    }
-  }
+  if (classLevel) { await loadGradingSettingByLevel(classLevel, session, term); return; }
+  try {
+    const docId = `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}`;
+    const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js');
+    const { db } = await import('./firebase-config.js');
+    const snap = await getDoc(doc(db, 'scoring', docId));
+    let grading = '40/60';
+    if (snap.exists()) grading = snap.data().grading;
+    const [ca, exam] = grading.split('/').map(Number);
+    currentGrading = { ca, exam };
+  } catch (err) { currentGrading = { ca: 40, exam: 60 }; }
 }
-
 async function fetchClassName() {
   try {
     const classData = await service.getClassById(currentClassId);
     classNameCache = classData ? classData.name : currentClassId;
-    if (classData) {
-      classesMap.set(currentClassId, { name: classData.name, level: classData.level });
-    }
-  } catch (e) {
-    console.warn(e);
-    classNameCache = currentClassId;
-  }
+    if (classData) classesMap.set(currentClassId, { name: classData.name, level: classData.level });
+  } catch (e) { console.warn(e); classNameCache = currentClassId; }
 }
-
 async function loadSubjectsAndClasses() {
   try {
     const subjects = await service.getSubjectsBySchool(currentSchoolId);
-    subjectsMap.clear();
-    allSubjectsList = [];
+    subjectsMap.clear(); allSubjectsList = [];
     subjects.forEach(subj => {
       subjectsMap.set(subj.id, subj.name);
       allSubjectsList.push({ id: subj.id, name: subj.name, level: subj.level || null });
     });
     const classes = await service.getClassesBySchool(currentSchoolId);
     classesMap.clear();
-    classes.forEach(cls => {
-      classesMap.set(cls.id, { name: cls.name, level: cls.level });
-    });
+    classes.forEach(cls => classesMap.set(cls.id, { name: cls.name, level: cls.level }));
   } catch (err) {
     console.error('Subjects/classes load error:', err);
     toast.error('Unable to load subjects and classes. Please refresh the page.');
   }
 }
-
 async function loadStudentsList() {
   try {
     const students = await service.getStudentsBySchool(currentSchoolId);
@@ -265,19 +205,13 @@ async function loadStudentsList() {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Score / stats helpers                                               */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- Scores / stats ---------------- */
 async function fetchScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
     return scores.map(s => ({
-      subjectId: s.subjectId,
-      ca: s.ca,
-      exam: s.exam,
-      createdAt: s.createdAt || null,
-      updatedAt: s.updatedAt || null
+      subjectId: s.subjectId, ca: s.ca, exam: s.exam,
+      createdAt: s.createdAt || null, updatedAt: s.updatedAt || null
     }));
   } catch (err) {
     console.error('Scores fetch error:', err);
@@ -285,22 +219,19 @@ async function fetchScores(studentId, term, session) {
     return [];
   }
 }
-
 async function computeSubjectStats(classId, term, session) {
   const classStudents = studentsList.filter(s => s.classId === classId);
   if (!classStudents.length) return new Map();
   try {
     const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
     const subjectMap = new Map();
-    for (const subjId of subjectsMap.keys()) {
-      subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
-    }
+    for (const subjId of subjectsMap.keys()) subjectMap.set(subjId, { totals: [], classAverage: 0, rankMap: new Map() });
     for (const score of allScores) {
       const total = (score.ca || 0) + (score.exam || 0);
       const stat = subjectMap.get(score.subjectId);
       if (stat) stat.totals.push({ studentId: score.studentId, total });
     }
-    for (const [subjId, stat] of subjectMap.entries()) {
+    for (const [, stat] of subjectMap.entries()) {
       if (stat.totals.length) {
         stat.totals.sort((a, b) => b.total - a.total);
         const avg = stat.totals.reduce((s, t) => s + t.total, 0) / stat.totals.length;
@@ -319,7 +250,6 @@ async function computeSubjectStats(classId, term, session) {
     return new Map();
   }
 }
-
 async function getRelevantSubjectsForClass(classId, term, session) {
   const classInfo = classesMap.get(classId);
   if (!classInfo) return [];
@@ -330,18 +260,84 @@ async function getRelevantSubjectsForClass(classId, term, session) {
   if (!classStudents.length) return levelSubjects;
   try {
     const allScores = await service.getScoresByClass(classId, currentSchoolId, term, session);
-    const subjectIdsWithScores = new Set(allScores.map(s => s.subjectId));
-    return levelSubjects.filter(subj => subjectIdsWithScores.has(subj.id));
-  } catch (err) {
-    console.error('Relevant subjects error:', err);
-    return levelSubjects;
-  }
+    const ids = new Set(allScores.map(s => s.subjectId));
+    return levelSubjects.filter(subj => ids.has(subj.id));
+  } catch (err) { return levelSubjects; }
 }
 
-/* ------------------------------------------------------------------ */
-/* Report card                                                         */
-/* ------------------------------------------------------------------ */
+/* ---------------- Snapshot builder (shared with results.js semantics) ---------------- */
+function buildSnapshotForSave({
+  studentData, scores, className, classId, grading, isPrimary,
+  totalScore, totalObtainable, average, overallGrade,
+  attendance, psychomotor, teacherComment, principalComment, position,
+  subjectStats, studentId
+}) {
+  const subjectSnapshot = (Array.isArray(scores) ? scores : [])
+    .filter(s => Number(s.ca) > 0 || Number(s.exam) > 0)
+    .map(s => {
+      const ca = Number(s.ca) || 0;
+      const exam = Number(s.exam) || 0;
+      let subjPosition = null;
+      let subjClassAvg = null;
+      if (subjectStats && typeof subjectStats.get === 'function') {
+        const stat = subjectStats.get(s.subjectId);
+        if (stat) {
+          const rank = stat.rankMap?.get?.(studentId);
+          if (typeof rank === 'number') subjPosition = rank;
+          if (stat.classAverage != null) subjClassAvg = stat.classAverage;
+        }
+      }
+      return {
+        subjectId: s.subjectId,
+        subjectName: s.subjectName || s.subjectId,
+        ca, exam,
+        total: ca + exam,
+        position: subjPosition,
+        classAverage: subjClassAvg
+      };
+    });
 
+  const psychoOut = {};
+  if (psychomotor && typeof psychomotor === 'object') {
+    Object.keys(psychomotor).forEach(k => {
+      const v = psychomotor[k];
+      if (typeof v === 'number') psychoOut[k] = v;
+    });
+  }
+
+  return {
+    studentSnapshot: {
+      id: studentData?.id || studentId,
+      name: studentData?.name || '',
+      admissionNumber: studentData?.admissionNumber || '',
+      gender: studentData?.gender || '',
+      dob: studentData?.dob || '',
+      club: studentData?.club || '',
+      passport: studentData?.passport || null,
+      parentPhone: studentData?.parentPhone || null
+    },
+    subjectSnapshot,
+    grading: { ca: Number(grading?.ca) || 40, exam: Number(grading?.exam) || 60 },
+    isPrimary: !!isPrimary,
+    className: className || '',
+    classId: classId || '',
+    totalScore: Number(totalScore) || 0,
+    totalObtainable: Number(totalObtainable) || 0,
+    average: Number(average) || 0,
+    overallGrade: overallGrade || '',
+    attendance: {
+      schoolOpened: Number(attendance?.schoolOpened) || 0,
+      present: Number(attendance?.present) || 0,
+      absent: Number(attendance?.absent) || 0
+    },
+    psychomotor: psychoOut,
+    teacherComment: teacherComment || '',
+    principalComment: principalComment || '',
+    position: (typeof position === 'number') ? position : null
+  };
+}
+
+/* ---------------- Report card ---------------- */
 async function loadReportCard(studentId, studentName) {
   if (!isSubscriptionActive) {
     const container = document.getElementById('reportCardContent');
@@ -364,13 +360,11 @@ async function loadReportCard(studentId, studentName) {
   const student        = studentsList.find(s => s.id === studentId);
   const studentClassId = student ? student.classId : currentClassId;
 
-  // Save classId together with the selected student so we can persist it correctly.
   reportState.selectedStudent = { id: studentId, name: studentName, classId: studentClassId };
 
   let classLevel = null;
-  if (studentClassId && classesMap.has(studentClassId)) {
-    classLevel = classesMap.get(studentClassId).level;
-  } else if (studentClassId) {
+  if (studentClassId && classesMap.has(studentClassId)) classLevel = classesMap.get(studentClassId).level;
+  else if (studentClassId) {
     const classData = await service.getClassById(studentClassId);
     if (classData) classLevel = classData.level;
   }
@@ -394,7 +388,7 @@ async function loadReportCard(studentId, studentName) {
 
     const subjectStats = await computeSubjectStats(studentClassId, reportState.term, reportState.session);
 
-    // Fetch any previously saved report by student + class + term + session.
+    // Fetch existing report for this exact identity (classId now used)
     await loadExistingReport(studentId, studentClassId);
 
     const studentData = {
@@ -407,6 +401,16 @@ async function loadReportCard(studentId, studentName) {
       passport: student?.passport || null,
       parentPhone: student?.parentPhone || null
     };
+
+    // Capture snapshot inputs
+    reportState.currentScores       = scoresWithNames;
+    reportState.currentSubjectStats = subjectStats;
+    reportState.currentClassName    = classNameCache;
+    reportState.currentClassId      = studentClassId;
+    reportState.currentClassLevel   = classLevel;
+    reportState.currentIsPrimary    = isPrimary;
+    reportState.currentGrading      = { ...currentGrading };
+    reportState.currentStudentData  = studentData;
 
     await renderReportCardUI({
       student: studentData, scores: scoresWithNames, className: classNameCache,
@@ -429,23 +433,20 @@ async function loadReportCard(studentId, studentName) {
   }
 }
 
-/**
- * Fetch the saved report for a student, scoped to the given classId + term + session.
- * Passing classId disambiguates reports when a student has moved between classes
- * while keeping the same term/session.
- */
 async function loadExistingReport(studentId, classId) {
   try {
     const report = await service.getReportByStudent(
       studentId, currentSchoolId, reportState.term, reportState.session, classId
     );
     if (report) {
+      reportState.savedReport = report;
       if (report.psychomotor) Object.assign(reportState.psychomotor, report.psychomotor);
       reportState.teacherComment   = report.teacherComment   || '';
       reportState.principalComment = report.principalComment || '';
       reportState.attendance       = report.attendance       || { schoolOpened: 0, present: 0, absent: 0 };
       reportState.savedReportId    = report.id;
     } else {
+      reportState.savedReport = null;
       reportState.attendance    = { schoolOpened: 0, present: 0, absent: 0 };
       reportState.savedReportId = null;
     }
@@ -474,26 +475,58 @@ async function saveReportCard() {
   const average         = parseFloat(document.querySelector('.rc-summary-table tr:nth-child(4) td')?.textContent) || 0;
   const overallGrade    = document.querySelector('.rc-summary-table tr:nth-child(5) td')?.textContent || 'N/A';
 
-  // Persist the class the student was in at the time of saving (not necessarily the
-  // teacher's current class). Together with term + session this uniquely identifies
-  // the report so it can be fetched later regardless of any class/status change.
   const classIdForSave = reportState.selectedStudent.classId || currentClassId;
+  const classNameForSave = reportState.currentClassName || classNameCache || '';
+  const isPrimary = !!reportState.currentIsPrimary;
+
+  const snapshot = buildSnapshotForSave({
+    studentData: reportState.currentStudentData,
+    scores:      reportState.currentScores,
+    className:   classNameForSave,
+    classId:     classIdForSave,
+    grading:     reportState.currentGrading,
+    isPrimary,
+    totalScore, totalObtainable, average, overallGrade,
+    attendance,
+    psychomotor:      reportState.psychomotor,
+    teacherComment:   reportState.teacherComment,
+    principalComment: reportState.principalComment,
+    position:         null, // teacher page does not render position
+    subjectStats:     reportState.currentSubjectStats,
+    studentId:        reportState.selectedStudent.id
+  });
 
   const reportData = {
     studentId: reportState.selectedStudent.id,
+    studentName: reportState.selectedStudent.name,
     classId:   classIdForSave,
+    className: classNameForSave,
     schoolId:  currentSchoolId,
     term:      reportState.term,
     session:   reportState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: reportState.psychomotor,
     teacherComment: reportState.teacherComment, principalComment: reportState.principalComment,
-    attendance, updatedAt: new Date()
+    attendance,
+    updatedAt: new Date(),
+    snapshot
   };
+
+  // Safety: never overwrite a report for a different identity
+  let existingId = reportState.savedReportId;
+  if (existingId && reportState.savedReport) {
+    const sr = reportState.savedReport;
+    const same =
+      sr.studentId === reportData.studentId &&
+      sr.classId   === reportData.classId   &&
+      sr.term      === reportData.term      &&
+      sr.session   === reportData.session;
+    if (!same) existingId = null;
+  }
 
   showLoader();
   try {
-    const newId = await service.saveReport(reportData, reportState.savedReportId);
+    const newId = await service.saveReport(reportData, existingId);
     reportState.savedReportId = newId;
     reportState.attendance = attendance;
     toast.success('Report saved successfully.');
@@ -509,15 +542,12 @@ async function saveReportCard() {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Print / WhatsApp                                                    */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- Print / WhatsApp (unchanged) ---------------- */
 function handlePrint() {
-  const teacherText    = document.getElementById('teacherCommentText');
-  const printTeacher   = document.getElementById('printTeacherComment');
+  const teacherText = document.getElementById('teacherCommentText');
+  const printTeacher = document.getElementById('printTeacherComment');
   if (teacherText && printTeacher) printTeacher.textContent = escapeHtml(teacherText.value);
-  const principalText  = document.getElementById('principalCommentText');
+  const principalText = document.getElementById('principalCommentText');
   const printPrincipal = document.getElementById('printPrincipalComment');
   if (principalText && printPrincipal) printPrincipal.textContent = escapeHtml(principalText.value);
 
@@ -556,98 +586,48 @@ function handlePrint() {
     .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
     .rc-grade-scale th { background: #FFD700 !important; }
     .rc-comments { background: #f9f9f9 !important; }
-    .rc-comment-row, .rc-comment-item {
-      display: flex !important;
-      flex-direction: row !important;
-      align-items: baseline !important;
-      gap: 8px !important;
-      flex-wrap: wrap !important;
-    }
-    .rc-comment-label, .rc-comment-item strong {
-      white-space: nowrap !important;
-    }
+    .rc-comment-row, .rc-comment-item { display: flex !important; flex-direction: row !important; align-items: baseline !important; gap: 8px !important; flex-wrap: wrap !important; }
+    .rc-comment-label, .rc-comment-item strong { white-space: nowrap !important; }
   `;
 
   printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Report Card – ${escapeHtml(reportState.selectedStudent?.name || 'Student')}</title>
-      <link rel="stylesheet" href="${externalCssUrl}">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .print-container { width: 210mm; margin: 0 auto; background: white; }
-        ${inlineStyles}
-        ${extraPrintCSS}
-      </style>
-    </head>
-    <body>
+    <!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Report Card – ${escapeHtml(reportState.selectedStudent?.name || 'Student')}</title>
+    <link rel="stylesheet" href="${externalCssUrl}">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+      .print-container { width: 210mm; margin: 0 auto; background: white; }
+      ${inlineStyles}${extraPrintCSS}
+    </style></head><body>
       <div class="print-container">${clonedReport.outerHTML}</div>
-    </body>
-    </html>
-  `);
+    </body></html>`);
   printWindow.document.close();
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
 function sendToWhatsApp() {
-  if (!reportState.selectedStudent) {
-    toast.error('Please select a student first.');
-    return;
-  }
-
+  if (!reportState.selectedStudent) { toast.error('Please select a student first.'); return; }
   let phone = reportState.selectedStudent.parentPhone;
-  if (!phone || phone.trim() === '') {
-    toast.error('Parent phone number not available. Please update the student record.');
-    return;
-  }
-
+  if (!phone || phone.trim() === '') { toast.error('Parent phone number not available. Please update the student record.'); return; }
   let digits = phone.replace(/\D/g, '');
-  if (digits.length === 10 && digits.startsWith('8')) {
-    digits = '234' + digits;
-  } else if (digits.length === 11 && digits.startsWith('0')) {
-    digits = '234' + digits.substring(1);
-  } else if (digits.length === 13 && digits.startsWith('234')) {
-    // already correct
-  } else if (digits.length === 14 && digits.startsWith('234')) {
-    digits = digits.substring(3);
-  } else if (digits.length === 10 && /^[789]/.test(digits)) {
-    digits = '234' + digits;
-  } else {
-    toast.error('Invalid phone number format. Please update the parent phone number.');
-    return;
-  }
-  if (!digits.startsWith('234')) {
-    toast.error('Phone number must start with Nigeria country code (234).');
-    return;
-  }
-  if (digits.length !== 13) {
-    toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).');
-    return;
-  }
-
+  if (digits.length === 10 && digits.startsWith('8')) digits = '234' + digits;
+  else if (digits.length === 11 && digits.startsWith('0')) digits = '234' + digits.substring(1);
+  else if (digits.length === 13 && digits.startsWith('234')) { /* ok */ }
+  else if (digits.length === 14 && digits.startsWith('234')) digits = digits.substring(3);
+  else if (digits.length === 10 && /^[789]/.test(digits)) digits = '234' + digits;
+  else { toast.error('Invalid phone number format. Please update the parent phone number.'); return; }
+  if (!digits.startsWith('234')) { toast.error('Phone number must start with Nigeria country code (234).'); return; }
+  if (digits.length !== 13) { toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).'); return; }
   const message = `Please find attached the report card for ${reportState.selectedStudent.name}.`;
-  const whatsappUrl = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
-  window.open(whatsappUrl, '_blank');
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(message)}`, '_blank');
 }
 
-/* ------------------------------------------------------------------ */
-/* Broadsheet                                                          */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- Broadsheet (unchanged) ---------------- */
 async function fetchClassScores(classId, term, session) {
-  try {
-    const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
-    return scores;
-  } catch (err) {
-    console.error('Class scores fetch error:', err);
-    toast.error('Unable to load class scores. Please refresh the page.');
-    return [];
-  }
+  try { return await service.getScoresByClass(classId, currentSchoolId, term, session); }
+  catch (err) { console.error('Class scores fetch error:', err); toast.error('Unable to load class scores. Please refresh the page.'); return []; }
 }
-
 async function getStudentAverageForTerm(studentId, term, session) {
   const scores = await fetchScores(studentId, term, session);
   if (!scores.length) return null;
@@ -656,22 +636,14 @@ async function getStudentAverageForTerm(studentId, term, session) {
   if (count === 0) return null;
   return ((total / (count * 100)) * 100).toFixed(1);
 }
-
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
-    if (container) {
-      container.innerHTML = `
-        <div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;">
-          <h3>⚠️ Subscription Required</h3>
-          <p>Broadsheets are unavailable because the school subscription is inactive.</p>
-        </div>`;
-    }
+    if (container) container.innerHTML = `<div style="text-align:center;padding:40px;background:#fef3c7;border-radius:8px;"><h3>⚠️ Subscription Required</h3><p>Broadsheets are unavailable because the school subscription is inactive.</p></div>`;
     const actions = document.getElementById('broadsheetActions');
     if (actions) actions.style.display = 'none';
     return;
   }
-
   const container = document.getElementById('broadsheetContainer');
   if (!container) { toast.error('Broadsheet container not found.'); return; }
 
@@ -680,16 +652,14 @@ async function generateBroadsheet() {
   const term       = document.getElementById('broadsheetTermSelect')?.value;
   if (!classIdSel || !session || !term) { toast.error('Please select Class, Session and Term.'); return; }
 
-  const classInfo  = classesMap.get(classIdSel);
-  const className  = classInfo?.name || 'Class';
-
+  const classInfo = classesMap.get(classIdSel);
+  const className = classInfo?.name || 'Class';
   const relevantSubjects = await getRelevantSubjectsForClass(classIdSel, term, session);
   if (!relevantSubjects.length) {
     container.innerHTML = '<div class="alert">No subjects found for the selected class level or no scores available.</div>';
     document.getElementById('broadsheetActions').style.display = 'none';
     return;
   }
-
   const classStudents = studentsList.filter(s => s.classId === classIdSel);
   if (!classStudents.length) { container.innerHTML = '<div class="alert">No students found in this class.</div>'; return; }
 
@@ -701,22 +671,17 @@ async function generateBroadsheet() {
       if (!scoresByStudent.has(score.studentId)) scoresByStudent.set(score.studentId, []);
       scoresByStudent.get(score.studentId).push(score);
     }
-
-    const term1Averages = new Map(), term2Averages = new Map(), term3Averages = new Map();
+    const term1Avg = new Map(), term2Avg = new Map(), term3Avg = new Map();
     for (const student of classStudents) {
-      const avg1 = await getStudentAverageForTerm(student.id, '1', session);
-      const avg2 = await getStudentAverageForTerm(student.id, '2', session);
-      const avg3 = await getStudentAverageForTerm(student.id, '3', session);
-      term1Averages.set(student.id, avg1 !== null ? parseFloat(avg1) : null);
-      term2Averages.set(student.id, avg2 !== null ? parseFloat(avg2) : null);
-      term3Averages.set(student.id, avg3 !== null ? parseFloat(avg3) : null);
+      term1Avg.set(student.id, await getStudentAverageForTerm(student.id, '1', session));
+      term2Avg.set(student.id, await getStudentAverageForTerm(student.id, '2', session));
+      term3Avg.set(student.id, await getStudentAverageForTerm(student.id, '3', session));
     }
-
     const studentResults = [];
     for (const student of classStudents) {
       const scores = scoresByStudent.get(student.id) || [];
       const scoreMap = new Map();
-      scores.forEach(s => { scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }); });
+      scores.forEach(s => scoreMap.set(s.subjectId, { ca: s.ca, exam: s.exam, total: s.ca + s.exam }));
       let totalScore = 0;
       const subjectDetails = [];
       for (const subj of relevantSubjects) {
@@ -725,28 +690,27 @@ async function generateBroadsheet() {
         subjectDetails.push({ subjectName: subj.name, ca: score.ca, exam: score.exam, total: score.total });
       }
       const totalObtainable = relevantSubjects.length * 100;
-      const average  = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
-      const grade    = calculateGrade(average);
-      const remark   = getGradeRemark(grade);
-      const termValues = [term1Averages.get(student.id), term2Averages.get(student.id), term3Averages.get(student.id)].filter(v => v !== null);
-      const combinedAvg = termValues.length ? (termValues.reduce((a, b) => a + b, 0) / termValues.length).toFixed(1) : null;
+      const average = totalObtainable ? (totalScore / totalObtainable) * 100 : 0;
+      const grade = calculateGrade(average);
+      const remark = getGradeRemark(grade);
+      const t1 = term1Avg.get(student.id), t2 = term2Avg.get(student.id), t3 = term3Avg.get(student.id);
+      const vals = [t1, t2, t3].filter(v => v !== null).map(Number);
+      const combinedAvg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
       studentResults.push({
         studentId: student.id, studentName: student.name,
         totalScore, average, grade, remark, subjectDetails,
-        term1Avg: term1Averages.get(student.id) !== null ? term1Averages.get(student.id).toFixed(1) + '%' : '—',
-        term2Avg: term2Averages.get(student.id) !== null ? term2Averages.get(student.id).toFixed(1) + '%' : '—',
-        term3Avg: term3Averages.get(student.id) !== null ? term3Averages.get(student.id).toFixed(1) + '%' : '—',
+        term1Avg: t1 !== null ? parseFloat(t1).toFixed(1) + '%' : '—',
+        term2Avg: t2 !== null ? parseFloat(t2).toFixed(1) + '%' : '—',
+        term3Avg: t3 !== null ? parseFloat(t3).toFixed(1) + '%' : '—',
         combinedAvg: combinedAvg !== null ? combinedAvg + '%' : '—'
       });
     }
-
     studentResults.sort((a, b) => b.totalScore - a.totalScore);
     let rank = 1;
     for (let i = 0; i < studentResults.length; i++) {
       if (i > 0 && studentResults[i].totalScore < studentResults[i - 1].totalScore) rank = i + 1;
       studentResults[i].position = rank;
     }
-
     let html = `<div style="margin-bottom:1rem;"><h3>BROADSHEET – ${escapeHtml(className)} – ${session} – ${term}</h3></div>`;
     html += `<div class="table-responsive-wrapper"><table class="broadsheet-table" border="1" cellpadding="5" cellspacing="0">`;
     html += `<thead><tr><th>S/N</th><th>Student Name</th>`;
@@ -774,7 +738,6 @@ async function generateBroadsheet() {
     hideLoader();
   }
 }
-
 async function saveBroadsheetToFirestore() {
   const active = await checkSubscription();
   if (!active) { toast.error('Cannot save broadsheet – subscription inactive.'); return; }
@@ -798,16 +761,10 @@ async function saveBroadsheetToFirestore() {
     toast.success('Broadsheet saved successfully.');
   } catch (err) {
     console.error('Broadsheet save error:', err);
-    if (err.code === 'permission-denied' || err.message?.includes('permission')) {
-      toast.error('Permission denied. Subscription required to save broadsheets.');
-    } else {
-      toast.error('Failed to save broadsheet. Please try again.');
-    }
-  } finally {
-    hideLoader();
-  }
+    if (err.code === 'permission-denied' || err.message?.includes('permission')) toast.error('Permission denied. Subscription required to save broadsheets.');
+    else toast.error('Failed to save broadsheet. Please try again.');
+  } finally { hideLoader(); }
 }
-
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
   if (!container || !container.innerHTML.trim()) { toast.error('No broadsheet to print.'); return; }
@@ -826,23 +783,14 @@ function printBroadsheet() {
     .table-responsive-wrapper { overflow:visible !important; border:none !important; margin:0 !important; }
     tr, td, th { page-break-inside:avoid; page-break-after:avoid; }
   `;
-  printWindow.document.write(`
-    <!DOCTYPE html><html><head><title>${title}</title>
-    <link rel="stylesheet" href="${externalCssUrl}">
-    <style>${inlineStyles}${printCSS}</style>
-    </head><body>${originalContent.outerHTML}</body></html>
-  `);
+  printWindow.document.write(`<!DOCTYPE html><html><head><title>${title}</title><link rel="stylesheet" href="${externalCssUrl}"><style>${inlineStyles}${printCSS}</style></head><body>${originalContent.outerHTML}</body></html>`);
   printWindow.document.close();
   printWindow.print();
 }
 
-/* ------------------------------------------------------------------ */
-/* UI population / navigation                                          */
-/* ------------------------------------------------------------------ */
-
+/* ---------------- UI / init ---------------- */
 async function loadClassStudents() {
   if (!currentClassId) return;
-
   reportState.term    = document.getElementById('termSelect').value;
   reportState.session = document.getElementById('sessionSelect').value;
   await loadGradingSetting(reportState.session, reportState.term);
@@ -859,7 +807,6 @@ async function loadClassStudents() {
     document.getElementById('reportActions').style.display = 'none';
     return;
   }
-
   let html = titleHtml + '<div style="background:#fff;border-radius:0 0 8px 8px;overflow:hidden;">';
   classStudents.forEach(s => {
     html += `<div class="student-list-item" data-id="${s.id}" style="padding:12px 15px;border-bottom:1px solid #e0e0e0;background-color:#f8f9fa;cursor:pointer;transition:all 0.2s;font-weight:500;">${escapeHtml(s.name)}</div>`;
@@ -882,7 +829,6 @@ async function loadClassStudents() {
     await loadReportCard(firstStudent.id, firstStudent.name);
   }
 }
-
 async function onClassChange() {
   const newClassId = document.getElementById('reportClassSelect')?.value || hostClassIds[0];
   if (!newClassId) return;
@@ -890,7 +836,6 @@ async function onClassChange() {
   await fetchClassName();
   await loadClassStudents();
 }
-
 async function populateClassSelectors() {
   const broadsheetSelect = document.getElementById('broadsheetClassSelect');
   if (broadsheetSelect) {
@@ -899,16 +844,12 @@ async function populateClassSelectors() {
       const classInfo = classesMap.get(cid);
       if (classInfo) {
         const option = document.createElement('option');
-        option.value = cid;
-        option.textContent = classInfo.name;
+        option.value = cid; option.textContent = classInfo.name;
         broadsheetSelect.appendChild(option);
       }
     }
-    if (hostClassIds.length === 1) {
-      broadsheetSelect.value = hostClassIds[0];
-    }
+    if (hostClassIds.length === 1) broadsheetSelect.value = hostClassIds[0];
   }
-
   const reportClassWrapper = document.getElementById('classSelectorWrapper');
   const reportClassSelect = document.getElementById('reportClassSelect');
   if (reportClassWrapper && reportClassSelect) {
@@ -919,31 +860,22 @@ async function populateClassSelectors() {
         const classInfo = classesMap.get(cid);
         if (classInfo) {
           const option = document.createElement('option');
-          option.value = cid;
-          option.textContent = classInfo.name;
+          option.value = cid; option.textContent = classInfo.name;
           reportClassSelect.appendChild(option);
         }
       }
       reportClassSelect.value = hostClassIds[0];
       reportClassSelect.addEventListener('change', onClassChange);
-    } else {
-      reportClassWrapper.style.display = 'none';
-    }
+    } else reportClassWrapper.style.display = 'none';
   }
-
   currentClassId = hostClassIds[0];
   await fetchClassName();
   await loadClassStudents();
 }
 
-/* ------------------------------------------------------------------ */
-/* Init                                                                */
-/* ------------------------------------------------------------------ */
-
 export async function initClassReportPage() {
   teacherData = getTeacherData();
   if (!teacherData) return;
-
   currentSchoolId = teacherData.schoolId || localStorage.getItem('userSchoolId');
   if (!currentSchoolId) { toast.error('School ID missing. Please log in again.'); return; }
 
@@ -962,8 +894,6 @@ export async function initClassReportPage() {
   const termMap         = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum  = termMap[currentTermNum] || '1';
 
-  // FIXED: Session selectors are locked to the current session only.
-  // No previous or upcoming sessions are populated.
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
     sessionSelect.innerHTML = `<option value="${currentSession}">${currentSession}</option>`;
@@ -976,7 +906,6 @@ export async function initClassReportPage() {
     broadsheetSessionSelect.value = currentSession;
     broadsheetSessionSelect.disabled = true;
   }
-
   const broadsheetTermSelect = document.getElementById('broadsheetTermSelect');
   if (broadsheetTermSelect) broadsheetTermSelect.value = defaultTermNum;
   const termSelect = document.getElementById('termSelect');
@@ -991,7 +920,5 @@ export async function initClassReportPage() {
   document.getElementById('saveBroadsheetBtn')?.addEventListener('click', saveBroadsheetToFirestore);
   document.getElementById('printBroadsheetBtn')?.addEventListener('click', printBroadsheet);
 
-  if (hostClassIds.length === 1) {
-    await loadClassStudents();
-  }
+  if (hostClassIds.length === 1) await loadClassStudents();
 }
