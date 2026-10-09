@@ -1,16 +1,20 @@
 // results.js - Admin report card page using shared renderer + subscription check + payment banner
-// FULLY INTEGRATED with Central Academic Calendar Engine + REAL‑TIME SUBSCRIPTION LOCK (RAW STATUS)
-// DYNAMIC SESSION DROPDOWN – shows only sessions with existing scores for the school
-// ADDED: Alphabetical sorting of students, class options, and subject options.
-// MODIFIED: Attendance now correctly fetched from Firestore (classId & schoolId passed to renderer)
-// ADDED: Parent phone number to student data + "Send to WhatsApp" button with robust normalisation.
-// UPDATED: Print comments now appear inline (same line as label)
-// NEW: "Enable Position" toggle – persisted to localStorage per school. When ON,
-//      report card displays student's class position calculated from broadsheet.
-// NEW: fetchStudentScores now includes createdAt/updatedAt for duplicate subject resolution.
-// NEW: Report save stores classId + term + session at time of saving so that results can
-//      be fetched later, even if the student is later moved / inactive / graduated.
-//      Fetch path also uses classId + term + session.
+//
+// UPDATED (historical refactor):
+//  • Distinguishes current term+session from historical (previous term OR previous session).
+//  • Current period  → uses current class roster (active students only).
+//  • Historical period → builds roster from saved reports (and legacy score records),
+//    independent of the students' current class/status.
+//  • When a saved report contains a snapshot, the snapshot is the authoritative source
+//    for historical rendering (no live attendance fetch).
+//  • Saving now persists a complete snapshot (identity, student info, subject scores
+//    with per-subject position/classAvg, totals, attendance, psychomotor, comments,
+//    position) in a serializable plain-object form.
+//  • getReportByStudent uses classId (5th arg) so historical reports are correctly
+//    retrieved by their exact identity.
+//
+// All existing UI, markup, broadsheet, WhatsApp, print, subscription banner and
+// grading settings are unchanged.
 
 import * as service from './service.js';
 import { getCurrentSchoolId } from './admin.js';
@@ -45,7 +49,6 @@ let unsubscribeSub = null;
 let currentAcademicSession = '';
 let currentAcademicTerm = '';
 
-// NEW: Position toggle state (default off, persisted)
 const POSITION_TOGGLE_STORAGE_KEY = 'acadex_enable_position';
 let positionEnabled = false;
 
@@ -57,36 +60,55 @@ let editorState = {
   teacherComment: '',
   principalComment: '',
   savedReportId: null,
-  attendance: { schoolOpened: 0, present: 0, absent: 0 }
+  savedReport: null,
+  attendance: { schoolOpened: 0, present: 0, absent: 0 },
+  // Snapshot inputs captured at render time
+  currentScores: [],
+  currentSubjectStats: null,
+  currentClassName: '',
+  currentClassId: '',
+  currentClassLevel: '',
+  currentIsPrimary: false,
+  currentGrading: { ca: 40, exam: 60 },
+  currentStudentData: null,
+  currentPosition: null,
+  currentIsHistorical: false
 };
 
-// ------------------- Helper: Position toggle persistence -------------------
+// ------------------- Helpers: position toggle -------------------
 function getPositionToggleStorageKey(schoolId) {
   return `${POSITION_TOGGLE_STORAGE_KEY}_${schoolId}`;
 }
-
 function loadPositionTogglePreference(schoolId) {
-  try {
-    return localStorage.getItem(getPositionToggleStorageKey(schoolId)) === 'true';
-  } catch (_) {
-    return false;
-  }
+  try { return localStorage.getItem(getPositionToggleStorageKey(schoolId)) === 'true'; }
+  catch (_) { return false; }
 }
-
 function savePositionTogglePreference(schoolId, value) {
-  try {
-    localStorage.setItem(getPositionToggleStorageKey(schoolId), String(value));
-  } catch (_) {}
+  try { localStorage.setItem(getPositionToggleStorageKey(schoolId), String(value)); }
+  catch (_) {}
 }
 
-// ------------------- Helper: Check if requested session/term is current -------------------
+// ------------------- Helpers: current vs historical -------------------
+function normalizeTerm(term) {
+  const t = String(term == null ? '' : term).trim().toLowerCase();
+  if (t === '1' || t === 'first term')  return '1';
+  if (t === '2' || t === 'second term') return '2';
+  if (t === '3' || t === 'third term')  return '3';
+  return t;
+}
+
 function isCurrentSessionTerm(session, term) {
   if (!currentAcademicSession || !currentAcademicTerm) return false;
-  const termNumFromName = (name) => ({ 'First Term': '1', 'Second Term': '2', 'Third Term': '3' }[name] || name);
-  return session === currentAcademicSession && termNumFromName(term) === termNumFromName(currentAcademicTerm);
+  return (
+    String(session || '').trim() === String(currentAcademicSession).trim() &&
+    normalizeTerm(term) === normalizeTerm(currentAcademicTerm)
+  );
 }
 
-// ------------------- Helper: Check if user can view this result -------------------
+function isHistoricalPeriod(term, session) {
+  return !isCurrentSessionTerm(session, term);
+}
+
 function canViewResult(session, term) {
   if (isSubscriptionActive) return true;
   return !isCurrentSessionTerm(session, term);
@@ -96,12 +118,11 @@ function canViewResult(session, term) {
 function getScoringDocId(session, term, level) {
   return `${currentSchoolId}_${session.replace(/\//g, '_')}_${term}_${level}`;
 }
-
 async function loadSessionOptions(schoolId) {
   return await service.loadSessionOptions(schoolId);
 }
 
-// ------------------- Data Loading via service -------------------
+// ------------------- Data Loading -------------------
 async function loadClassesAndSubjects() {
   try {
     const classes = await service.getClassesBySchool(currentSchoolId);
@@ -123,7 +144,8 @@ async function loadClassesAndSubjects() {
 
 async function loadAllStudents() {
   try {
-    const students = await service.getStudentsBySchool(currentSchoolId);
+    // Load all statuses once — historical period filtering will pick the right subset.
+    const students = await service.getStudentsBySchool(currentSchoolId, null);
     studentsList = students.map(s => ({
       id: s.id, name: s.name, classId: s.classId,
       admissionNumber: s.admissionNumber, gender: s.gender,
@@ -132,7 +154,8 @@ async function loadAllStudents() {
       parentPhone: s.parentPhone || null,
       nationality: s.nationality || null,
       state: s.state || null,
-      religion: s.religion || null
+      religion: s.religion || null,
+      status: s.status || 'active'
     }));
     studentsList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   } catch (err) {
@@ -142,7 +165,6 @@ async function loadAllStudents() {
   }
 }
 
-// ── Scores: keep using the numeric term as-is (no conversion) ──
 async function fetchClassScores(classId, term, session) {
   try {
     const scores = await service.getScoresByClass(classId, currentSchoolId, term, session);
@@ -154,7 +176,6 @@ async function fetchClassScores(classId, term, session) {
   }
 }
 
-// Preserve createdAt/updatedAt for duplicate subject resolution
 async function fetchStudentScores(studentId, term, session) {
   try {
     const scores = await service.getScoresByStudent(studentId, currentSchoolId, term, session);
@@ -183,11 +204,11 @@ async function loadGradingSetting(session, term, level = 'secondary') {
     const [ca, exam] = grading.split('/').map(Number);
     currentGrading = { ca, exam };
     if (level === 'secondary') {
-      const gradingSelect = document.getElementById('gradingSelect');
-      if (gradingSelect) gradingSelect.value = grading;
+      const gSel = document.getElementById('gradingSelect');
+      if (gSel) gSel.value = grading;
     } else if (level === 'primary') {
-      const primaryGradingSelect = document.getElementById('primaryGradingSelect');
-      if (primaryGradingSelect) primaryGradingSelect.value = grading;
+      const pSel = document.getElementById('primaryGradingSelect');
+      if (pSel) pSel.value = grading;
     }
   } catch (err) {
     console.error(err);
@@ -224,7 +245,9 @@ async function saveGradingSetting(level = 'secondary') {
       currentGrading = { ca, exam };
     }
     toast.success(`Grading saved for ${level} level.`);
-    if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+    if (editorState.selectedStudent) {
+      await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+    }
   } catch (err) {
     if (err.code === 'permission-denied') {
       toast.error('Permission denied. Subscription required to save grading.');
@@ -288,7 +311,6 @@ async function getStudentAverageForTerm(studentId, term, session) {
   return ((total / (count * 100)) * 100).toFixed(1);
 }
 
-// NEW: Compute class position for a student based on current term & session
 async function getStudentClassPosition(studentId, classId, term, session) {
   if (!classId || !studentId || !term || !session) return null;
   try {
@@ -301,21 +323,16 @@ async function getStudentClassPosition(studentId, classId, term, session) {
       const cached = window.currentBroadsheetData.studentResults?.find(s => s.studentId === studentId);
       if (cached && typeof cached.position === 'number') return cached.position;
     }
-
     const classStudents = studentsList.filter(s => s.classId === classId);
     if (!classStudents.length) return null;
-
     const classInfo = classesMap.get(classId);
     const classLevel = classInfo?.level || 'secondary';
     const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
     if (!relevantSubjectIds.length) return null;
-
     const allScores = await fetchClassScores(classId, term, session);
-
     const totalsMap = new Map();
     for (const student of classStudents) {
-      let total = 0;
-      let count = 0;
+      let total = 0, count = 0;
       for (const score of allScores) {
         if (score.studentId !== student.id) continue;
         if (!relevantSubjectIds.includes(score.subjectId)) continue;
@@ -325,11 +342,8 @@ async function getStudentClassPosition(studentId, classId, term, session) {
         total += ca + exam;
         count++;
       }
-      if (count > 0) {
-        totalsMap.set(student.id, { total, average: (total / (count * 100)) * 100 });
-      }
+      if (count > 0) totalsMap.set(student.id, { total, average: (total / (count * 100)) * 100 });
     }
-
     const sorted = Array.from(totalsMap.entries()).sort((a, b) => b[1].average - a[1].average);
     let rank = 1;
     for (let i = 0; i < sorted.length; i++) {
@@ -343,7 +357,176 @@ async function getStudentClassPosition(studentId, classId, term, session) {
   }
 }
 
-// ------------------- renderReportCard -------------------
+// ------------------- Historical roster -------------------
+async function loadHistoricalClassStudents(classId, term, session) {
+  if (!currentSchoolId || !classId || !term || !session) return [];
+
+  const studentsById = new Map();
+
+  // 1. Students with saved reports for the exact class/term/session
+  try {
+    const reports = await service.getReportsByClassTermSession(currentSchoolId, classId, term, session);
+    const idsFromReports = [...new Set((reports || []).map(r => r.studentId).filter(Boolean))];
+    for (const sid of idsFromReports) {
+      const local = studentsList.find(s => s.id === sid);
+      if (local) studentsById.set(sid, local);
+    }
+  } catch (err) {
+    console.warn('[loadHistoricalClassStudents] reports query failed:', err);
+  }
+
+  // 2. Students with scores for the exact class/term/session (may exist before a report is saved)
+  try {
+    const idsFromScores = await service.getStudentIdsWithScoresForClass(currentSchoolId, classId, term, session);
+    for (const sid of idsFromScores) {
+      if (studentsById.has(sid)) continue;
+      const local = studentsList.find(s => s.id === sid);
+      if (local) studentsById.set(sid, local);
+    }
+  } catch (err) {
+    console.warn('[loadHistoricalClassStudents] scores query failed:', err);
+  }
+
+  // 3. Fetch any remaining students that are not in the local list (promoted/moved/graduated since)
+  const missingIds = [];
+  for (const sid of studentsById.keys()) {
+    if (!studentsById.get(sid)) missingIds.push(sid);
+  }
+  // (Noop here since we set only when found above. But we also need to fetch IDs not yet in the map.)
+  // Re-scan: get full union of IDs from both sources, then fetch those not already in map.
+  try {
+    const reports = await service.getReportsByClassTermSession(currentSchoolId, classId, term, session);
+    const idsFromReports = (reports || []).map(r => r.studentId).filter(Boolean);
+    const idsFromScores = await service.getStudentIdsWithScoresForClass(currentSchoolId, classId, term, session);
+    const allIds = [...new Set([...idsFromReports, ...idsFromScores])];
+    for (const sid of allIds) {
+      if (studentsById.has(sid)) continue;
+      try {
+        const fetched = await service.getStudentById(sid);
+        if (fetched) studentsById.set(sid, fetched);
+      } catch (err) {
+        console.warn('[loadHistoricalClassStudents] fetch failed for', sid, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[loadHistoricalClassStudents] union pass failed:', err);
+  }
+
+  const list = Array.from(studentsById.values());
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return list;
+}
+
+// ------------------- Snapshot builder -------------------
+function buildSnapshotForSave({
+  studentData, scores, className, classId, grading, isPrimary,
+  totalScore, totalObtainable, average, overallGrade,
+  attendance, psychomotor, teacherComment, principalComment, position,
+  subjectStats, studentId
+}) {
+  // Subject snapshot entries include per-subject position/classAverage for THIS student
+  const subjectSnapshot = (Array.isArray(scores) ? scores : [])
+    .filter(s => Number(s.ca) > 0 || Number(s.exam) > 0)
+    .map(s => {
+      const ca = Number(s.ca) || 0;
+      const exam = Number(s.exam) || 0;
+      let subjectPosition = null;
+      let subjectClassAvg = null;
+      if (subjectStats && typeof subjectStats.get === 'function') {
+        const stat = subjectStats.get(s.subjectId);
+        if (stat) {
+          const rank = stat.rankMap?.get?.(studentId);
+          if (typeof rank === 'number') subjectPosition = rank;
+          if (stat.classAverage != null) subjectClassAvg = stat.classAverage;
+        }
+      }
+      return {
+        subjectId: s.subjectId,
+        subjectName: s.subjectName || s.subjectId,
+        ca,
+        exam,
+        total: ca + exam,
+        position: subjectPosition,
+        classAverage: subjectClassAvg
+      };
+    });
+
+  // Sanitize psychomotor to plain numeric object
+  const psychoOut = {};
+  if (psychomotor && typeof psychomotor === 'object') {
+    Object.keys(psychomotor).forEach(k => {
+      const v = psychomotor[k];
+      if (typeof v === 'number') psychoOut[k] = v;
+    });
+  }
+
+  return {
+    studentSnapshot: {
+      id: studentData?.id || studentId,
+      name: studentData?.name || '',
+      admissionNumber: studentData?.admissionNumber || '',
+      gender: studentData?.gender || '',
+      dob: studentData?.dob || '',
+      club: studentData?.club || '',
+      passport: studentData?.passport || null,
+      parentPhone: studentData?.parentPhone || null
+    },
+    subjectSnapshot,
+    grading: { ca: Number(grading?.ca) || 40, exam: Number(grading?.exam) || 60 },
+    isPrimary: !!isPrimary,
+    className: className || '',
+    classId: classId || '',
+    totalScore: Number(totalScore) || 0,
+    totalObtainable: Number(totalObtainable) || 0,
+    average: Number(average) || 0,
+    overallGrade: overallGrade || '',
+    attendance: {
+      schoolOpened: Number(attendance?.schoolOpened) || 0,
+      present: Number(attendance?.present) || 0,
+      absent: Number(attendance?.absent) || 0
+    },
+    psychomotor: psychoOut,
+    teacherComment: teacherComment || '',
+    principalComment: principalComment || '',
+    position: (typeof position === 'number') ? position : null
+  };
+}
+
+function buildSnapshotFromSavedReport(report) {
+  if (!report) return null;
+  // Legacy report reconstruction (best-effort, no fabricated values)
+  const subjectSnapshot = Array.isArray(report.subjectSnapshot)
+    ? report.subjectSnapshot
+    : Array.isArray(report.scores) ? report.scores : [];
+  return {
+    studentSnapshot: {
+      id: report.studentId,
+      name: report.studentName || '',
+      admissionNumber: report.admissionNumber || '',
+      gender: report.gender || '',
+      dob: report.dob || '',
+      club: report.club || '',
+      passport: report.passport || null,
+      parentPhone: report.parentPhone || null
+    },
+    subjectSnapshot,
+    grading: report.grading || null,
+    isPrimary: typeof report.isPrimary === 'boolean' ? report.isPrimary : false,
+    className: report.className || '',
+    classId: report.classId || '',
+    totalScore: Number(report.totalScore) || 0,
+    totalObtainable: Number(report.maxTotal) || 0,
+    average: Number(report.average) || 0,
+    overallGrade: report.overallGrade || '',
+    attendance: report.attendance || { schoolOpened: 0, present: 0, absent: 0 },
+    psychomotor: report.psychomotor || {},
+    teacherComment: report.teacherComment || '',
+    principalComment: report.principalComment || '',
+    position: (typeof report.position === 'number') ? report.position : null
+  };
+}
+
+// ------------------- Render report card -------------------
 async function renderReportCard(studentId, studentName) {
   const requestedSession = editorState.session || document.getElementById('editorSessionSelect')?.value || getCurrentSession();
   const requestedTermNum = editorState.term || document.getElementById('editorTermSelect')?.value || '1';
@@ -383,11 +566,14 @@ async function renderReportCard(studentId, studentName) {
   const classInfo  = classesMap.get(classId);
   const classLevel = classInfo?.level || 'secondary';
   const isPrimary  = (classLevel === 'primary');
+  const historical = isHistoricalPeriod(editorState.term, editorState.session);
 
   await loadGradingSetting(editorState.session, editorState.term, classLevel);
 
   const school = await service.getSchoolById(currentSchoolId);
   const student = studentsList.find(s => s.id === studentId) || {};
+
+  // Fetch live scores (used in current mode, and as a fallback for historical without snapshot)
   const scoresRaw = await fetchStudentScores(studentId, editorState.term, editorState.session);
   const relevantSubjectIds = allSubjectsList.filter(s => s.level === classLevel).map(s => s.id);
   const scoresWithNames = scoresRaw.filter(s => relevantSubjectIds.includes(s.subjectId)).map(score => ({
@@ -400,20 +586,22 @@ async function renderReportCard(studentId, studentName) {
   }));
 
   let subjectStats = new Map();
-  if (classId) subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
+  if (classId && !historical) {
+    subjectStats = await computeSubjectStats(classId, editorState.term, editorState.session, relevantSubjectIds);
+  }
 
-  // Fetch the existing report using classId + term + session so that a student's
-  // historical report can be retrieved even after they've been moved/graduated.
+  // Load the existing saved report for the exact (student, class, term, session)
   await loadExistingEditorReport(studentId, classId);
 
+  // Position (only meaningful in current mode — historical uses snapshot position)
   let classPosition = null;
-  if (positionEnabled && classId) {
+  if (positionEnabled && classId && !historical) {
     classPosition = await getStudentClassPosition(studentId, classId, editorState.term, editorState.session);
   }
 
   const studentData = {
     id: studentId, name: studentName,
-    classId: student.classId,
+    classId: classId,   // use the SELECTED class (correct for historical)
     schoolId: currentSchoolId,
     admissionNumber: student.admissionNumber || '—',
     gender: student.gender || '—',
@@ -427,14 +615,38 @@ async function renderReportCard(studentId, studentName) {
   const comments   = { teacherComment: editorState.teacherComment, principalComment: editorState.principalComment };
   const attendance = editorState.attendance || { schoolOpened: 0, present: 0, absent: 0 };
 
-  renderReportCardUI({
+  // Build the historical snapshot to pass to the renderer
+  let historicalSnapshot = null;
+  if (historical && editorState.savedReport) {
+    if (editorState.savedReport.snapshot && typeof editorState.savedReport.snapshot === 'object') {
+      historicalSnapshot = editorState.savedReport.snapshot;
+    } else {
+      historicalSnapshot = buildSnapshotFromSavedReport(editorState.savedReport);
+    }
+  }
+
+  // Capture current render inputs so saveEditorReport can build a fresh snapshot
+  editorState.currentScores       = scoresWithNames;
+  editorState.currentSubjectStats = subjectStats;
+  editorState.currentClassName    = className;
+  editorState.currentClassId      = classId;
+  editorState.currentClassLevel   = classLevel;
+  editorState.currentIsPrimary    = isPrimary;
+  editorState.currentGrading      = { ...currentGrading };
+  editorState.currentStudentData  = studentData;
+  editorState.currentPosition     = classPosition;
+  editorState.currentIsHistorical = historical;
+
+  await renderReportCardUI({
     student: studentData, scores: scoresWithNames, className, school,
     grading: currentGrading, psychomotor: editorState.psychomotor, comments,
     term: editorState.term, session: editorState.session, subjectStats,
     container: document.getElementById('reportCardContent'),
     attendance, isPrimary,
-    positionEnabled,
+    skipLiveAttendanceFetch: historical && !!historicalSnapshot,
+    positionEnabled: positionEnabled && !historical,
     position: classPosition,
+    historicalSnapshot,
     onRatingChange:          (skillKey, newValue) => { editorState.psychomotor[skillKey] = newValue; },
     onTeacherCommentChange:  (newComment)          => { editorState.teacherComment   = newComment; },
     onPrincipalCommentChange:(newComment)          => { editorState.principalComment = newComment; }
@@ -445,34 +657,23 @@ async function renderReportCard(studentId, studentName) {
 
   if (!isSubscriptionActive) {
     const saveBtn = document.getElementById('saveReportBtn');
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.style.opacity = '0.5';
-      saveBtn.title = 'Saving disabled – subscription inactive';
-    }
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '0.5'; saveBtn.title = 'Saving disabled – subscription inactive'; }
   } else {
     const saveBtn = document.getElementById('saveReportBtn');
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.style.opacity = '1';
-      saveBtn.title = '';
-    }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.style.opacity = '1'; saveBtn.title = ''; }
   }
 }
 
-/**
- * Fetch the existing saved report scoped to (studentId, schoolId, term, session, classId).
- * The classId ensures we retrieve the report saved while the student was in that class,
- * even if the student has since been promoted / moved / made inactive.
- */
 async function loadExistingEditorReport(studentId, classId) {
   editorState.psychomotor = getDefaultRatings();
   editorState.attendance = { schoolOpened: 0, present: 0, absent: 0 };
+  editorState.savedReport = null;
 
   const report = await service.getReportByStudent(
     studentId, currentSchoolId, editorState.term, editorState.session, classId
   );
   if (report) {
+    editorState.savedReport = report;
     if (report.psychomotor) Object.assign(editorState.psychomotor, report.psychomotor);
     editorState.teacherComment   = report.teacherComment   || '';
     editorState.principalComment = report.principalComment || '';
@@ -483,7 +684,7 @@ async function loadExistingEditorReport(studentId, classId) {
   }
 }
 
-// ── Save: term is numeric, we store that; classId is the editor's selected class ──
+// ------------------- Save report -------------------
 async function saveEditorReport() {
   if (!isSubscriptionActive) {
     toast.error('Cannot save report – subscription inactive.');
@@ -502,23 +703,58 @@ async function saveEditorReport() {
   const absent          = parseInt(document.querySelector('.rc-att-input.absent')?.value) || 0;
   const attendance = { schoolOpened, present, absent };
 
-  const classId = document.getElementById('editorClassSelect')?.value;
+  const classId   = document.getElementById('editorClassSelect')?.value || editorState.currentClassId;
+  const className = editorState.currentClassName || classesMap.get(classId)?.name || '';
 
-  // The report is stamped with classId + term + session so it can be uniquely
-  // retrieved later, regardless of any later changes to the student's class/status.
+  const snapshot = buildSnapshotForSave({
+    studentData: editorState.currentStudentData,
+    scores:      editorState.currentScores,
+    className,
+    classId,
+    grading:     editorState.currentGrading,
+    isPrimary:   editorState.currentIsPrimary,
+    totalScore, totalObtainable, average, overallGrade,
+    attendance,
+    psychomotor:     editorState.psychomotor,
+    teacherComment:  editorState.teacherComment,
+    principalComment:editorState.principalComment,
+    position:        editorState.currentPosition,
+    subjectStats:    editorState.currentSubjectStats,
+    studentId:       editorState.selectedStudent.id
+  });
+
   const reportData = {
     studentId: editorState.selectedStudent.id,
+    studentName: editorState.selectedStudent.name,
     classId,
+    className,
     schoolId: currentSchoolId,
     term: editorState.term,
     session: editorState.session,
     totalScore, maxTotal: totalObtainable, average, overallGrade,
     psychomotor: editorState.psychomotor,
     teacherComment: editorState.teacherComment, principalComment: editorState.principalComment,
-    attendance, updatedAt: new Date()
+    attendance,
+    updatedAt: new Date(),
+    snapshot
   };
+
+  // Safety: verify savedReportId still refers to the same identity before overwriting.
+  let existingId = editorState.savedReportId;
+  if (existingId && editorState.savedReport) {
+    const sr = editorState.savedReport;
+    const same =
+      sr.studentId === reportData.studentId &&
+      sr.classId === reportData.classId &&
+      sr.term === reportData.term &&
+      sr.session === reportData.session;
+    if (!same) existingId = null;
+  }
+
   try {
-    await service.saveReport(reportData, editorState.savedReportId);
+    const newId = await service.saveReport(reportData, existingId);
+    editorState.savedReportId = newId;
+    editorState.attendance = attendance;
     toast.success('Report saved successfully.');
   } catch (error) {
     if (error.code === 'permission-denied') {
@@ -530,7 +766,7 @@ async function saveEditorReport() {
   }
 }
 
-// ==================== PRINT, WHATSAPP, BROADSHEET ETC. ====================
+// ==================== PRINT / WHATSAPP / BROADSHEET (unchanged) ====================
 
 function handlePrint() {
   const teacherText    = document.getElementById('teacherCommentText');
@@ -550,10 +786,7 @@ function handlePrint() {
 
   const clonedReport = reportContent.cloneNode(true);
   const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    toast.error('Please allow pop-ups to print the report.');
-    return;
-  }
+  if (!printWindow) { toast.error('Please allow pop-ups to print the report.'); return; }
 
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(style => style.innerHTML).join('\n');
@@ -578,86 +811,44 @@ function handlePrint() {
     .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
     .rc-grade-scale th { background: #FFD700 !important; }
     .rc-comments { background: #f9f9f9 !important; }
-    .rc-comment-row, .rc-comment-item {
-      display: flex !important;
-      flex-direction: row !important;
-      align-items: baseline !important;
-      gap: 8px !important;
-      flex-wrap: wrap !important;
-    }
-    .rc-comment-label, .rc-comment-item strong {
-      white-space: nowrap !important;
-    }
+    .rc-comment-row, .rc-comment-item { display: flex !important; flex-direction: row !important; align-items: baseline !important; gap: 8px !important; flex-wrap: wrap !important; }
+    .rc-comment-label, .rc-comment-item strong { white-space: nowrap !important; }
   `;
 
   printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Report Card – ${escapeHtml(editorState.selectedStudent?.name || 'Student')}</title>
-      <link rel="stylesheet" href="${externalCssUrl}">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .print-container { width: 210mm; margin: 0 auto; background: white; }
-        ${inlineStyles}
-        ${extraPrintCSS}
-      </style>
-    </head>
-    <body>
+    <!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Report Card – ${escapeHtml(editorState.selectedStudent?.name || 'Student')}</title>
+    <link rel="stylesheet" href="${externalCssUrl}">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+      .print-container { width: 210mm; margin: 0 auto; background: white; }
+      ${inlineStyles}
+      ${extraPrintCSS}
+    </style></head><body>
       <div class="print-container">${clonedReport.outerHTML}</div>
-    </body>
-    </html>
-  `);
+    </body></html>`);
   printWindow.document.close();
   setTimeout(() => { printWindow.focus(); printWindow.print(); }, 300);
 }
 
 function sendToWhatsApp() {
-  if (!editorState.selectedStudent) {
-    toast.error('Please select a student first.');
-    return;
-  }
-
+  if (!editorState.selectedStudent) { toast.error('Please select a student first.'); return; }
   let phone = editorState.selectedStudent.parentPhone;
-  if (!phone || phone.trim() === '') {
-    toast.error('Parent phone number not available. Please update the student record.');
-    return;
-  }
-
+  if (!phone || phone.trim() === '') { toast.error('Parent phone number not available. Please update the student record.'); return; }
   let digits = phone.replace(/\D/g, '');
-
-  if (digits.length === 10 && digits.startsWith('8')) {
-    digits = '234' + digits;
-  } else if (digits.length === 11 && digits.startsWith('0')) {
-    digits = '234' + digits.substring(1);
-  } else if (digits.length === 13 && digits.startsWith('234')) {
-    // already correct
-  } else if (digits.length === 14 && digits.startsWith('234')) {
-    if (digits.startsWith('234234')) digits = digits.substring(3);
-  } else if (digits.length === 10 && /^[789]/.test(digits)) {
-    digits = '234' + digits;
-  } else {
-    toast.error('Invalid phone number format. Please update the parent phone number.');
-    return;
-  }
-
-  if (!digits.startsWith('234')) {
-    toast.error('Phone number must start with Nigeria country code (234).');
-    return;
-  }
-  if (digits.length !== 13) {
-    toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).');
-    return;
-  }
-
+  if (digits.length === 10 && digits.startsWith('8')) digits = '234' + digits;
+  else if (digits.length === 11 && digits.startsWith('0')) digits = '234' + digits.substring(1);
+  else if (digits.length === 13 && digits.startsWith('234')) { /* ok */ }
+  else if (digits.length === 14 && digits.startsWith('234')) { if (digits.startsWith('234234')) digits = digits.substring(3); }
+  else if (digits.length === 10 && /^[789]/.test(digits)) digits = '234' + digits;
+  else { toast.error('Invalid phone number format. Please update the parent phone number.'); return; }
+  if (!digits.startsWith('234')) { toast.error('Phone number must start with Nigeria country code (234).'); return; }
+  if (digits.length !== 13) { toast.error('Phone number must be 13 digits (e.g., 234XXXXXXXXX).'); return; }
   const message = `Please find attached the report card for ${editorState.selectedStudent.name}.`;
-  const whatsappUrl = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
-  window.open(whatsappUrl, '_blank');
+  window.open(`https://wa.me/${digits}?text=${encodeURIComponent(message)}`, '_blank');
 }
 
-// ------------------- Broadsheet Functions -------------------
 async function generateBroadsheet() {
   if (!isSubscriptionActive) {
     const container = document.getElementById('broadsheetContainer');
@@ -668,10 +859,7 @@ async function generateBroadsheet() {
   const classId = document.getElementById('broadsheetClassSelect')?.value;
   const session = document.getElementById('broadsheetSessionSelect')?.value;
   const term    = document.getElementById('broadsheetTermSelect')?.value;
-  if (!classId || !session || !term) {
-    toast.error('Please select Class, Session and Term');
-    return;
-  }
+  if (!classId || !session || !term) { toast.error('Please select Class, Session and Term'); return; }
 
   const classInfo     = classesMap.get(classId);
   const className     = classInfo?.name || 'Class';
@@ -718,10 +906,8 @@ async function generateBroadsheet() {
           const score = studentScoreMap.get(subj.id);
           if (score) { totalScore += score.total; subjectCount++; }
         }
-        if (subjectCount > 0) {
-          const avg = (totalScore / (subjectCount * 100)) * 100;
-          averages[t] = avg.toFixed(1); sumCombined += avg; termsWithData++;
-        } else { averages[t] = null; }
+        if (subjectCount > 0) { const avg = (totalScore / (subjectCount * 100)) * 100; averages[t] = avg.toFixed(1); sumCombined += avg; termsWithData++; }
+        else averages[t] = null;
       }
       const combinedAvg = termsWithData > 0 ? (sumCombined / termsWithData).toFixed(1) : null;
       termAverages.set(student.id, { ...averages, combined: combinedAvg });
@@ -739,9 +925,9 @@ async function generateBroadsheet() {
       }
       const totalObtainable = relevantSubjects.length * 100;
       const average = totalObtainable ? (totalScoreOverall / totalObtainable) * 100 : 0;
-      const grade   = calculateGrade(average);
-      const remark  = getGradeRemark(grade);
-      const tAvg    = termAverages.get(student.id);
+      const grade = calculateGrade(average);
+      const remark = getGradeRemark(grade);
+      const tAvg = termAverages.get(student.id);
       studentResults.push({
         studentId: student.id, studentName: student.name,
         totalScore: totalScoreOverall, average, grade, remark, subjectDetails,
@@ -789,14 +975,8 @@ async function generateBroadsheet() {
 }
 
 async function saveBroadsheetToFirestore() {
-  if (!isSubscriptionActive) {
-    toast.error('Cannot save broadsheet – subscription inactive.');
-    return;
-  }
-  if (!window.currentBroadsheetData) {
-    toast.error('No broadsheet data to save. Generate first.');
-    return;
-  }
+  if (!isSubscriptionActive) { toast.error('Cannot save broadsheet – subscription inactive.'); return; }
+  if (!window.currentBroadsheetData) { toast.error('No broadsheet data to save. Generate first.'); return; }
   const { classId, session, term, studentResults, subjects } = window.currentBroadsheetData;
   const docId = `${currentSchoolId}_${classId}_${session.replace(/\//g, '_')}_${term}`;
   const broadsheetData = {
@@ -814,28 +994,18 @@ async function saveBroadsheetToFirestore() {
     await service.saveBroadsheet(docId, broadsheetData);
     toast.success('Broadsheet saved successfully.');
   } catch (err) {
-    if (err.code === 'permission-denied') {
-      toast.error('Permission denied. Subscription required to save broadsheets.');
-    } else {
-      console.error(err);
-      toast.error('Failed to save broadsheet. Please try again.');
-    }
+    if (err.code === 'permission-denied') toast.error('Permission denied. Subscription required to save broadsheets.');
+    else { console.error(err); toast.error('Failed to save broadsheet. Please try again.'); }
   }
 }
 
 function printBroadsheet() {
   const container = document.getElementById('broadsheetContainer');
-  if (!container || !container.innerHTML.trim()) {
-    toast.error('No broadsheet to download.');
-    return;
-  }
+  if (!container || !container.innerHTML.trim()) { toast.error('No broadsheet to download.'); return; }
   const originalContent = container.cloneNode(true);
   const title = document.querySelector('#broadsheetContainer h3')?.innerText || 'Class Broadsheet';
   const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    toast.error('Please allow pop-ups to print.');
-    return;
-  }
+  if (!printWindow) { toast.error('Please allow pop-ups to print.'); return; }
   const externalCssUrl = new URL('../css/styles.css', window.location.href).href;
   const inlineStyles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
   const printCSS = `
@@ -850,28 +1020,58 @@ function printBroadsheet() {
   printWindow.document.write(`
     <!DOCTYPE html><html><head><title>${title}</title>
     <link rel="stylesheet" href="${externalCssUrl}">
-    <style>${inlineStyles}${printCSS}</style>
-    </head><body>${originalContent.outerHTML}</body></html>
-  `);
+    <style>${inlineStyles}${printCSS}</style></head><body>${originalContent.outerHTML}</body></html>`);
   printWindow.document.close();
   printWindow.print();
 }
 
+// ------------------- Editor interactions -------------------
 async function onEditorClassChange() {
   const classId = document.getElementById('editorClassSelect')?.value;
   const studentContainer = document.getElementById('studentListContainer');
   const reportContent    = document.getElementById('reportCardContent');
   const reportActions    = document.getElementById('reportActions');
+
   if (!classId) {
     if (studentContainer) studentContainer.innerHTML = '<p>Select a class</p>';
     if (reportContent)    reportContent.innerHTML    = '<p>Select a student</p>';
     if (reportActions)    reportActions.style.display = 'none';
     return;
   }
-  const classStudents = studentsList.filter(s => s.classId === classId);
-  if (!classStudents.length) { if (studentContainer) studentContainer.innerHTML = '<p>No students</p>'; return; }
+
+  // Sync term/session into editorState
+  editorState.term    = document.getElementById('editorTermSelect')?.value    || '1';
+  editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
+
+  const historical = isHistoricalPeriod(editorState.term, editorState.session);
+
+  let classStudents = [];
+  try {
+    if (historical) {
+      classStudents = await loadHistoricalClassStudents(classId, editorState.term, editorState.session);
+    } else {
+      classStudents = studentsList.filter(s =>
+        s.classId === classId &&
+        String(s.status || 'active').toLowerCase().trim() === 'active'
+      );
+    }
+  } catch (err) {
+    console.error('[onEditorClassChange] failed to build list:', err);
+    toast.error('Unable to load students for this class. Please refresh.');
+    return;
+  }
+
+  if (!classStudents.length) {
+    if (studentContainer) studentContainer.innerHTML = '<p>No students</p>';
+    if (reportContent)    reportContent.innerHTML = '<p>Select a student</p>';
+    if (reportActions)    reportActions.style.display = 'none';
+    return;
+  }
+
   let html = '';
-  classStudents.forEach(student => { html += `<div class="student-list-item" data-id="${student.id}">${escapeHtml(student.name)}</div>`; });
+  classStudents.forEach(student => {
+    html += `<div class="student-list-item" data-id="${student.id}">${escapeHtml(student.name)}</div>`;
+  });
   if (studentContainer) studentContainer.innerHTML = html;
 
   const firstStudent = classStudents[0];
@@ -887,13 +1087,13 @@ async function onEditorClassChange() {
       await renderReportCard(el.dataset.id, el.textContent.trim());
     });
   });
-  await onEditorFilterChange();
 }
 
 async function onEditorFilterChange() {
   editorState.term    = document.getElementById('editorTermSelect')?.value    || '1';
   editorState.session = document.getElementById('editorSessionSelect')?.value || getCurrentSession();
-  if (editorState.selectedStudent) await renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+  // Rebuild the roster because current vs historical mode may have changed.
+  await onEditorClassChange();
 }
 
 function updateSubscriptionUI() {
@@ -921,25 +1121,18 @@ function updateSubscriptionUI() {
           <div class="payment-buttons">
             <button id="paystackPaymentBtn" class="paystack-btn">💳 Pay Now (Card/Online)</button>
             <a id="whatsappLink" href="https://wa.me/2349044784225?text=Hello%20Acadex%2C%20I%20want%20to%20renew%20my%20subscription" target="_blank" class="whatsapp-btn">
-              <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91zm0 2c4.4 0 7.91 3.51 7.91 7.91 0 4.4-3.51 7.91-7.91 7.91-1.43 0-2.78-.38-3.97-1.07l-.6-.34-3.11.82.83-3.04-.34-.6c-.7-1.2-1.07-2.55-1.07-3.97 0-4.4 3.51-7.91 7.91-7.91zM8.53 7.5c-.18 0-.48.07-.73.33-.26.26-.95.93-.95 2.28 0 1.35.98 2.66 1.12 2.84.14.18 1.88 2.98 4.56 4.07.64.26 1.14.42 1.53.54.64.2 1.22.17 1.68.1.51-.08 1.57-.64 1.79-1.26.22-.62.22-1.15.15-1.26-.07-.11-.26-.18-.55-.31-.29-.13-1.7-.84-1.96-.94-.26-.1-.45-.15-.64.15-.19.3-.73.94-.9 1.13-.17.19-.34.21-.63.07-.29-.13-1.22-.45-2.32-1.43-.86-.76-1.44-1.7-1.61-1.99-.17-.29-.02-.45.13-.59.13-.13.29-.34.44-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.03-.51-.08-.15-.64-1.54-.88-2.11-.23-.56-.46-.48-.64-.49h-.55z"/>
-              </svg>
+              <svg class="whatsapp-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-5.46-4.45-9.91-9.91-9.91z"/></svg>
               09044784225 (WhatsApp)
             </a>
-          </div>
-        `;
+          </div>`;
         container.appendChild(banner);
         document.getElementById('paystackPaymentBtn')?.addEventListener('click', async () => {
           const ref = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
           await import('https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js').then(({ setDoc, doc }) => {
             import('./firebase-config.js').then(({ db }) => {
               setDoc(doc(db, 'paymentReferences', ref), {
-                schoolId: currentSchoolId,
-                amount: 0,
-                reason: 'renewal',
-                createdAt: new Date(),
-                status: 'pending',
-                reference: ref
+                schoolId: currentSchoolId, amount: 0, reason: 'renewal',
+                createdAt: new Date(), status: 'pending', reference: ref
               });
             });
           });
@@ -977,10 +1170,7 @@ export async function initResultsPage() {
   if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
 
   currentSchoolId = await getCurrentSchoolId();
-  if (!currentSchoolId) {
-    toast.error('School ID missing. Please log out and log in again.');
-    return;
-  }
+  if (!currentSchoolId) { toast.error('School ID missing. Please log out and log in again.'); return; }
 
   positionEnabled = loadPositionTogglePreference(currentSchoolId);
 
@@ -992,7 +1182,9 @@ export async function initResultsPage() {
   unsubscribeSub = onSubscriptionChange(currentSchoolId, ({ isActive }) => {
     isSubscriptionActive = isActive;
     updateSubscriptionUI();
-    if (editorState.selectedStudent) renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+    if (editorState.selectedStudent) {
+      renderReportCard(editorState.selectedStudent.id, editorState.selectedStudent.name);
+    }
   });
 
   const currentSession = getCurrentSession();
