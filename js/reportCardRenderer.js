@@ -2,22 +2,21 @@
 // Layout: subjects table extreme left, skills tables extreme right
 // Fully fluid – scales with zoom, stacks gracefully on mobile, A4-aware
 // All Firestore operations now go through service.js (cache + offline queue).
-// All user-facing errors now show clear, friendly messages without technical jargon.
-// NEW: Accepts positionEnabled and position; displays position in details band when enabled.
-// NEW: Deduplicates subjects with the same name, keeping only the newest score record.
+//
+// UPDATED: Accepts an optional `historicalSnapshot`. When present, the
+// snapshot is the AUTHORITATIVE source for student details, scores, grading,
+// attendance, psychomotor, comments and class position. No live attendance
+// query runs in that case. The report-card markup, CSS and print styles are
+// unchanged.
 
 import { toast } from './error-handler.js';
 import * as service from './service.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRIVATE HELPER — accurate single-student attendance calculation
-// ─────────────────────────────────────────────────────────────────────────────
 async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, session) {
   const fallback = { schoolOpened: 0, present: 0, absent: 0 };
   if (!studentId || !schoolId || !term || !session) return fallback;
 
   const DAYS_LIST = ['mon', 'tue', 'wed', 'thu', 'fri'];
-
   const TERM_MAP = { '1': 'First Term', '2': 'Second Term', '3': 'Third Term' };
   const queryTerm = TERM_MAP[String(term).trim()] || term;
 
@@ -26,9 +25,7 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
       console.warn('[reportCardRenderer] Missing classId, cannot compute holidays.');
       return fallback;
     }
-
     const attendanceRecords = await service.getAttendanceByClass(schoolId, classId, session, queryTerm);
-
     if (!attendanceRecords || attendanceRecords.length === 0) return fallback;
 
     const openDayKeys = new Set();
@@ -37,29 +34,18 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
     for (const record of attendanceRecords) {
       const { studentId: docStudentId, weekNumber, days } = record;
       if (!weekNumber || !days) continue;
-
       for (const day of DAYS_LIST) {
         const dayData = days[day];
         if (!dayData) continue;
-
         const key = `w${weekNumber}_${day}`;
-
-        if (dayData.M === true || dayData.A === true) {
-          openDayKeys.add(key);
-        }
-
+        if (dayData.M === true || dayData.A === true) openDayKeys.add(key);
         if (docStudentId === studentId) {
-          studentMarks.set(key, {
-            M: dayData.M === true,
-            A: dayData.A === true,
-          });
+          studentMarks.set(key, { M: dayData.M === true, A: dayData.A === true });
         }
       }
     }
 
-    let schoolOpened = 0;
-    let present = 0;
-
+    let schoolOpened = 0, present = 0;
     for (const key of openDayKeys) {
       schoolOpened += 2;
       const marks = studentMarks.get(key);
@@ -68,9 +54,7 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
         if (marks.A) present++;
       }
     }
-
     return { schoolOpened, present, absent: schoolOpened - present };
-
   } catch (err) {
     console.warn('[reportCardRenderer] _fetchStudentAttendanceData error:', err);
     toast.warning('Unable to load attendance data. Using default values.');
@@ -78,9 +62,6 @@ async function _fetchStudentAttendanceData(studentId, schoolId, classId, term, s
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRIVATE HELPER — deduplicate scores by subject name and keep newest
-// ─────────────────────────────────────────────────────────────────────────────
 function _parseScoreDate(score) {
   const candidates = [score.updatedAt, score.createdAt, score.date, score.timestamp];
   for (const candidate of candidates) {
@@ -97,34 +78,22 @@ function _parseScoreDate(score) {
 
 function dedupeScores(scores) {
   if (!Array.isArray(scores)) return [];
-
   const seen = new Map();
-
   for (const score of scores) {
     if (!score) continue;
     const name = (score.subjectName || score.subjectId || '').trim().toLowerCase();
     if (!name) continue;
-
     const existing = seen.get(name);
-    if (!existing) {
-      seen.set(name, score);
-      continue;
-    }
-
+    if (!existing) { seen.set(name, score); continue; }
     const existingDate = _parseScoreDate(existing);
     const newDate = _parseScoreDate(score);
-
     if (newDate !== null && (existingDate === null || newDate > existingDate)) {
       seen.set(name, score);
     }
   }
-
   return Array.from(seen.values());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN EXPORT
-// ─────────────────────────────────────────────────────────────────────────────
 export async function renderReportCardUI({
   student, scores, className, school, grading, psychomotor, comments,
   term, session, subjectStats, container, attendance = {},
@@ -132,6 +101,7 @@ export async function renderReportCardUI({
   skipLiveAttendanceFetch = false,
   positionEnabled = false,
   position = null,
+  historicalSnapshot = null,   // NEW — snapshot wins over live/current data
   onRatingChange, onTeacherCommentChange, onPrincipalCommentChange
 }) {
   if (!container) {
@@ -140,59 +110,57 @@ export async function renderReportCardUI({
     return;
   }
 
+  // ── Resolve effective inputs (snapshot wins when provided) ────────────────
+  const snap = (historicalSnapshot && typeof historicalSnapshot === 'object') ? historicalSnapshot : null;
+
+  const eStudent         = snap?.studentSnapshot || student;
+  const eScores          = Array.isArray(snap?.subjectSnapshot) ? snap.subjectSnapshot : scores;
+  const eGrading         = snap?.grading || grading;
+  const eClassName       = snap?.className || className;
+  const eIsPrimary       = (typeof snap?.isPrimary === 'boolean') ? snap.isPrimary : isPrimary;
+  const ePsychomotor     = snap?.psychomotor || psychomotor;
+  const eTeacherComment  = (snap && 'teacherComment' in snap) ? (snap.teacherComment || '') : (comments?.teacherComment || '');
+  const ePrincipalComment= (snap && 'principalComment' in snap) ? (snap.principalComment || '') : (comments?.principalComment || '');
+  const ePosition        = (snap && typeof snap.position === 'number') ? snap.position : position;
+  const eSubjectStats    = snap ? null : subjectStats; // subjectStats only used for non-snapshot mode
+
+  // ── Attendance resolution ─────────────────────────────────────────────────
   let attendanceData = { schoolOpened: 0, present: 0, absent: 0 };
 
-  if (skipLiveAttendanceFetch) {
+  if (snap?.attendance) {
+    attendanceData = {
+      schoolOpened: Number(snap.attendance.schoolOpened) || 0,
+      present:      Number(snap.attendance.present)      || 0,
+      absent:       Number(snap.attendance.absent)       || 0
+    };
+  } else if (skipLiveAttendanceFetch) {
     attendanceData = {
       schoolOpened: attendance.schoolOpened || 0,
-      present: attendance.present || 0,
-      absent: attendance.absent || 0,
+      present:      attendance.present      || 0,
+      absent:       attendance.absent       || 0
     };
   } else {
     try {
-      const schoolId =
-        school?.id ||
-        student?.schoolId ||
-        localStorage.getItem('userSchoolId') ||
-        null;
+      const schoolId = school?.id || eStudent?.schoolId || localStorage.getItem('userSchoolId') || null;
+      const classId  = eStudent?.classId || null;
 
-      const classId = student?.classId || null;
-
-      if (schoolId && student?.id && term && session) {
-        const fetched = await _fetchStudentAttendanceData(
-          student.id, schoolId, classId, term, session
-        );
-
+      if (schoolId && eStudent?.id && term && session) {
+        const fetched = await _fetchStudentAttendanceData(eStudent.id, schoolId, classId, term, session);
         if (fetched.schoolOpened > 0 || fetched.present > 0 || fetched.absent > 0) {
           attendanceData = fetched;
-        } else if (
-          attendance.schoolOpened > 0 ||
-          attendance.present      > 0 ||
-          attendance.absent       > 0
-        ) {
+        } else if (attendance.schoolOpened > 0 || attendance.present > 0 || attendance.absent > 0) {
           attendanceData = { ...attendance };
         }
       } else {
-        if (
-          attendance.schoolOpened > 0 ||
-          attendance.present      > 0 ||
-          attendance.absent       > 0
-        ) {
+        if (attendance.schoolOpened > 0 || attendance.present > 0 || attendance.absent > 0) {
           attendanceData = { ...attendance };
         }
-        console.warn(
-          '[reportCardRenderer] Attendance query skipped — missing schoolId, studentId, term, or session.',
-          { schoolId: school?.id || student?.schoolId, studentId: student?.id, term, session }
-        );
+        console.warn('[reportCardRenderer] Attendance query skipped — missing identifiers.', { term, session });
       }
     } catch (err) {
       console.error('[reportCardRenderer] Attendance fetch error:', err);
       toast.warning('Unable to load attendance data. Using provided values.');
-      if (
-        attendance.schoolOpened > 0 ||
-        attendance.present      > 0 ||
-        attendance.absent       > 0
-      ) {
+      if (attendance.schoolOpened > 0 || attendance.present > 0 || attendance.absent > 0) {
         attendanceData = { ...attendance };
       }
     }
@@ -216,7 +184,6 @@ export async function renderReportCardUI({
     const remarks = { 'A+':'Exceptional', 'A':'Excellent', 'B+':'Very Good', 'B':'Good', 'C':'Fairly Good', 'D':'Pass', 'F':'Fail' };
     return remarks[grade] || '';
   }
-
   function calculateGradeSecondary(total) {
     if (total >= 85) return 'A1';
     if (total >= 75) return 'B2';
@@ -233,8 +200,8 @@ export async function renderReportCardUI({
     return remarks[grade] || '';
   }
 
-  const calculateGrade = isPrimary ? calculateGradePrimary : calculateGradeSecondary;
-  const getGradeRemark  = isPrimary ? getGradeRemarkPrimary  : getGradeRemarkSecondary;
+  const calculateGrade = eIsPrimary ? calculateGradePrimary : calculateGradeSecondary;
+  const getGradeRemark  = eIsPrimary ? getGradeRemarkPrimary  : getGradeRemarkSecondary;
 
   function getTermSuffix(t) { return t === '1' ? 'st' : t === '2' ? 'nd' : 'rd'; }
 
@@ -258,7 +225,7 @@ export async function renderReportCardUI({
       ['C4','65-69.9','Credit'],['C5','60-64.9','Credit'],['C6','50-59.9','Credit'],
       ['D7','45-49.9','Pass'],['E8','40-44.9','Pass'],['F9','0-39.9','Fail']
     ];
-    const scale = isPrimary ? primaryScale : secondaryScale;
+    const scale = eIsPrimary ? primaryScale : secondaryScale;
     return `<table class="rc-grade-scale">
       <thead><tr><th>Grade</th><th>Range</th><th>Remark</th></tr></thead>
       <tbody>${scale.map(s => `<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td></tr>`).join('')}</tbody>
@@ -269,10 +236,8 @@ export async function renderReportCardUI({
   const affectiveSkillsList   = ['Attentiveness','Neatness','Honesty','Politeness','Punctuality','Self-control/Calmness','Obedience','Reliability','Relationship with others','Leadership'];
   function getSkillKey(skill) { return skill.toLowerCase().replace(/[^a-z]/g, ''); }
 
-  // ── Deduplicate scores: keep only newest subject record by name ──────────────
-  const uniqueScores = dedupeScores(scores);
+  const uniqueScores = dedupeScores(eScores);
 
-  // ── Subject table rows ───────────────────────────────────────────────────────
   let tableRows = '';
   let totalScore = 0;
   let subjectCount = 0;
@@ -281,7 +246,6 @@ export async function renderReportCardUI({
     for (const score of uniqueScores) {
       const ca = Number(score.ca || 0);
       const exam = Number(score.exam || 0);
-
       if (ca === 0 || exam === 0) continue;
 
       const subjectName = score.subjectName || score.subjectId;
@@ -290,18 +254,34 @@ export async function renderReportCardUI({
       subjectCount++;
       const grade  = calculateGrade(total);
       const remark = getGradeRemark(grade);
+
+      // Position & class average: prefer snapshot-provided values, else current subjectStats
       let positionHtml = '—';
       let classAvg = '—';
-      const stat = subjectStats?.get(score.subjectId);
-      if (stat && !isPrimary) {
-        const rank = stat.rankMap?.get(student.id);
-        if (rank) {
-          const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
-          positionHtml = `${rank}<sup>${suffix}</sup>`;
+
+      if (score.position != null) {
+        const rank = Number(score.position);
+        const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+        positionHtml = `${rank}<sup>${suffix}</sup>`;
+      } else if (eSubjectStats) {
+        const stat = eSubjectStats.get(score.subjectId);
+        if (stat && !eIsPrimary) {
+          const rank = stat.rankMap?.get(eStudent.id);
+          if (rank) {
+            const suffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+            positionHtml = `${rank}<sup>${suffix}</sup>`;
+          }
         }
-        classAvg = stat.classAverage ?? '—';
       }
-      if (isPrimary) {
+
+      if (score.classAverage != null) {
+        classAvg = score.classAverage;
+      } else if (eSubjectStats) {
+        const stat = eSubjectStats.get(score.subjectId);
+        if (stat) classAvg = stat.classAverage ?? '—';
+      }
+
+      if (eIsPrimary) {
         tableRows += `<tr>
           <td class="rc-subj-name">${escapeHtml(subjectName)}</td>
           <td>${ca}</td><td class="rc-exam">${exam}</td><td class="rc-total">${total}</td>
@@ -318,11 +298,11 @@ export async function renderReportCardUI({
     }
 
     if (subjectCount === 0) {
-      const colSpan = isPrimary ? 6 : 8;
+      const colSpan = eIsPrimary ? 6 : 8;
       tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
     }
   } else {
-    const colSpan = isPrimary ? 6 : 8;
+    const colSpan = eIsPrimary ? 6 : 8;
     tableRows = `<tr><td colspan="${colSpan}">No scores found</td></tr>`;
   }
 
@@ -331,9 +311,9 @@ export async function renderReportCardUI({
   const overallGrade    = calculateGrade(parseFloat(percentageAvg));
   const overallRemark   = getGradeRemark(overallGrade);
 
-  const subjectTableHeader = isPrimary
-    ? `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>`
-    : `<thead><tr><th>Subject</th><th>CA (${grading.ca})</th><th>Exam (${grading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th><th>Pos.</th><th>Cls Avg</th></tr></thead>`;
+  const subjectTableHeader = eIsPrimary
+    ? `<thead><tr><th>Subject</th><th>CA (${eGrading.ca})</th><th>Exam (${eGrading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>`
+    : `<thead><tr><th>Subject</th><th>CA (${eGrading.ca})</th><th>Exam (${eGrading.exam})</th><th>Total</th><th>Grade</th><th>Remark</th><th>Pos.</th><th>Cls Avg</th></tr></thead>`;
   const subjectTableHtml = `<table class="rc-subject-table">${subjectTableHeader}<tbody>${tableRows}</tbody></table>`;
 
   const summaryHtml = `
@@ -378,7 +358,7 @@ export async function renderReportCardUI({
   let psychomotorRows = '';
   for (const skill of psychomotorSkillsList) {
     const key = getSkillKey(skill);
-    const val = psychomotor?.[key] ?? 3;
+    const val = ePsychomotor?.[key] ?? 3;
     psychomotorRows += `<tr>
       <td class="rc-skill-name">${escapeHtml(skill)}</td>
       <td class="rc-rating-cell" data-skill-key="${key}"><span class="rc-print-val">${val}</span></td>
@@ -387,7 +367,7 @@ export async function renderReportCardUI({
   let affectiveRows = '';
   for (const skill of affectiveSkillsList) {
     const key = getSkillKey(skill);
-    const val = psychomotor?.[key] ?? 3;
+    const val = ePsychomotor?.[key] ?? 3;
     affectiveRows += `<tr>
       <td class="rc-skill-name">${escapeHtml(skill)}</td>
       <td class="rc-rating-cell" data-skill-key="${key}"><span class="rc-print-val">${val}</span></td>
@@ -413,23 +393,23 @@ export async function renderReportCardUI({
         ${school.phone   ? `<div class="rc-school-contact">📞 ${escapeHtml(school.phone)}</div>`   : ''}
         ${school.email   ? `<div class="rc-school-contact">✉️ ${escapeHtml(school.email)}</div>`   : ''}
       </div>
-      <div class="rc-header-passport">${student.passport ? `<img src="${student.passport}" alt="Passport">` : ''}</div>
+      <div class="rc-header-passport">${eStudent.passport ? `<img src="${eStudent.passport}" alt="Passport">` : ''}</div>
     </div>`;
 
-  const age = student.dob ? calculateAge(student.dob) : '—';
-  const positionCell = positionEnabled && position
-    ? `<div class="rc-details-cell"><strong>Position:</strong> ${position}${position===1?'st':position===2?'nd':position===3?'rd':'th'}</div>`
+  const age = eStudent.dob ? calculateAge(eStudent.dob) : '—';
+  const positionCell = positionEnabled && ePosition
+    ? `<div class="rc-details-cell"><strong>Position:</strong> ${ePosition}${ePosition===1?'st':ePosition===2?'nd':ePosition===3?'rd':'th'}</div>`
     : '';
   const detailsBand = `
     <div class="rc-details-band">
-      <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(student.name).toUpperCase()}</span></div>
-      <div class="rc-details-cell"><strong>Admission No:</strong> ${escapeHtml(student.admissionNumber || '—')}</div>
-      <div class="rc-details-cell"><strong>Gender:</strong> ${escapeHtml(student.gender || '—')}</div>
-      <div class="rc-details-cell"><strong>DOB:</strong> ${student.dob || '—'} (Age ${age})</div>
-      <div class="rc-details-cell"><strong>Class:</strong> ${escapeHtml(className)}</div>
+      <div class="rc-details-cell"><strong>Name:</strong> <span class="rc-student-name">${escapeHtml(eStudent.name).toUpperCase()}</span></div>
+      <div class="rc-details-cell"><strong>Admission No:</strong> ${escapeHtml(eStudent.admissionNumber || '—')}</div>
+      <div class="rc-details-cell"><strong>Gender:</strong> ${escapeHtml(eStudent.gender || '—')}</div>
+      <div class="rc-details-cell"><strong>DOB:</strong> ${eStudent.dob || '—'} (Age ${age})</div>
+      <div class="rc-details-cell"><strong>Class:</strong> ${escapeHtml(eClassName)}</div>
       <div class="rc-details-cell"><strong>Term:</strong> ${term}${getTermSuffix(term)}</div>
       <div class="rc-details-cell"><strong>Session:</strong> ${session}</div>
-      <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(student.club || '—')}</div>
+      <div class="rc-details-cell"><strong>Club:</strong> ${escapeHtml(eStudent.club || '—')}</div>
       ${positionCell}
     </div>`;
 
@@ -446,9 +426,9 @@ export async function renderReportCardUI({
     return [...new Set(all)];
   })();
 
-  const effectiveTeacherComment   = comments.teacherComment   || commentOptions[0] || '';
-  const effectivePrincipalComment = comments.principalComment || commentOptions[0] || '';
-  const principalLabel = isPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
+  const effectiveTeacherComment   = eTeacherComment   || commentOptions[0] || '';
+  const effectivePrincipalComment = ePrincipalComment || commentOptions[0] || '';
+  const principalLabel = eIsPrimary ? "Head Teacher's Comment:" : "Principal's Comment:";
 
   const commentsHtml = `
     <div class="rc-comments">
@@ -490,151 +470,42 @@ export async function renderReportCardUI({
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: clamp(9px, 1.2vw, 13px);
       }
-      .rc-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .rc-header-logo img {
-        max-width: clamp(60px, 8vw, 100px);
-        max-height: clamp(60px, 8vw, 100px);
-        object-fit: contain;
-        border-radius: 4px;
-      }
-      .rc-header-passport img {
-        width:  clamp(80px, 11vw, 125px);
-        height: clamp(80px, 11vw, 125px);
-        object-fit: cover;
-        border-radius: 6px;
-        border: 2px solid #1a3a5c;
-      }
-      .rc-header-text {
-        flex: 1;
-        text-align: center;
-      }
-      .rc-school-name {
-        margin: 0 0 4px 0;
-        font-size: clamp(22px, 4vw, 42px) !important;
-        font-weight: 800;
-        letter-spacing: 0.02em;
-        line-height: 1.15;
-        text-transform: uppercase;
-      }
+      .rc-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+      .rc-header-logo img { max-width: clamp(60px, 8vw, 100px); max-height: clamp(60px, 8vw, 100px); object-fit: contain; border-radius: 4px; }
+      .rc-header-passport img { width: clamp(80px, 11vw, 125px); height: clamp(80px, 11vw, 125px); object-fit: cover; border-radius: 6px; border: 2px solid #1a3a5c; }
+      .rc-header-text { flex: 1; text-align: center; }
+      .rc-school-name { margin: 0 0 4px 0; font-size: clamp(22px, 4vw, 42px) !important; font-weight: 800; letter-spacing: 0.02em; line-height: 1.15; text-transform: uppercase; }
       .rc-school-address { font-size: 0.88em; margin-top: 2px; }
       .rc-school-contact { font-size: 0.82em; color: #333; margin-top: 1px; }
-      .rc-details-band {
-        background: #1a3a5c !important;
-        padding: 0;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr));
-        gap: 0;
-        font-weight: bold;
-        font-size: 0.92em;
-        border-radius: 6px;
-        margin-bottom: 12px;
-        overflow: hidden;
-        border: 1px solid #0f2740;
-      }
-      .rc-details-cell {
-        padding: clamp(5px, 1.2%, 10px) clamp(6px, 1.5%, 12px);
-        border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
-        color: #fff !important;
-      }
+      .rc-details-band { background: #1a3a5c !important; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22%, 220px), 1fr)); gap: 0; font-weight: bold; font-size: 0.92em; border-radius: 6px; margin-bottom: 12px; overflow: hidden; border: 1px solid #0f2740; }
+      .rc-details-cell { padding: clamp(5px, 1.2%, 10px) clamp(6px, 1.5%, 12px); border-right: 1px solid rgba(255, 255, 255, 0.18) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important; color: #fff !important; }
       .rc-details-cell strong { color: #a8d8f0 !important; margin-right: 3px; }
       .rc-student-name { font-size: 1.05em; font-weight: 700; color: #fff !important; }
-      .rc-top-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: clamp(8px, 2%, 20px);
-        margin-bottom: clamp(10px, 2%, 18px);
-        justify-content: center;
-        align-items: flex-start;
-      }
+      .rc-top-row { display: flex; flex-wrap: wrap; gap: clamp(8px, 2%, 20px); margin-bottom: clamp(10px, 2%, 18px); justify-content: center; align-items: flex-start; }
       .rc-top-row > div { flex: 1 1 clamp(160px, 38%, 300px); }
       .rc-section-title { font-weight: bold; margin-bottom: 5px; font-size: 0.95em; }
-      .rc-subject-table,
-      .rc-summary-table,
-      .rc-attendance-table,
-      .rc-skills-table,
-      .rc-grade-scale {
-        width: 100%;
-        border-collapse: collapse;
-        border: 2px solid #000;
-        background: #fff !important;
+      .rc-subject-table, .rc-summary-table, .rc-attendance-table, .rc-skills-table, .rc-grade-scale {
+        width: 100%; border-collapse: collapse; border: 2px solid #000; background: #fff !important;
       }
-      .rc-subject-table th, .rc-subject-table td,
-      .rc-summary-table th, .rc-summary-table td,
-      .rc-attendance-table th, .rc-attendance-table td,
-      .rc-skills-table th,   .rc-skills-table td,
-      .rc-grade-scale th,    .rc-grade-scale td {
-        border: 1px solid #000 !important;
-        padding: clamp(2px, 0.6%, 6px);
-        text-align: center;
-        vertical-align: middle;
+      .rc-subject-table th, .rc-subject-table td, .rc-summary-table th, .rc-summary-table td, .rc-attendance-table th, .rc-attendance-table td, .rc-skills-table th, .rc-skills-table td, .rc-grade-scale th, .rc-grade-scale td {
+        border: 1px solid #000 !important; padding: clamp(2px, 0.6%, 6px); text-align: center; vertical-align: middle;
       }
-      .rc-subject-table th,
-      .rc-summary-table th,
-      .rc-attendance-table th,
-      .rc-skills-table th { background: #ADD8E6 !important; }
+      .rc-subject-table th, .rc-summary-table th, .rc-attendance-table th, .rc-skills-table th { background: #ADD8E6 !important; }
       .rc-grade-scale th { background: #FFD700 !important; }
-      .rc-subj-name,
-      .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
-      .rc-skill-name {
-        text-align: left !important;
-        writing-mode: horizontal-tb !important;
-        text-orientation: mixed !important;
-        white-space: normal !important;
-        word-break: break-word;
-      }
-      .rc-main-row {
-        display: grid;
-        grid-template-columns: 62fr 35fr;
-        gap: clamp(12px, 3%, 28px);
-        align-items: start;
-        width: 100%;
-        box-sizing: border-box;
-      }
-      .rc-col-left,
-      .rc-col-right {
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: clamp(6px, 1.5%, 14px);
-      }
+      .rc-subj-name, .rc-att-label { text-align: left !important; white-space: normal; word-break: break-word; }
+      .rc-skill-name { text-align: left !important; writing-mode: horizontal-tb !important; text-orientation: mixed !important; white-space: normal !important; word-break: break-word; }
+      .rc-main-row { display: grid; grid-template-columns: 62fr 35fr; gap: clamp(12px, 3%, 28px); align-items: start; width: 100%; box-sizing: border-box; }
+      .rc-col-left, .rc-col-right { min-width: 0; display: flex; flex-direction: column; gap: clamp(6px, 1.5%, 14px); }
       .rc-rating-guide { font-size: 0.78em; color: #444; margin-top: 2px; }
       .rc-tick-row { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
-      .rc-tick {
-        width: clamp(14px, 2vw, 20px);
-        height: clamp(14px, 2vw, 20px);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid #999;
-        border-radius: 50%;
-        cursor: pointer;
-        font-size: 0.75em;
-        user-select: none;
-      }
+      .rc-tick { width: clamp(14px, 2vw, 20px); height: clamp(14px, 2vw, 20px); display: inline-flex; align-items: center; justify-content: center; border: 1px solid #999; border-radius: 50%; cursor: pointer; font-size: 0.75em; user-select: none; }
       .rc-tick.selected { background: #3b82f6 !important; color: #fff !important; border-color: #3b82f6; }
       .rc-att-input { width: 100%; max-width: 80px; padding: 2px 4px; box-sizing: border-box; font-size: inherit; }
-      .rc-comments {
-        background: #f9f9f9 !important;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        padding: clamp(4px, 1%, 10px);
-        margin-top: 10px;
-        font-size: 0.9em;
-      }
+      .rc-comments { background: #f9f9f9 !important; border: 1px solid #ddd; border-radius: 4px; padding: clamp(4px, 1%, 10px); margin-top: 10px; font-size: 0.9em; }
       .rc-comment-row { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
       .rc-comment-controls { display: flex; flex-direction: column; gap: 2px; }
-      .rc-comment-controls select,
-      .rc-comment-controls textarea { width: 100%; box-sizing: border-box; font-size: inherit; background: #fff !important; }
-      .rc-print-val,
-      .rc-print-comment { display: none; }
+      .rc-comment-controls select, .rc-comment-controls textarea { width: 100%; box-sizing: border-box; font-size: inherit; background: #fff !important; }
+      .rc-print-val, .rc-print-comment { display: none; }
       @media (max-width: 600px) {
         .rc-wrapper { padding: 8px; font-size: 11px; }
         .rc-school-name { font-size: clamp(18px, 6vw, 26px) !important; }
@@ -649,7 +520,7 @@ export async function renderReportCardUI({
         .rc-school-name { font-size: 22pt !important; }
         .rc-main-row { grid-template-columns: 62fr 35fr; gap: 14px; }
         .rc-att-input, .rc-tick-row, .rc-comment-controls, select, textarea, button { display: none !important; }
-        .rc-print-val    { display: inline !important; }
+        .rc-print-val     { display: inline !important; }
         .rc-print-comment { display: block !important; }
         .rc-details-band { background: #1a3a5c !important; }
         .rc-details-cell { color: #fff !important; border-right: 1px solid rgba(255,255,255,0.18) !important; border-bottom: 1px solid rgba(255,255,255,0.18) !important; }
@@ -671,13 +542,8 @@ export async function renderReportCardUI({
         <div>${attendanceHtml}</div>
       </div>
       <div class="rc-main-row">
-        <div class="rc-col-left">
-          ${subjectTableHtml}
-          ${getGradeScaleHtml()}
-        </div>
-        <div class="rc-col-right">
-          ${skillsStack}
-        </div>
+        <div class="rc-col-left">${subjectTableHtml}${getGradeScaleHtml()}</div>
+        <div class="rc-col-right">${skillsStack}</div>
       </div>
       ${commentsHtml}
     </div>`;
@@ -688,7 +554,7 @@ export async function renderReportCardUI({
   container.querySelectorAll('.rc-rating-cell').forEach(el => {
     const key = el.dataset.skillKey;
     if (!key) return;
-    const val = psychomotor?.[key] ?? 3;
+    const val = ePsychomotor?.[key] ?? 3;
     const tickRow = document.createElement('div');
     tickRow.className = 'rc-tick-row';
     for (let i = 1; i <= 5; i++) {
