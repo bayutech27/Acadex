@@ -1,5 +1,5 @@
 // cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
-// ADDED: Tab‑switching detector – first violation warns, second auto-submits.
+// ADDED: Tab-switching detector – first violation warns, second auto-submits.
 // ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
 // FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
 //
@@ -10,22 +10,10 @@
 // MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
 //
 // ANTI-CHEAT (this revision):
-//   • Dedupe window is 5 s so blur + visibilitychange from a single tab-switch
-//     always count as ONE violation. Fixes the "warning + submission at once" bug.
-//   • First violation  → 15-second warning ONLY. `return` before any submit.
-//   • Second violation → persistent "submitting" modal + background submission
-//     (`submitTest(true, 5000)`), redirect only after save completes.
-//   • MODAL IS CENTERED ON EVERY VIEWPORT:
-//       – The old `class="anti-cheat-modal"` on #antiCheatWarningModal has been
-//         removed in test.html. Its `transform: translate(-50%, -50%)` rule was
-//         fighting the injected full-screen backdrop and shifting the modal to
-//         the top-left corner on mobile and desktop.
-//       – The injected CSS below now force-resets every potentially conflicting
-//         property (transform, border, border-radius, box-shadow, inset) with
-//         `!important`, so the modal is guaranteed to fill the viewport and
-//         center its card on any screen size.
-//   • Wall-clock based countdown (checks Date.now() every 250 ms) so mobile
-//     timer throttling cannot shorten or lengthen the modal.
+//   • Dedupe window 5 s so blur + visibilitychange count as ONE violation.
+//   • First violation  → 15-second warning ONLY (no submission, timer keeps running).
+//   • Second violation → persistent "submitting" modal + background submission.
+//   • Modal styling lives in test.html's <style> block. JS only toggles .is-visible.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -102,9 +90,9 @@ async function saveTopicStats(userId, topicStats) {
         });
       }
     }
-    console.log("✅ Topic stats saved successfully");
+    console.log("Topic stats saved successfully");
   } catch (error) {
-    console.error("❌ Error saving topic stats:", error);
+    console.error("Error saving topic stats:", error);
   }
 }
 
@@ -139,9 +127,9 @@ async function updateCumulativeTopicStats(userId, topicStats) {
                 await setDoc(docRef, updateData, { merge: true });
             }
         }
-        console.log("✅ Cumulative topic stats updated with trend info");
+        console.log("Cumulative topic stats updated with trend info");
     } catch (error) {
-        console.error("❌ Error updating cumulative topic stats:", error);
+        console.error("Error updating cumulative topic stats:", error);
     }
 }
 
@@ -151,7 +139,7 @@ async function fetchCumulativeTopicStats(userId) {
         const stats = await service.getTopicCumulative(userId);
         return stats;
     } catch (error) {
-        console.error("❌ Error fetching cumulative topic stats:", error);
+        console.error("Error fetching cumulative topic stats:", error);
         return [];
     }
 }
@@ -202,7 +190,7 @@ function generateSmartRecommendations(weakTopics) {
         ],
         weak: [
             "Spend more time strengthening {topic}.",
-            "{topic} requires consistent practice. Try 2–3 Quick Tests this week.",
+            "{topic} requires consistent practice. Try 2-3 Quick Tests this week.",
             "Dedicate extra study sessions to {topic}."
         ],
         improving: [
@@ -218,7 +206,7 @@ function generateSmartRecommendations(weakTopics) {
         timeBased: [
             "You haven't practiced {topic} recently. Attempt a Quick Test to refresh.",
             "It's been a while since you practiced {topic}. A short review will help.",
-            "{topic} needs a quick refresher – try a few questions now."
+            "{topic} needs a quick refresher - try a few questions now."
         ],
         grouped: [
             "{subject} needs attention. Focus on {topics} this week.",
@@ -309,218 +297,31 @@ let subjectCounts = {};
 // ANTI-CHEAT MODULE
 // ============================================================
 
-/* Path to student dashboard (root/student/student-portal.html) */
 const DASHBOARD_URL = '../../student/student-portal.html';
 
 let tabSwitchCount = 0;
 let isSubmitting = false;
 let lastViolationTs = 0;
 
-// Durations
-const VIOLATION_DEDUPE_MS = 5000;    // >= 5 s: blur + visibilitychange = 1 violation
-const FIRST_WARNING_MS    = 15000;   // 15-second first warning
-const SECOND_MODAL_MS     = 5000;    // 5-second minimum before redirect
+const VIOLATION_DEDUPE_MS = 5000;
+const FIRST_WARNING_MS    = 15000;
+const SECOND_MODAL_MS     = 5000;
 
-// Modal internals
 let warningIntervalHandle = null;
 let warningEndTime = 0;
 
 const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
 
-// ── Inject responsive CSS once ──────────────────────────────────────────────
-function injectAntiCheatStyles() {
-    if (document.getElementById('antiCheatStyles')) return;
-    const style = document.createElement('style');
-    style.id = 'antiCheatStyles';
-    style.textContent = `
-        /*
-         * Full-screen backdrop — covers the ENTIRE viewport on every device.
-         *
-         * DEFENSIVE OVERRIDES:
-         * The old `class="anti-cheat-modal"` rule used to set
-         *   top: 50%; left: 50%; transform: translate(-50%, -50%);
-         * which shifted this full-screen box off-centre. We now force-reset
-         * every one of those properties with !important so no external class
-         * can ever move the modal off-centre again.
-         */
-        #antiCheatWarningModal {
-            /* Positioning: cover the viewport */
-            position: fixed !important;
-            inset: 0 !important;
-            top: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: 100vh !important;
-            max-width: 100vw !important;
-            max-height: 100vh !important;
-
-            /* Kill any conflicting transforms / decorative styles */
-            transform: none !important;
-            -webkit-transform: none !important;
-            margin: 0 !important;
-            border: none !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            outline: none !important;
-
-            /* Layout: full-screen flex, centering its content */
-            display: none !important;
-            flex-direction: column !important;
-            align-items: center !important;
-            justify-content: center !important;
-            box-sizing: border-box !important;
-            padding: 16px !important;
-            background: rgba(15, 23, 42, 0.85) !important;
-            z-index: 2147483647 !important;
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
-            -webkit-overflow-scrolling: touch !important;
-
-            /* Typography */
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-            text-align: center !important;
-        }
-
-        /* Visible state — flex centering on every viewport */
-        #antiCheatWarningModal.is-visible {
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-
-        /* Single card — the ONLY visual child */
-        #antiCheatWarningModal .antiCheatCard {
-            width: 100% !important;
-            max-width: 480px !important;
-            background: #ffffff !important;
-            border-radius: 14px !important;
-            padding: 24px 22px !important;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4) !important;
-            box-sizing: border-box !important;
-            text-align: center !important;
-            border: 1px solid rgba(0, 0, 0, 0.08) !important;
-            max-height: calc(100vh - 32px) !important;
-            overflow-y: auto !important;
-            margin: 0 auto !important;
-            flex: 0 0 auto !important;
-        }
-
-        #antiCheatWarningModal .antiCheatIcon {
-            display: block !important;
-            font-size: clamp(32px, 8vw, 44px) !important;
-            line-height: 1 !important;
-            margin: 0 0 12px 0 !important;
-        }
-
-        #antiCheatWarningModal .antiCheatMessage {
-            display: block !important;
-            font-size: clamp(0.95rem, 3.8vw, 1.15rem) !important;
-            line-height: 1.55 !important;
-            color: #b91c1c !important;
-            font-weight: 600 !important;
-            word-break: break-word !important;
-            overflow-wrap: anywhere !important;
-            white-space: normal !important;
-            margin: 0 !important;
-        }
-
-        #antiCheatWarningModal .antiCheatCountdown {
-            display: block !important;
-            margin-top: 16px !important;
-            font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
-            color: #475569 !important;
-            font-weight: 500 !important;
-            letter-spacing: 0.01em !important;
-        }
-
-        /* Very narrow phones */
-        @media (max-width: 360px) {
-            #antiCheatWarningModal {
-                padding: 10px !important;
-            }
-            #antiCheatWarningModal .antiCheatCard {
-                padding: 18px 14px !important;
-                border-radius: 12px !important;
-            }
-        }
-
-        /* Short viewports (mobile landscape / soft keyboard raised) */
-        @media (max-height: 500px) {
-            #antiCheatWarningModal {
-                padding: 8px !important;
-            }
-            #antiCheatWarningModal .antiCheatCard {
-                padding: 14px 16px !important;
-                border-radius: 10px !important;
-                max-height: calc(100vh - 16px) !important;
-            }
-            #antiCheatWarningModal .antiCheatIcon {
-                font-size: 26px !important;
-                margin-bottom: 6px !important;
-            }
-            #antiCheatWarningModal .antiCheatMessage {
-                font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
-                line-height: 1.4 !important;
-            }
-            #antiCheatWarningModal .antiCheatCountdown {
-                margin-top: 10px !important;
-            }
-        }
-
-        /* Extremely short viewports */
-        @media (max-height: 360px) {
-            #antiCheatWarningModal .antiCheatIcon {
-                display: none !important;
-            }
-        }
-    `;
-    document.head.appendChild(style);
-}
-
-// ── Modal structure — a single centered card ───────────────────────────────
-function _ensureModalStructure() {
-    if (!antiCheatWarningModal) return null;
-    let card = antiCheatWarningModal.querySelector('.antiCheatCard');
-    if (card) return card;
-
-    // Rebuild the modal DOM ONCE with a self-contained card.
-    // Keeps the modal element itself (id, role, external references).
-    // We wipe any legacy <h3>/<p> children that were there before.
-    antiCheatWarningModal.innerHTML = '';
-    card = document.createElement('div');
-    card.className = 'antiCheatCard';
-    card.innerHTML =
-        '<div class="antiCheatIcon" aria-hidden="true">⚠️</div>' +
-        '<div class="antiCheatMessage warning-message" role="alert"></div>' +
-        '<div class="antiCheatCountdown warning-countdown" aria-live="polite"></div>';
-    antiCheatWarningModal.appendChild(card);
-    return card;
-}
-
-/**
- * Show the anti-cheat modal.
- *
- *   autoCloseMs = number  → auto-close after N ms (wall-clock based).
- *   autoCloseMs = null    → stay open indefinitely (used by the second
- *                           violation's "submitting" modal).
- */
-function showAntiCheatModal(message, autoCloseMs = 5000) {
+function showAntiCheatModal(message, autoCloseMs) {
     if (!antiCheatWarningModal) return;
-    injectAntiCheatStyles();
-    _ensureModalStructure();
 
-    // Cancel any previous countdown
     if (warningIntervalHandle) {
         clearInterval(warningIntervalHandle);
         warningIntervalHandle = null;
     }
 
-    const card = antiCheatWarningModal.querySelector('.antiCheatCard');
-    const msgEl = card ? card.querySelector('.antiCheatMessage') : null;
-    const cdEl  = card ? card.querySelector('.antiCheatCountdown') : null;
+    const msgEl = antiCheatWarningModal.querySelector('.antiCheatMessage');
+    const cdEl  = antiCheatWarningModal.querySelector('.antiCheatCountdown');
 
     if (msgEl) msgEl.textContent = message;
 
@@ -528,8 +329,7 @@ function showAntiCheatModal(message, autoCloseMs = 5000) {
     antiCheatWarningModal.setAttribute('aria-hidden', 'false');
 
     if (autoCloseMs === null || autoCloseMs === undefined) {
-        // Persistent modal — no countdown, no auto-close.
-        if (cdEl) cdEl.textContent = 'Please wait…';
+        if (cdEl) cdEl.textContent = 'Please wait...';
         return;
     }
 
@@ -540,8 +340,8 @@ function showAntiCheatModal(message, autoCloseMs = 5000) {
         const seconds = Math.max(0, Math.ceil(remaining / 1000));
         if (cdEl) {
             cdEl.textContent = seconds > 0
-                ? `Closing in ${seconds} second${seconds === 1 ? '' : 's'}…`
-                : 'Closing…';
+                ? 'Closing in ' + seconds + ' second' + (seconds === 1 ? '' : 's') + '...'
+                : 'Closing...';
         }
         if (remaining <= 0) {
             antiCheatWarningModal.classList.remove('is-visible');
@@ -566,35 +366,29 @@ function hideAntiCheatModal() {
     antiCheatWarningModal.setAttribute('aria-hidden', 'true');
 }
 
-// ── Silent violation logger (fire-and-forget, never blocks) ────────────────
-function logViolation(type, detail = '') {
+function logViolation(type, detail) {
     try {
         if (!currentUser || !currentUser.uid) return;
         const schoolId = localStorage.getItem('userSchoolId');
         if (!schoolId) return;
         addDoc(collection(db, 'cbtViolations'), {
             userId: currentUser.uid,
-            schoolId,
+            schoolId: schoolId,
             testId: (testData && testData.testId) ? testData.testId : null,
             cbtId:  (testData && testData.cbtId)  ? testData.cbtId  : null,
-            type,
+            type: type,
             detail: String(detail || '').slice(0, 200),
             remainingSeconds: typeof timeRemaining === 'number' ? timeRemaining : null,
             questionIndex: typeof currentQuestionIndex === 'number' ? currentQuestionIndex : null,
             timestamp: serverTimestamp()
-        }).catch(() => { /* silent */ });
-    } catch (_) { /* silent */ }
+        }).catch(function () {});
+    } catch (err) {}
 }
 
-// ── Central violation handler ──────────────────────────────────────────────
 function registerViolation(reason) {
     if (isSubmitting) return;
 
     const now = Date.now();
-
-    // CRITICAL: A single tab-switch fires BOTH `blur` and `visibilitychange`.
-    // On mobile these can arrive several seconds apart. The 5-second dedupe
-    // window below guarantees they count as ONE event.
     if (now - lastViolationTs < VIOLATION_DEDUPE_MS) {
         return;
     }
@@ -603,32 +397,27 @@ function registerViolation(reason) {
     tabSwitchCount++;
 
     if (tabSwitchCount === 1) {
-        // FIRST VIOLATION — 15-second warning, NO submission. Timer keeps running.
         logViolation('first_violation', reason);
         showAntiCheatModal(
-            '⚠️ You left the exam window. This is your ONLY warning. ' +
+            'You left the exam window. This is your ONLY warning. ' +
             'The timer is still running. Doing it again will immediately auto-submit your test.',
             FIRST_WARNING_MS
         );
-        return; // <-- absolutely no submission on the first violation
+        return;
     }
 
-    // SECOND VIOLATION — auto-submit with a persistent modal.
     logViolation('second_violation', reason);
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
 
-    // Persistent modal — removed only when the page redirects.
     showAntiCheatModal(
-        '❌ Repeated violation detected. Your test is being submitted automatically…',
+        'Repeated violation detected. Your test is being submitted automatically...',
         null
     );
 
-    // Background submission. Redirect happens only after BOTH the
-    // SECOND_MODAL_MS window AND the Firestore save have completed.
-    submitTest(true, SECOND_MODAL_MS).catch(err => {
+    submitTest(true, SECOND_MODAL_MS).catch(function (err) {
         console.warn('Auto-submit failed, forcing redirect:', err);
-        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
+        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err2) {}
         window.location.href = DASHBOARD_URL;
     });
 }
@@ -639,7 +428,6 @@ function handleVisibilityLoss() {
 }
 
 function handleWindowBlur() {
-    // Fires on alt-tab, second window, DevTools focus, app-switch on mobile.
     registerViolation('window_blur');
 }
 
@@ -654,10 +442,7 @@ function preventRefresh(e) {
     if (isRefreshKey) {
         e.preventDefault();
         e.stopPropagation();
-        showAntiCheatModal(
-            '⚠️ Page refresh is not allowed during the test. Please continue.',
-            2500
-        );
+        showAntiCheatModal('Page refresh is not allowed during the test. Please continue.', 2500);
         return false;
     }
 }
@@ -670,10 +455,10 @@ function preventBeforeUnload(e) {
 
 function preventClipboard(e) {
     const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-    if (tag === 'input' || tag === 'textarea') return; // future-proof
+    if (tag === 'input' || tag === 'textarea') return;
     e.preventDefault();
     e.stopPropagation();
-    showAntiCheatModal('⚠️ Copy / paste is disabled during the test.', 2000);
+    showAntiCheatModal('Copy / paste is disabled during the test.', 2000);
     logViolation('clipboard_blocked', e.type);
     return false;
 }
@@ -681,7 +466,7 @@ function preventClipboard(e) {
 function preventContextMenu(e) {
     e.preventDefault();
     e.stopPropagation();
-    showAntiCheatModal('⚠️ Right-click is disabled during the test.', 2000);
+    showAntiCheatModal('Right-click is disabled during the test.', 2000);
     logViolation('right_click_blocked');
     return false;
 }
@@ -689,47 +474,42 @@ function preventContextMenu(e) {
 function handleKeyBlock(e) {
     const k = (e.key || '').toLowerCase();
 
-    // 1. Clipboard + select-all shortcuts
-    if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].includes(k)) {
+    if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].indexOf(k) !== -1) {
         e.preventDefault(); e.stopPropagation();
-        showAntiCheatModal('⚠️ This shortcut is disabled during the test.', 2000);
-        logViolation('shortcut_blocked', `ctrl+${k}`);
+        showAntiCheatModal('This shortcut is disabled during the test.', 2000);
+        logViolation('shortcut_blocked', 'ctrl+' + k);
         return false;
     }
 
-    // 2. Save / Print / View-source
-    if ((e.ctrlKey || e.metaKey) && ['s','p','u'].includes(k)) {
+    if ((e.ctrlKey || e.metaKey) && ['s','p','u'].indexOf(k) !== -1) {
         e.preventDefault(); e.stopPropagation();
-        showAntiCheatModal('⚠️ This action is disabled during the test.', 2000);
-        logViolation('shortcut_blocked', `ctrl+${k}`);
+        showAntiCheatModal('This action is disabled during the test.', 2000);
+        logViolation('shortcut_blocked', 'ctrl+' + k);
         return false;
     }
 
-    // 3. DevTools / Inspect
-    if (k === 'f12' || ((e.ctrlKey || e.metaKey) && e.shiftKey && ['i','j','c'].includes(k))) {
+    if (k === 'f12' || ((e.ctrlKey || e.metaKey) && e.shiftKey && ['i','j','c'].indexOf(k) !== -1)) {
         e.preventDefault(); e.stopPropagation();
-        showAntiCheatModal('⚠️ Developer tools are disabled during the test.', 2000);
+        showAntiCheatModal('Developer tools are disabled during the test.', 2000);
         logViolation('devtools_blocked', k);
         return false;
     }
 
-    // 4. PrintScreen (screenshot attempt — best effort)
     if (k === 'printscreen') {
         try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText('').catch(() => {});
+                navigator.clipboard.writeText('').catch(function () {});
             }
-        } catch (_) {}
+        } catch (err) {}
         e.preventDefault();
-        showAntiCheatModal('⚠️ Screenshots are not allowed during the test.', 2500);
+        showAntiCheatModal('Screenshots are not allowed during the test.', 2500);
         logViolation('screenshot_attempt');
         return false;
     }
 
-    // 5. Ctrl/Cmd + Shift + S (browser screenshot)
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 's') {
         e.preventDefault(); e.stopPropagation();
-        showAntiCheatModal('⚠️ Screenshots are not allowed during the test.', 2500);
+        showAntiCheatModal('Screenshots are not allowed during the test.', 2500);
         logViolation('screenshot_attempt');
         return false;
     }
@@ -746,41 +526,26 @@ function preventDragStart(e) {
 }
 
 function initAntiCheat() {
-    // Inject responsive modal styles as early as possible.
-    injectAntiCheatStyles();
-
-    // Tab hidden + window blur (both feed the same registerViolation)
     document.addEventListener('visibilitychange', handleVisibilityLoss);
     window.addEventListener('blur', handleWindowBlur);
-
-    // Refresh / unload
     window.addEventListener('keydown', preventRefresh, true);
     window.addEventListener('beforeunload', preventBeforeUnload);
-
-    // Keyboard-level blocks (shortcuts, devtools, screenshots)
     document.addEventListener('keydown', handleKeyBlock, true);
-
-    // Clipboard blocking
     document.addEventListener('copy',  preventClipboard, true);
     document.addEventListener('cut',   preventClipboard, true);
     document.addEventListener('paste', preventClipboard, true);
-
-    // Right-click / context menu
     document.addEventListener('contextmenu', preventContextMenu, true);
-
-    // Text selection / drag of content
     document.addEventListener('selectstart', preventSelectStart, true);
     document.addEventListener('dragstart',   preventDragStart,   true);
 }
 
-// Kept for backward compatibility with any external reference.
 async function forceSubmitAndRedirect() {
     if (isSubmitting) {
-        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
+        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err) {}
         window.location.href = DASHBOARD_URL;
         return;
     }
-    try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
+    try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err) {}
     await submitTest(true);
 }
 
@@ -788,10 +553,12 @@ async function forceSubmitAndRedirect() {
 // HELPER: Shuffle array for assigned test randomisation
 // =============================================
 function shuffleArray(array) {
-    const shuffled = [...array];
+    const shuffled = array.slice();
     for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        const tmp = shuffled[i];
+        shuffled[i] = shuffled[j];
+        shuffled[j] = tmp;
     }
     return shuffled;
 }
@@ -799,7 +566,7 @@ function shuffleArray(array) {
 // =============================================
 // INITIALIZATION with Acadex session validation
 // =============================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('currentYear').textContent = new Date().getFullYear();
 
     const schoolId = localStorage.getItem('userSchoolId');
@@ -810,12 +577,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    onAuthStateChanged(auth, async (user) => {
+    onAuthStateChanged(auth, async function (user) {
         if (!user) {
             window.location.href = '../../index.html';
         } else {
             currentUser = user;
-            await initAcademicCalendar().catch(e => console.warn('Academic calendar init failed:', e));
+            await initAcademicCalendar().catch(function (e) {
+                console.warn('Academic calendar init failed:', e);
+            });
             await loadTestData();
         }
     });
@@ -824,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
     nextBtn.addEventListener('click', showNextQuestion);
     getResultBtn.addEventListener('click', showSubmitModal);
     cancelSubmit.addEventListener('click', hideSubmitModal);
-    confirmSubmit.addEventListener('click', () => submitTest(false));
+    confirmSubmit.addEventListener('click', function () { submitTest(false); });
     backToDashboard.addEventListener('click', goToDashboard);
     document.addEventListener('keydown', handleKeyboardNavigation);
 
@@ -841,26 +610,34 @@ function fixExcelFraction(value) {
     if (match1) {
         const day = parseInt(match1[1], 10);
         const monthAbbr = match1[2];
-        if (months[monthAbbr]) return `${day}/${months[monthAbbr]}`;
+        if (months[monthAbbr]) return day + '/' + months[monthAbbr];
     }
     const match2 = value.match(/^([A-Za-z]{3})-(\d{1,2})$/);
     if (match2) {
         const monthAbbr = match2[1];
         const day = parseInt(match2[2], 10);
-        if (months[monthAbbr]) return `${months[monthAbbr]}/${day}`;
+        if (months[monthAbbr]) return months[monthAbbr] + '/' + day;
     }
     return value;
 }
 
 function formatTextForDisplay(text) {
     if (!text) return "";
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br>');
 }
 
 function processSolutionText(text) {
     if (!text) return '';
     let processed = text.replace(/\^(\d+)/g, '<sup>$1</sup>').replace(/_(\d+)/g, '<sub>$1</sub>');
-    processed = processed.replace(/([A-Z][a-z]?)(\d+)/g, (match, element, number) => element + '<sub>' + number + '</sub>');
+    processed = processed.replace(/([A-Z][a-z]?)(\d+)/g, function (match, element, number) {
+        return element + '<sub>' + number + '</sub>';
+    });
     return processed.replace(/\n/g, '<br>');
 }
 
@@ -893,12 +670,12 @@ function initializeTest() {
     }
 
     if (testData.mode === 'cbt') {
-        testSubject.innerHTML = `<i class="fas fa-laptop"></i> CBT: ${testData.title || 'Assigned Test'}`;
+        testSubject.innerHTML = '<i class="fas fa-laptop"></i> CBT: ' + (testData.title || 'Assigned Test');
     } else if (testData.mode === 'jamb_drill') {
-        const subjectsList = testData.subjects.map(s => s.name).join(' + ');
-        testSubject.innerHTML = `<i class="fas fa-graduation-cap"></i> JAMB Drill: ${subjectsList}`;
+        const subjectsList = testData.subjects.map(function (s) { return s.name; }).join(' + ');
+        testSubject.innerHTML = '<i class="fas fa-graduation-cap"></i> JAMB Drill: ' + subjectsList;
         let idx = 0;
-        testData.subjects.forEach(subj => {
+        testData.subjects.forEach(function (subj) {
             subjectStartIndices[subj.value] = idx;
             subjectCounts[subj.value] = subj.count;
             idx += subj.count;
@@ -906,10 +683,10 @@ function initializeTest() {
         renderSubjectTabs();
     } else if (testData.mode === 'waec_neco') {
         const subjectName = testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject';
-        testSubject.innerHTML = `<i class="fas fa-school"></i> WAEC/NECO Drill: ${subjectName}`;
+        testSubject.innerHTML = '<i class="fas fa-school"></i> WAEC/NECO Drill: ' + subjectName;
     } else {
         const subjectName = testData.subject ? testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1) : 'Unknown Subject';
-        testSubject.innerHTML = `<i class="fas fa-book"></i> Quick Test: ${subjectName} - ${testData.examType || 'Test'}`;
+        testSubject.innerHTML = '<i class="fas fa-book"></i> Quick Test: ' + subjectName + ' - ' + (testData.examType || 'Test');
     }
 
     totalQuestionsSpan.textContent = testData.totalQuestions || testData.questions.length;
@@ -918,7 +695,7 @@ function initializeTest() {
     updateTimerDisplay();
     startTimer();
     generateQuestionDots();
-    if (!testData.userAnswers) testData.userAnswers = Array(testData.questions.length).fill(null);
+    if (!testData.userAnswers) testData.userAnswers = new Array(testData.questions.length).fill(null);
     loadQuestion(0);
     updateProgressBar();
     updateAnsweredCount();
@@ -928,15 +705,15 @@ function renderSubjectTabs() {
     if (!subjectTabs || testData.mode !== 'jamb_drill') return;
     subjectTabs.style.display = 'block';
     subjectTabs.innerHTML = '';
-    testData.subjects.forEach((subj) => {
+    testData.subjects.forEach(function (subj) {
         const tab = document.createElement('button');
         tab.className = 'subject-tab';
         tab.dataset.subject = subj.value;
         tab.textContent = subj.name;
-        tab.addEventListener('click', () => switchToSubject(subj.value));
+        tab.addEventListener('click', function () { switchToSubject(subj.value); });
         subjectTabs.appendChild(tab);
     });
-    document.querySelectorAll('.subject-tab').forEach(tab => {
+    document.querySelectorAll('.subject-tab').forEach(function (tab) {
         tab.style.padding = '10px 20px';
         tab.style.marginRight = '5px';
         tab.style.border = 'none';
@@ -947,11 +724,11 @@ function renderSubjectTabs() {
         tab.style.fontWeight = '500';
         tab.style.transition = 'all 0.3s';
     });
-    highlightActiveSubjectTab(testData.questions[0]?.subject);
+    highlightActiveSubjectTab(testData.questions[0] && testData.questions[0].subject);
 }
 
 function highlightActiveSubjectTab(subject) {
-    document.querySelectorAll('.subject-tab').forEach(tab => {
+    document.querySelectorAll('.subject-tab').forEach(function (tab) {
         if (tab.dataset.subject === subject) {
             tab.style.background = 'var(--eggplant)';
             tab.style.color = 'white';
@@ -980,28 +757,38 @@ function loadQuestion(index) {
     const hasQuestionImage = question.questionImage;
     let questionHTML = '';
     if (hasQuestionText && hasQuestionImage) {
-        questionHTML = `<div class="question-text-content">${formatTextForDisplay(question.questionText)}</div><div class="question-image-container"><img src="${question.questionImage}" alt="Question image" class="question-image"></div>`;
+        questionHTML = '<div class="question-text-content">' + formatTextForDisplay(question.questionText) + '</div><div class="question-image-container"><img src="' + question.questionImage + '" alt="Question image" class="question-image"></div>';
     } else if (hasQuestionText) {
-        questionHTML = `<div class="question-text-content">${formatTextForDisplay(question.questionText)}</div>`;
+        questionHTML = '<div class="question-text-content">' + formatTextForDisplay(question.questionText) + '</div>';
     } else if (hasQuestionImage) {
-        questionHTML = `<div class="question-image-container"><img src="${question.questionImage}" alt="Question image" class="question-image"></div>`;
+        questionHTML = '<div class="question-image-container"><img src="' + question.questionImage + '" alt="Question image" class="question-image"></div>';
     } else {
-        questionHTML = `<div class="question-text-content">Question content not available</div>`;
+        questionHTML = '<div class="question-text-content">Question content not available</div>';
     }
     questionContent.innerHTML = questionHTML;
     currentQuestionSpan.textContent = index + 1;
     optionsContainer.innerHTML = '';
 
-    const rawOptions = question.options || { A: question.optionA || "", B: question.optionB || "", C: question.optionC || "", D: question.optionD || "" };
-    const options = { A: fixExcelFraction(rawOptions.A), B: fixExcelFraction(rawOptions.B), C: fixExcelFraction(rawOptions.C), D: fixExcelFraction(rawOptions.D) };
-    ['A', 'B', 'C', 'D'].forEach(letter => {
+    const rawOptions = question.options || {
+        A: question.optionA || "",
+        B: question.optionB || "",
+        C: question.optionC || "",
+        D: question.optionD || ""
+    };
+    const options = {
+        A: fixExcelFraction(rawOptions.A),
+        B: fixExcelFraction(rawOptions.B),
+        C: fixExcelFraction(rawOptions.C),
+        D: fixExcelFraction(rawOptions.D)
+    };
+    ['A', 'B', 'C', 'D'].forEach(function (letter) {
         if (options[letter]) {
             const optionElement = document.createElement('div');
             optionElement.className = 'option';
             optionElement.dataset.option = letter;
             if (testData.userAnswers[index] === letter) optionElement.classList.add('selected');
-            optionElement.innerHTML = `<div class="option-letter">${letter}</div><div class="option-text">${options[letter]}</div>`;
-            optionElement.addEventListener('click', () => selectOption(letter));
+            optionElement.innerHTML = '<div class="option-letter">' + letter + '</div><div class="option-text">' + options[letter] + '</div>';
+            optionElement.addEventListener('click', function () { selectOption(letter); });
             optionsContainer.appendChild(optionElement);
         }
     });
@@ -1014,8 +801,8 @@ function loadQuestion(index) {
 }
 
 function selectOption(optionLetter) {
-    document.querySelectorAll('.option').forEach(opt => opt.classList.remove('selected'));
-    const selected = document.querySelector(`.option[data-option="${optionLetter}"]`);
+    document.querySelectorAll('.option').forEach(function (opt) { opt.classList.remove('selected'); });
+    const selected = document.querySelector('.option[data-option="' + optionLetter + '"]');
     if (selected) selected.classList.add('selected');
     testData.userAnswers[currentQuestionIndex] = optionLetter;
     updateAnsweredDot(currentQuestionIndex);
@@ -1031,32 +818,34 @@ function generateQuestionDots() {
         if (i === currentQuestionIndex) dot.classList.add('active');
         if (testData.userAnswers && testData.userAnswers[i] !== null) dot.classList.add('answered');
         dot.dataset.index = i;
-        dot.addEventListener('click', () => loadQuestion(i));
+        dot.addEventListener('click', (function (idx) {
+            return function () { loadQuestion(idx); };
+        })(i));
         questionDots.appendChild(dot);
     }
 }
 
 function updateActiveDot(index) {
-    document.querySelectorAll('.dot').forEach((dot, i) => {
+    document.querySelectorAll('.dot').forEach(function (dot, i) {
         dot.classList.remove('active');
         if (i === index) dot.classList.add('active');
     });
 }
 
 function updateAnsweredDot(index) {
-    const dot = document.querySelector(`.dot[data-index="${index}"]`);
+    const dot = document.querySelector('.dot[data-index="' + index + '"]');
     if (dot) dot.classList.add('answered');
 }
 
 function updateProgressBar() {
     if (!testData || !testData.questions) return;
     const progress = ((currentQuestionIndex + 1) / testData.questions.length) * 100;
-    progressBar.style.width = `${progress}%`;
+    progressBar.style.width = progress + '%';
 }
 
 function updateAnsweredCount() {
     if (!testData || !testData.userAnswers) return;
-    const answered = testData.userAnswers.filter(a => a !== null).length;
+    const answered = testData.userAnswers.filter(function (a) { return a !== null; }).length;
     answeredCount.textContent = answered;
 }
 
@@ -1065,31 +854,38 @@ function showNextQuestion() { if (currentQuestionIndex < testData.questions.leng
 
 function startTimer() {
     updateTimerDisplay();
-    timerInterval = setInterval(() => {
+    timerInterval = setInterval(function () {
         timeRemaining--;
         updateTimerDisplay();
         if (timeRemaining <= 300) timerElement.classList.add('warning');
-        if (timeRemaining <= 0) { clearInterval(timerInterval); timerInterval = null; autoSubmitTest(); }
+        if (timeRemaining <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            autoSubmitTest();
+        }
     }, 1000);
 }
 
 function updateTimerDisplay() {
     const minutes = Math.floor(timeRemaining / 60);
     const seconds = timeRemaining % 60;
-    timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    timerElement.textContent = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
 }
 
 function showSubmitModal() { updateAnsweredCount(); submitModal.style.display = 'flex'; }
 function hideSubmitModal() { submitModal.style.display = 'none'; }
-function autoSubmitTest() { getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...'; setTimeout(() => submitTest(false), 1000); }
+function autoSubmitTest() {
+    getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...';
+    setTimeout(function () { submitTest(false); }, 1000);
+}
 
 // =============================================
-// SAVE TEST RESULT TO FIRESTORE (with session & term) — using service.js
+// SAVE TEST RESULT TO FIRESTORE
 // =============================================
-async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores = null) {
+async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores) {
     try {
         if (!currentUser) {
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise(function (resolve) { setTimeout(resolve, 200); });
             if (!auth.currentUser) throw new Error("User not authenticated");
             currentUser = auth.currentUser;
         }
@@ -1124,14 +920,16 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         if (!userName && currentUser.email) userName = currentUser.email.split('@')[0];
         if (!userName) userName = 'Anonymous';
 
-        const questionsData = testData.questions.map((q, index) => ({
-            id: q.id || `q-${index}`,
-            questionText: q.questionText || "",
-            hasQuestionImage: !!q.questionImage,
-            correctAnswer: q.correctAnswer || "",
-            userAnswer: testData.userAnswers[index] || null,
-            subject: q.subject || testData.subject
-        }));
+        const questionsData = testData.questions.map(function (q, index) {
+            return {
+                id: q.id || ('q-' + index),
+                questionText: q.questionText || "",
+                hasQuestionImage: !!q.questionImage,
+                correctAnswer: q.correctAnswer || "",
+                userAnswer: testData.userAnswers[index] || null,
+                subject: q.subject || testData.subject
+            };
+        });
 
         let session = '';
         let term = '';
@@ -1153,10 +951,10 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             score: score,
             subject: testData.subject || "general",
             subjectName: subjectName,
-            testId: testData.testId || `test-${Date.now()}`,
+            testId: testData.testId || ('test-' + Date.now()),
             timeSpent: (testData.totalTime || (testData.questions.length * 120)) - timeRemaining,
             totalQuestions: testData.questions.length,
-            userAnswers: testData.userAnswers.map(a => a || null),
+            userAnswers: testData.userAnswers.map(function (a) { return a || null; }),
             userId: currentUser.uid,
             userName: userName,
             schoolId: schoolId,
@@ -1180,27 +978,20 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
 
         console.log("Saving test result to Firestore via service:", resultData);
         const docRef = await service.saveTestResult(resultData);
-        console.log('✅ Test result saved to Firestore with ID:', docRef);
+        console.log('Test result saved to Firestore with ID:', docRef);
         toast.success('Test result saved successfully!');
         return docRef;
     } catch (error) {
-        console.error('❌ ERROR SAVING TO FIRESTORE:', error);
-        toast.error(`Failed to save test result: ${error.message || 'Please try again.'}`);
+        console.error('ERROR SAVING TO FIRESTORE:', error);
+        toast.error('Failed to save test result: ' + (error.message || 'Please try again.'));
         throw error;
     }
 }
 
 // =============================================
 // SUBMIT TEST
-// -----------------------------------------------------------------------------
-// UPDATED: optional 2nd param `minRedirectDelayMs` (default 0). When set,
-// the redirect to the dashboard will wait until at least this many ms have
-// elapsed since submission started — used by the anti-cheat auto-submit path
-// so the modal is guaranteed to display for its full duration.
-// All existing callers pass only one argument (or none), so their behaviour
-// is unchanged.
 // =============================================
-async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
+async function submitTest(redirectAfter, minRedirectDelayMs) {
     if (isSubmitting) return;
     isSubmitting = true;
     const submissionStartTs = Date.now();
@@ -1214,15 +1005,17 @@ async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
 
     try {
         let correctAnswers = 0;
-        testData.questions.forEach((question, idx) => {
+        testData.questions.forEach(function (question, idx) {
             if (testData.userAnswers[idx] === question.correctAnswer) correctAnswers++;
         });
 
-        let finalDisplayScore, rawScore = correctAnswers, subjectScores = null;
+        let finalDisplayScore;
+        let rawScore = correctAnswers;
+        let subjectScores = null;
         if (testData.mode === 'jamb_drill') {
             subjectScores = {};
-            testData.subjects.forEach(subj => { subjectScores[subj.value] = { correct: 0, total: subj.count }; });
-            testData.questions.forEach((q, idx) => {
+            testData.subjects.forEach(function (subj) { subjectScores[subj.value] = { correct: 0, total: subj.count }; });
+            testData.questions.forEach(function (q, idx) {
                 if (testData.userAnswers[idx] === q.correctAnswer) {
                     const subj = q.subject;
                     if (subj && subjectScores[subj]) subjectScores[subj].correct++;
@@ -1244,16 +1037,16 @@ async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
         if (!isCbtExam) {
             const topicStats = generateWeaknessReport(testData.userAnswers, testData.questions);
             if (topicStats.length > 0) {
-                saveTopicStats(currentUser.uid, topicStats).catch(e => console.warn(e));
+                saveTopicStats(currentUser.uid, topicStats).catch(function (e) { console.warn(e); });
                 await updateCumulativeTopicStats(currentUser.uid, topicStats);
                 const cumulative = await fetchCumulativeTopicStats(currentUser.uid);
                 let filtered = cumulative;
-                if (testData.mode === 'quick' || testData.mode === 'waec_neco') filtered = cumulative.filter(s => s.subject === testData.subject);
-                else if (testData.mode === 'jamb_drill') filtered = cumulative.filter(s => testData.subjects.map(x => x.value).includes(s.subject));
-                const { weakTopics, strongTopics } = calculateCumulativeWeakness(filtered);
-                testData.weakTopics = weakTopics;
-                testData.strongTopics = strongTopics;
-                testData.recommendations = generateSmartRecommendations(weakTopics);
+                if (testData.mode === 'quick' || testData.mode === 'waec_neco') filtered = cumulative.filter(function (s) { return s.subject === testData.subject; });
+                else if (testData.mode === 'jamb_drill') filtered = cumulative.filter(function (s) { return testData.subjects.map(function (x) { return x.value; }).indexOf(s.subject) !== -1; });
+                const cw = calculateCumulativeWeakness(filtered);
+                testData.weakTopics = cw.weakTopics;
+                testData.strongTopics = cw.strongTopics;
+                testData.recommendations = generateSmartRecommendations(cw.weakTopics);
             } else {
                 testData.weakTopics = [];
                 testData.strongTopics = [];
@@ -1270,9 +1063,9 @@ async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
             await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores);
             saveSuccess = true;
         } catch (firstError) {
-            if (firstError.message.includes('permission') || firstError.code === 'permission-denied') {
+            if (firstError.message.indexOf('permission') !== -1 || firstError.code === 'permission-denied') {
                 console.warn("Permission denied, attempting to refresh user session...");
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(function (resolve) { setTimeout(resolve, 500); });
                 currentUser = auth.currentUser;
                 if (currentUser) {
                     await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores);
@@ -1288,11 +1081,10 @@ async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
         if (!saveSuccess) throw new Error("Failed to save test result after retry.");
 
         if (redirectAfter) {
-            // Honour the optional minimum-display window (used by auto-submit).
-            if (minRedirectDelayMs > 0) {
+            if (minRedirectDelayMs && minRedirectDelayMs > 0) {
                 const elapsed = Date.now() - submissionStartTs;
                 const wait = minRedirectDelayMs - elapsed;
-                if (wait > 0) await new Promise(r => setTimeout(r, wait));
+                if (wait > 0) await new Promise(function (r) { setTimeout(r, wait); });
             }
             window.location.href = DASHBOARD_URL;
             return;
@@ -1317,7 +1109,7 @@ async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
         console.error('Error in submitTest:', error);
         getResultBtn.classList.remove('btn-loading');
         getResultBtn.innerHTML = '<i class="fas fa-check-circle"></i> Submit Test';
-        toast.error(`Error submitting test: ${error.message || 'Please try again.'}`);
+        toast.error('Error submitting test: ' + (error.message || 'Please try again.'));
         isSubmitting = false;
         window.addEventListener('beforeunload', preventBeforeUnload);
     }
@@ -1342,14 +1134,14 @@ function showResults(score, correctAnswers, message, subjectScores) {
         let html = '';
         if (testData.weakTopics && testData.weakTopics.length) {
             html += '<div style="margin-top: 8px; font-weight: 600; color: #dc3545;">Weak Areas</div>';
-            testData.weakTopics.forEach(t => {
-                html += `<div class="topic-item"><span class="topic-name">${t.topic} (${t.subject})</span><span class="topic-stats">${t.totalCorrect}/${t.totalAnswered} (${t.accuracy}%)</span><span class="topic-accuracy accuracy-weak">Weak</span></div>`;
+            testData.weakTopics.forEach(function (t) {
+                html += '<div class="topic-item"><span class="topic-name">' + t.topic + ' (' + t.subject + ')</span><span class="topic-stats">' + t.totalCorrect + '/' + t.totalAnswered + ' (' + t.accuracy + '%)</span><span class="topic-accuracy accuracy-weak">Weak</span></div>';
             });
         }
         if (testData.strongTopics && testData.strongTopics.length) {
             html += '<div style="margin-top: 16px; font-weight: 600; color: #28a745;">Strong Areas</div>';
-            testData.strongTopics.forEach(t => {
-                html += `<div class="topic-item"><span class="topic-name">${t.topic} (${t.subject})</span><span class="topic-stats">${t.totalCorrect}/${t.totalAnswered} (${t.accuracy}%)</span><span class="topic-accuracy accuracy-strong">Strong</span></div>`;
+            testData.strongTopics.forEach(function (t) {
+                html += '<div class="topic-item"><span class="topic-name">' + t.topic + ' (' + t.subject + ')</span><span class="topic-stats">' + t.totalCorrect + '/' + t.totalAnswered + ' (' + t.accuracy + '%)</span><span class="topic-accuracy accuracy-strong">Strong</span></div>';
             });
         }
         topicBreakdownList.innerHTML = html;
@@ -1361,7 +1153,7 @@ function showResults(score, correctAnswers, message, subjectScores) {
     const recommendationsContainer = document.getElementById('recommendationsContainer');
     const recommendationsList = document.getElementById('recommendationsList');
     if (recommendationsContainer && recommendationsList && !isCbtExam && testData.recommendations && testData.recommendations.length) {
-        recommendationsList.innerHTML = testData.recommendations.map(r => `<li>${r}</li>`).join('');
+        recommendationsList.innerHTML = testData.recommendations.map(function (r) { return '<li>' + r + '</li>'; }).join('');
         recommendationsContainer.style.display = 'block';
     } else if (recommendationsContainer) {
         recommendationsContainer.style.display = 'none';
@@ -1371,14 +1163,14 @@ function showResults(score, correctAnswers, message, subjectScores) {
         subjectBreakdown.style.display = 'block';
         let html = '';
         if (testData.mode === 'jamb_drill') {
-            testData.subjects.forEach(subj => {
+            testData.subjects.forEach(function (subj) {
                 const data = subjectScores[subj.value] || { correct: 0, total: subj.count };
-                html += `<div style="margin: 5px 0;"><strong>${subj.name}:</strong> ${data.correct}/${data.total}</div>`;
+                html += '<div style="margin: 5px 0;"><strong>' + subj.name + ':</strong> ' + data.correct + '/' + data.total + '</div>';
             });
         } else {
             const subjName = testData.subject.charAt(0).toUpperCase() + testData.subject.slice(1);
             const data = subjectScores[testData.subject] || { correct: correctAnswers, total: testData.totalQuestions };
-            html += `<div style="margin: 5px 0;"><strong>${subjName}:</strong> ${data.correct}/${data.total}</div>`;
+            html += '<div style="margin: 5px 0;"><strong>' + subjName + ':</strong> ' + data.correct + '/' + data.total + '</div>';
         }
         subjectBreakdownList.innerHTML = html;
     } else {
@@ -1388,7 +1180,13 @@ function showResults(score, correctAnswers, message, subjectScores) {
     resultsModal.style.display = 'flex';
     addSolutionButton();
     sessionStorage.removeItem('currentTest');
-    try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers, completedAt: new Date().toISOString() })); } catch(e) {}
+    try {
+        sessionStorage.setItem('previousTest', JSON.stringify(Object.assign({}, testData, {
+            finalScore: score,
+            correctAnswers: correctAnswers,
+            completedAt: new Date().toISOString()
+        })));
+    } catch (e) {}
     isSubmitting = false;
 }
 
@@ -1408,7 +1206,7 @@ function addSolutionButton() {
     solutionBtn.innerHTML = '<i class="fas fa-lightbulb"></i> View Detailed Solutions';
     solutionBtn.style.backgroundColor = '#17a2b8';
     solutionBtn.style.cursor = 'pointer';
-    solutionBtn.addEventListener('click', () => {
+    solutionBtn.addEventListener('click', function () {
         resultsModal.style.display = 'none';
         showSolutionsModal(testData.questions, testData.userAnswers);
     });
@@ -1427,22 +1225,22 @@ function showSolutionsModal(questions, userAnswers) {
     container.className = 'solutions-container';
 
     if (testData.mode === 'jamb_drill') {
-        testData.subjects.forEach(subj => {
+        testData.subjects.forEach(function (subj) {
             const header = document.createElement('h3');
             header.style.color = 'var(--eggplant)';
             header.style.margin = '20px 0 10px';
-            header.innerHTML = `<i class="fas fa-book"></i> ${subj.name}`;
+            header.innerHTML = '<i class="fas fa-book"></i> ' + subj.name;
             container.appendChild(header);
-            const subjQuestions = questions.filter(q => q.subject === subj.value);
-            subjQuestions.forEach((q, idxInSubj) => {
-                const globalIdx = questions.findIndex(qq => qq.id === q.id);
-                const solutionItem = createSolutionItem(q, userAnswers[globalIdx], globalIdx+1);
+            const subjQuestions = questions.filter(function (q) { return q.subject === subj.value; });
+            subjQuestions.forEach(function (q) {
+                const globalIdx = questions.findIndex(function (qq) { return qq.id === q.id; });
+                const solutionItem = createSolutionItem(q, userAnswers[globalIdx], globalIdx + 1);
                 container.appendChild(solutionItem);
             });
         });
     } else {
-        questions.forEach((q, idx) => {
-            const solutionItem = createSolutionItem(q, userAnswers[idx], idx+1);
+        questions.forEach(function (q, idx) {
+            const solutionItem = createSolutionItem(q, userAnswers[idx], idx + 1);
             container.appendChild(solutionItem);
         });
     }
@@ -1463,8 +1261,8 @@ function showSolutionsModal(questions, userAnswers) {
     modalBody.appendChild(backDiv);
     modal.style.display = 'flex';
     const closeBtn = document.getElementById('closeSolutionModal');
-    if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
-    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+    if (closeBtn) closeBtn.onclick = function () { modal.style.display = 'none'; };
+    modal.onclick = function (e) { if (e.target === modal) modal.style.display = 'none'; };
 }
 
 function createSolutionItem(question, userAnswer, displayNumber) {
@@ -1476,11 +1274,11 @@ function createSolutionItem(question, userAnswer, displayNumber) {
     const hasSolutionImage = question.solutionImage;
     let solutionContent = '';
     if (hasSolutionText && hasSolutionImage) {
-        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div><div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
+        solutionContent = '<div class="solution-text-preserved">' + processSolutionText(question.solution) + '</div><div class="solution-image-container"><img src="' + question.solutionImage + '" alt="Solution image" class="solution-image"></div>';
     } else if (hasSolutionText) {
-        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div>`;
+        solutionContent = '<div class="solution-text-preserved">' + processSolutionText(question.solution) + '</div>';
     } else if (hasSolutionImage) {
-        solutionContent = `<div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
+        solutionContent = '<div class="solution-image-container"><img src="' + question.solutionImage + '" alt="Solution image" class="solution-image"></div>';
     } else {
         solutionContent = '<div class="solution-text-preserved">No detailed solution available for this question.</div>';
     }
@@ -1489,23 +1287,23 @@ function createSolutionItem(question, userAnswer, displayNumber) {
     const hasQuestionText = question.questionText && question.questionText.trim() !== '';
     const hasQuestionImage = question.questionImage;
     if (hasQuestionText && hasQuestionImage) {
-        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p><div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
+        questionHtml = '<p><strong>Question:</strong> ' + formatTextForDisplay(question.questionText) + '</p><div class="question-image-container" style="margin:10px 0;"><img src="' + question.questionImage + '" alt="Question image" style="max-width:200px; max-height:150px;"></div>';
     } else if (hasQuestionText) {
-        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p>`;
+        questionHtml = '<p><strong>Question:</strong> ' + formatTextForDisplay(question.questionText) + '</p>';
     } else if (hasQuestionImage) {
-        questionHtml = `<div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
+        questionHtml = '<div class="question-image-container" style="margin:10px 0;"><img src="' + question.questionImage + '" alt="Question image" style="max-width:200px; max-height:150px;"></div>';
     }
 
-    solutionItem.innerHTML = `
-        <h4><i class="fas fa-question-circle"></i> Question ${displayNumber}</h4>
-        ${questionHtml}
-        <div class="solution-options">
-            <p><strong>Your Answer:</strong> <span class="user-answer">${userAnswer || 'Not answered'}</span>
-            <span class="${isCorrect ? 'option-correct' : 'option-incorrect'}">${isCorrect ? '✓ Correct' : '✗ Incorrect'}</span></p>
-            <p><strong>Correct Answer:</strong> <span class="correct-answer">${correctAnswer || 'Not specified'}</span></p>
-        </div>
-        <div class="option-explanation"><p><strong>Explanation:</strong></p>${solutionContent}</div>
-    `;
+    solutionItem.innerHTML =
+        '<h4><i class="fas fa-question-circle"></i> Question ' + displayNumber + '</h4>' +
+        questionHtml +
+        '<div class="solution-options">' +
+            '<p><strong>Your Answer:</strong> <span class="user-answer">' + (userAnswer || 'Not answered') + '</span> ' +
+            '<span class="' + (isCorrect ? 'option-correct' : 'option-incorrect') + '">' + (isCorrect ? 'Correct' : 'Incorrect') + '</span></p>' +
+            '<p><strong>Correct Answer:</strong> <span class="correct-answer">' + (correctAnswer || 'Not specified') + '</span></p>' +
+        '</div>' +
+        '<div class="option-explanation"><p><strong>Explanation:</strong></p>' + solutionContent + '</div>';
+
     const separator = document.createElement('hr');
     separator.style.margin = '20px 0';
     separator.style.border = 'none';
@@ -1527,7 +1325,7 @@ function handleKeyboardNavigation(e) {
         if (e.key === 'Escape') { hideSubmitModal(); resultsModal.style.display = 'none'; }
         return;
     }
-    switch(e.key) {
+    switch (e.key) {
         case '1': case 'A': case 'a': selectOption('A'); break;
         case '2': case 'B': case 'b': selectOption('B'); break;
         case '3': case 'C': case 'c': selectOption('C'); break;
@@ -1543,7 +1341,7 @@ function handleKeyboardNavigation(e) {
 }
 
 // =============================================================================
-// MODIFIED: startAssignedTest - questions are now randomised (shuffled)
+// startAssignedTest — questions are randomised (shuffled) before starting
 // =============================================================================
 async function startAssignedTest(cbtId) {
     try {
@@ -1572,7 +1370,6 @@ async function startAssignedTest(cbtId) {
             }
         }
 
-        // MODIFIED: Shuffle questions for assigned test
         const originalQuestions = cbtData.questions || [];
         if (!originalQuestions.length) {
             toast.error('No questions found for this test.');
@@ -1580,8 +1377,8 @@ async function startAssignedTest(cbtId) {
         }
         const shuffledQuestions = shuffleArray(originalQuestions);
 
-        const testData = {
-            testId: `cbt_${cbtId}_${Date.now()}`,
+        const newTestData = {
+            testId: 'cbt_' + cbtId + '_' + Date.now(),
             mode: 'cbt',
             examType: cbtData.examType || 'CBT',
             subject: cbtData.subjectName || cbtData.subjectId,
@@ -1593,10 +1390,10 @@ async function startAssignedTest(cbtId) {
             startTime: new Date().toISOString(),
             userId: currentStudentId,
             schoolId: currentSchoolId,
-            userAnswers: Array(shuffledQuestions.length).fill(null),
+            userAnswers: new Array(shuffledQuestions.length).fill(null),
             plan: 'full_access'
         };
-        sessionStorage.setItem('currentTest', JSON.stringify(testData));
+        sessionStorage.setItem('currentTest', JSON.stringify(newTestData));
         window.location.href = 'test.html';
     } catch (err) {
         console.error('Error starting assigned test:', err);
