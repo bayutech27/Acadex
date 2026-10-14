@@ -1,5 +1,5 @@
 // cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
-// ADDED: Tab‑switching detector – first violation warns, second auto‑submits.
+// ADDED: Tab‑switching detector – first violation warns, second auto-submits.
 // ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
 // FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
 //
@@ -8,6 +8,24 @@
 // – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
 // MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
+//
+// ANTI-CHEAT (this revision):
+//   • Central registerViolation() handler with 500 ms dedupe so blur +
+//     visibilitychange count as ONE violation, not two.
+//   • First violation  → 15-second warning modal. Timer keeps running.
+//   • Second violation → 5-second modal while the test auto-submits in the
+//     background. Redirect happens only after BOTH the 5-second minimum and
+//     the Firestore save have completed.
+//   • Added window-blur detection (catches alt-tab / second window / DevTools
+//     focus on desktop where visibilitychange does NOT fire).
+//   • Added copy / cut / paste suppression.
+//   • Added right-click / context-menu suppression.
+//   • Added selectstart / dragstart suppression.
+//   • Added Ctrl+C/V/X/A/S/P/U, F12, Ctrl+Shift+I/J/C/S, PrintScreen blocks.
+//   • Added silent logViolation() (fire-and-forget) to a cbtViolations
+//     collection for admin review — never blocks the exam.
+//   • submitTest gained an OPTIONAL 2nd param `minRedirectDelayMs` (default 0)
+//     so nothing else in the exam changes behaviour.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -287,9 +305,11 @@ let currentUser = null;
 let subjectStartIndices = {};
 let subjectCounts = {};
 
-// =============================================
-// ANTI-CHEAT — tab switch detector + refresh block
-// =============================================
+// ============================================================
+// ANTI-CHEAT MODULE
+// Handles: tab switch, window blur, right-click, copy/paste,
+// screenshots, devtools shortcuts, refresh prevention.
+// ============================================================
 
 /* Path to student dashboard (root/student/student-portal.html) */
 const DASHBOARD_URL = '../../student/student-portal.html';
@@ -297,19 +317,51 @@ const DASHBOARD_URL = '../../student/student-portal.html';
 let tabSwitchCount = 0;
 let isSubmitting = false;
 let warningTimeout = null;
-
-/* Timestamp of the last visibility-loss event — used to deduplicate
-   cases where both 'blur' and 'visibilitychange' fire in the same tick. */
 let lastViolationTs = 0;
 
 const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
-const warningMessageElement = antiCheatWarningModal?.querySelector('.warning-message');
 
+/**
+ * Locate (or create) the message element inside the anti-cheat modal.
+ * This makes the modal tolerant of HTML template variations so the first
+ * warning is never silently dropped.
+ */
+function _getOrCreateWarningMessageEl() {
+    if (!antiCheatWarningModal) return null;
+    let el = antiCheatWarningModal.querySelector('.warning-message')
+          || antiCheatWarningModal.querySelector('.modal-message')
+          || antiCheatWarningModal.querySelector('.modal-body')
+          || antiCheatWarningModal.querySelector('p');
+    if (!el) {
+        el = document.createElement('div');
+        el.className = 'warning-message';
+        el.style.cssText = 'padding:24px;text-align:center;font-size:1.05rem;line-height:1.5;';
+        antiCheatWarningModal.appendChild(el);
+    }
+    return el;
+}
+
+/**
+ * Show the anti-cheat modal with the given message.
+ * The exam timer is NEVER paused — time keeps running while the modal
+ * is on screen.
+ *
+ * @param {string} message
+ * @param {number} autoCloseMs - duration before auto-hide (default 5000)
+ */
 function showAntiCheatModal(message, autoCloseMs = 5000) {
-    if (!antiCheatWarningModal || !warningMessageElement) return;
-    if (warningTimeout) clearTimeout(warningTimeout);
-    warningMessageElement.textContent = message;
-    antiCheatWarningModal.style.display = 'flex';
+    if (!antiCheatWarningModal) return;
+    if (warningTimeout) { clearTimeout(warningTimeout); warningTimeout = null; }
+
+    const msgEl = _getOrCreateWarningMessageEl();
+    if (msgEl) msgEl.textContent = message;
+
+    // Force the modal to be visible even if a CSS rule tries to keep it hidden.
+    antiCheatWarningModal.style.setProperty('display', 'flex', 'important');
+    antiCheatWarningModal.style.zIndex = '99999';
+    antiCheatWarningModal.style.position = 'fixed';
+    antiCheatWarningModal.style.inset = '0';
+
     warningTimeout = setTimeout(() => {
         antiCheatWarningModal.style.display = 'none';
         warningTimeout = null;
@@ -317,33 +369,80 @@ function showAntiCheatModal(message, autoCloseMs = 5000) {
 }
 
 /**
- * Called only by the 'visibilitychange' listener.
- * Fires once per tab-switch because we only listen to this single event.
+ * Silent violation log (fire-and-forget, non-blocking). Never throws.
+ * Used by admins/teachers to review CBT integrity after the fact.
  */
-function handleVisibilityLoss() {
-    if (!document.hidden) return;
+function logViolation(type, detail = '') {
+    try {
+        if (!currentUser || !currentUser.uid) return;
+        const schoolId = localStorage.getItem('userSchoolId');
+        if (!schoolId) return;
+        addDoc(collection(db, 'cbtViolations'), {
+            userId: currentUser.uid,
+            schoolId,
+            testId: (testData && testData.testId) ? testData.testId : null,
+            cbtId:  (testData && testData.cbtId)  ? testData.cbtId  : null,
+            type,
+            detail: String(detail || '').slice(0, 200),
+            remainingSeconds: typeof timeRemaining === 'number' ? timeRemaining : null,
+            questionIndex: typeof currentQuestionIndex === 'number' ? currentQuestionIndex : null,
+            timestamp: serverTimestamp()
+        }).catch(() => { /* silent */ });
+    } catch (_) { /* silent */ }
+}
+
+/**
+ * Central violation handler.
+ *   • 500 ms dedupe prevents blur + visibilitychange from double counting.
+ *   • First violation  → 15-second warning (timer keeps running).
+ *   • Second violation → 5-second modal + background submission.
+ */
+function registerViolation(reason) {
     if (isSubmitting) return;
 
     const now = Date.now();
-    if (now - lastViolationTs < 800) return;
+    if (now - lastViolationTs < 500) return;   // dedupe window
     lastViolationTs = now;
 
     tabSwitchCount++;
+    logViolation(tabSwitchCount === 1 ? 'first_violation' : 'second_violation', reason);
 
     if (tabSwitchCount === 1) {
+        // FIRST VIOLATION — 15-second warning, timer keeps running.
         showAntiCheatModal(
-            '⚠️ Tab switching detected! This is your only warning. ' +
-            'Switching tabs again will immediately auto-submit your test.',
-            7000
+            '⚠️ You left the exam window. This is your ONLY warning. ' +
+            'The timer is still running. Doing it again will immediately auto-submit your test.',
+            15000
         );
-    } else {
-        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-        showAntiCheatModal(
-            '❌ Test auto-submitted: repeated tab switching detected. Redirecting to dashboard…',
-            4000
-        );
-        setTimeout(() => { forceSubmitAndRedirect(); }, 1500);
+        return;
     }
+
+    // SECOND VIOLATION — auto-submit with a 5-second modal.
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+    showAntiCheatModal(
+        '❌ Repeated violation detected. Your test is being submitted automatically…',
+        5000
+    );
+
+    // Run submission in the background. It will redirect only after the
+    // 5-second minimum AND the Firestore save have both completed.
+    submitTest(true, 5000).catch(err => {
+        console.warn('Auto-submit failed, forcing redirect:', err);
+        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
+        window.location.href = DASHBOARD_URL;
+    });
+}
+
+function handleVisibilityLoss() {
+    if (!document.hidden) return;
+    registerViolation('visibilitychange');
+}
+
+function handleWindowBlur() {
+    // Fires on alt-tab, opening DevTools, clicking another window, etc.
+    // Catches cases where visibilitychange does NOT fire.
+    registerViolation('window_blur');
 }
 
 function preventRefresh(e) {
@@ -359,7 +458,7 @@ function preventRefresh(e) {
         e.stopPropagation();
         showAntiCheatModal(
             '⚠️ Page refresh is not allowed during the test. Please continue.',
-            4000
+            2500
         );
         return false;
     }
@@ -371,19 +470,116 @@ function preventBeforeUnload(e) {
     return e.returnValue;
 }
 
-function initAntiCheat() {
-    document.addEventListener('visibilitychange', handleVisibilityLoss);
-    window.addEventListener('keydown', preventRefresh, true);
-    window.addEventListener('beforeunload', preventBeforeUnload);
+function preventClipboard(e) {
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea') return; // future-proof
+    e.preventDefault();
+    e.stopPropagation();
+    showAntiCheatModal('⚠️ Copy / paste is disabled during the test.', 2000);
+    logViolation('clipboard_blocked', e.type);
+    return false;
 }
 
+function preventContextMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    showAntiCheatModal('⚠️ Right-click is disabled during the test.', 2000);
+    logViolation('right_click_blocked');
+    return false;
+}
+
+function handleKeyBlock(e) {
+    const k = (e.key || '').toLowerCase();
+
+    // 1. Clipboard + select-all shortcuts
+    if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].includes(k)) {
+        e.preventDefault(); e.stopPropagation();
+        showAntiCheatModal('⚠️ This shortcut is disabled during the test.', 2000);
+        logViolation('shortcut_blocked', `ctrl+${k}`);
+        return false;
+    }
+
+    // 2. Save / Print / View-source
+    if ((e.ctrlKey || e.metaKey) && ['s','p','u'].includes(k)) {
+        e.preventDefault(); e.stopPropagation();
+        showAntiCheatModal('⚠️ This action is disabled during the test.', 2000);
+        logViolation('shortcut_blocked', `ctrl+${k}`);
+        return false;
+    }
+
+    // 3. DevTools / Inspect
+    if (k === 'f12' || ((e.ctrlKey || e.metaKey) && e.shiftKey && ['i','j','c'].includes(k))) {
+        e.preventDefault(); e.stopPropagation();
+        showAntiCheatModal('⚠️ Developer tools are disabled during the test.', 2000);
+        logViolation('devtools_blocked', k);
+        return false;
+    }
+
+    // 4. PrintScreen (screenshot attempt — best effort)
+    if (k === 'printscreen') {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText('').catch(() => {});
+            }
+        } catch (_) {}
+        e.preventDefault();
+        showAntiCheatModal('⚠️ Screenshots are not allowed during the test.', 2500);
+        logViolation('screenshot_attempt');
+        return false;
+    }
+
+    // 5. Ctrl/Cmd + Shift + S (browser screenshot)
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 's') {
+        e.preventDefault(); e.stopPropagation();
+        showAntiCheatModal('⚠️ Screenshots are not allowed during the test.', 2500);
+        logViolation('screenshot_attempt');
+        return false;
+    }
+}
+
+function preventSelectStart(e) {
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea') return;
+    e.preventDefault();
+}
+
+function preventDragStart(e) {
+    e.preventDefault();
+}
+
+function initAntiCheat() {
+    // Tab hidden + window blur (both feed the same registerViolation)
+    document.addEventListener('visibilitychange', handleVisibilityLoss);
+    window.addEventListener('blur', handleWindowBlur);
+
+    // Refresh / unload
+    window.addEventListener('keydown', preventRefresh, true);
+    window.addEventListener('beforeunload', preventBeforeUnload);
+
+    // Keyboard-level blocks (shortcuts, devtools, screenshots)
+    document.addEventListener('keydown', handleKeyBlock, true);
+
+    // Clipboard blocking
+    document.addEventListener('copy',  preventClipboard, true);
+    document.addEventListener('cut',   preventClipboard, true);
+    document.addEventListener('paste', preventClipboard, true);
+
+    // Right-click / context menu
+    document.addEventListener('contextmenu', preventContextMenu, true);
+
+    // Text selection / drag of content
+    document.addEventListener('selectstart', preventSelectStart, true);
+    document.addEventListener('dragstart',   preventDragStart,   true);
+}
+
+// Kept for backward compatibility with any external reference.
 async function forceSubmitAndRedirect() {
     if (isSubmitting) {
-        window.removeEventListener('beforeunload', preventBeforeUnload);
+        try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
         window.location.href = DASHBOARD_URL;
         return;
     }
-    window.removeEventListener('beforeunload', preventBeforeUnload);
+    try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
     await submitTest(true);
 }
 
@@ -795,10 +991,18 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
 
 // =============================================
 // SUBMIT TEST
+// -----------------------------------------------------------------------------
+// UPDATED: optional 2nd param `minRedirectDelayMs` (default 0). When set,
+// the redirect to the dashboard will wait until at least this many ms have
+// elapsed since submission started — used by the anti-cheat auto-submit path
+// so the "auto-submitting" modal is guaranteed to display for its full 5 s.
+// All existing callers pass only one argument (or none), so their behaviour
+// is unchanged.
 // =============================================
-async function submitTest(redirectAfter = false) {
+async function submitTest(redirectAfter = false, minRedirectDelayMs = 0) {
     if (isSubmitting) return;
     isSubmitting = true;
+    const submissionStartTs = Date.now();
 
     window.removeEventListener('beforeunload', preventBeforeUnload);
 
@@ -883,6 +1087,12 @@ async function submitTest(redirectAfter = false) {
         if (!saveSuccess) throw new Error("Failed to save test result after retry.");
 
         if (redirectAfter) {
+            // Honour the optional minimum-display window (used by auto-submit).
+            if (minRedirectDelayMs > 0) {
+                const elapsed = Date.now() - submissionStartTs;
+                const wait = minRedirectDelayMs - elapsed;
+                if (wait > 0) await new Promise(r => setTimeout(r, wait));
+            }
             window.location.href = DASHBOARD_URL;
             return;
         }
