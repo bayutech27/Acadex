@@ -2,18 +2,10 @@
 // ADDED: Tab-switching detector – first violation warns, second auto-submits.
 // ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
 // FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
-//
-// All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support cumulative topic stats with increment (updateCumulativeTopicStats)
-// – those remain as direct Firestore calls.
-// All user-facing errors now show clear, friendly messages without technical jargon.
-// MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
-//
-// ANTI-CHEAT (this revision):
-//   • Dedupe window 5 s so blur + visibilitychange count as ONE violation.
-//   • First violation  → 15-second warning ONLY (no submission, timer keeps running).
-//   • Second violation → persistent "submitting" modal + background submission.
-//   • Modal styling lives in test.html's <style> block. JS only toggles .is-visible.
+// FIXED: Modal visibility — the anti-cheat modal now contains the
+//        .antiCheatMessage / .antiCheatCountdown children the JS expects,
+//        and the CSS defines .anti-cheat-modal.is-visible.
+// ADDED: Fullscreen-exit warning handler (was missing in the original file).
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -50,10 +42,10 @@ function generateWeaknessReport(userAnswers, questions) {
     if (answer === null) return;
     const subject = q.subject || 'General';
     const topic = getTopicFromQuestion(q);
-    const key = `${subject}|${topic}`;
+    const key = subject + '|' + topic;
     const isCorrect = (answer === q.correctAnswer);
     if (!topicMap.has(key)) {
-      topicMap.set(key, { subject, topic, total: 0, correct: 0 });
+      topicMap.set(key, { subject: subject, topic: topic, total: 0, correct: 0 });
     }
     const record = topicMap.get(key);
     record.total += 1;
@@ -64,14 +56,16 @@ function generateWeaknessReport(userAnswers, questions) {
     let level = 'Weak';
     if (accuracy >= 70) level = 'Strong';
     else if (accuracy >= 50) level = 'Average';
-    return { ...record, accuracy, level };
+    return Object.assign({}, record, { accuracy: accuracy, level: level });
   });
   const subjectGroups = {};
   topics.forEach(t => {
     if (!subjectGroups[t.subject]) subjectGroups[t.subject] = [];
     subjectGroups[t.subject].push(t);
   });
-  return Object.entries(subjectGroups).map(([subject, topicList]) => ({ subject, topics: topicList }));
+  return Object.entries(subjectGroups).map(function (entry) {
+    return { subject: entry[0], topics: entry[1] };
+  });
 }
 
 async function saveTopicStats(userId, topicStats) {
@@ -103,7 +97,7 @@ async function updateCumulativeTopicStats(userId, topicStats) {
             for (const topic of subjectData.topics) {
                 const sanitizedSubject = subjectData.subject.replace(/[^a-zA-Z0-9]/g, '_');
                 const sanitizedTopic = topic.topic.replace(/[^a-zA-Z0-9]/g, '_');
-                const docId = `${sanitizedSubject}_${sanitizedTopic}`;
+                const docId = sanitizedSubject + '_' + sanitizedTopic;
                 const docRef = doc(db, "users", userId, "topicCumulative", docId);
                 const docSnap = await getDoc(docRef);
                 let previousAccuracy = null;
@@ -155,20 +149,20 @@ function calculateCumulativeWeakness(cumulativeStats) {
         return {
             subject: stat.subject,
             topic: stat.topic,
-            totalAnswered,
-            totalCorrect,
-            accuracy,
-            level,
+            totalAnswered: totalAnswered,
+            totalCorrect: totalCorrect,
+            accuracy: accuracy,
+            level: level,
             lastAccuracy: stat.lastAccuracy,
             lastPracticed: stat.lastPracticed ? stat.lastPracticed.toDate() : null
         };
     });
     const reliableTopics = topics.filter(t => t.totalAnswered >= 5);
-    const sortedAsc = [...reliableTopics].sort((a, b) => a.accuracy - b.accuracy);
-    const sortedDesc = [...reliableTopics].sort((a, b) => b.accuracy - a.accuracy);
+    const sortedAsc = reliableTopics.slice().sort((a, b) => a.accuracy - b.accuracy);
+    const sortedDesc = reliableTopics.slice().sort((a, b) => b.accuracy - a.accuracy);
     const weakTopics = sortedAsc.filter(t => t.level === 'Weak').slice(0, 10);
     const strongTopics = sortedDesc.filter(t => t.level === 'Strong').slice(0, 2);
-    return { weakTopics, strongTopics };
+    return { weakTopics: weakTopics, strongTopics: strongTopics };
 }
 
 function generateSmartRecommendations(weakTopics) {
@@ -295,6 +289,13 @@ let subjectCounts = {};
 
 // ============================================================
 // ANTI-CHEAT MODULE
+//
+// Handles: tab switch, window blur, right-click, copy/paste,
+// screenshots, devtools shortcuts, refresh prevention, and
+// fullscreen-exit detection.
+//
+// All modal styling lives in test.html's <style> block.
+// JS only toggles the `.is-visible` class.
 // ============================================================
 
 const DASHBOARD_URL = '../../student/student-portal.html';
@@ -303,18 +304,21 @@ let tabSwitchCount = 0;
 let isSubmitting = false;
 let lastViolationTs = 0;
 
-const VIOLATION_DEDUPE_MS = 5000;
-const FIRST_WARNING_MS    = 15000;
-const SECOND_MODAL_MS     = 5000;
+const VIOLATION_DEDUPE_MS = 5000;   // >= 5 s: blur + visibilitychange = 1 violation
+const FIRST_WARNING_MS    = 15000;  // 15 s first warning
+const SECOND_MODAL_MS     = 5000;   // 5 s minimum before redirect
 
 let warningIntervalHandle = null;
 let warningEndTime = 0;
 
-const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
+const antiCheatWarningModal   = document.getElementById('antiCheatWarningModal');
+const fullscreenWarningModal  = document.getElementById('fullscreenWarningModal');
 
+// ── Anti-cheat modal ──────────────────────────────────────────────────────
 function showAntiCheatModal(message, autoCloseMs) {
     if (!antiCheatWarningModal) return;
 
+    // Cancel any previous countdown so a stale timer cannot hide a new modal.
     if (warningIntervalHandle) {
         clearInterval(warningIntervalHandle);
         warningIntervalHandle = null;
@@ -322,12 +326,12 @@ function showAntiCheatModal(message, autoCloseMs) {
 
     const msgEl = antiCheatWarningModal.querySelector('.antiCheatMessage');
     const cdEl  = antiCheatWarningModal.querySelector('.antiCheatCountdown');
-
     if (msgEl) msgEl.textContent = message;
 
     antiCheatWarningModal.classList.add('is-visible');
     antiCheatWarningModal.setAttribute('aria-hidden', 'false');
 
+    // Persistent mode (second warning): keep visible until navigation.
     if (autoCloseMs === null || autoCloseMs === undefined) {
         if (cdEl) cdEl.textContent = 'Please wait...';
         return;
@@ -335,7 +339,7 @@ function showAntiCheatModal(message, autoCloseMs) {
 
     warningEndTime = Date.now() + autoCloseMs;
 
-    const tick = () => {
+    const tick = function () {
         const remaining = warningEndTime - Date.now();
         const seconds = Math.max(0, Math.ceil(remaining / 1000));
         if (cdEl) {
@@ -366,6 +370,44 @@ function hideAntiCheatModal() {
     antiCheatWarningModal.setAttribute('aria-hidden', 'true');
 }
 
+// ── Fullscreen warning ────────────────────────────────────────────────────
+let wasFullscreenActive = false;
+
+function getFullscreenElement() {
+    return (
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement ||
+        null
+    );
+}
+
+function showFullscreenWarning() {
+    if (!fullscreenWarningModal) return;
+    fullscreenWarningModal.classList.add('is-visible');
+    fullscreenWarningModal.setAttribute('aria-hidden', 'false');
+}
+
+function hideFullscreenWarning() {
+    if (!fullscreenWarningModal) return;
+    fullscreenWarningModal.classList.remove('is-visible');
+    fullscreenWarningModal.setAttribute('aria-hidden', 'true');
+}
+
+function handleFullscreenChange() {
+    const isFullscreen = !!getFullscreenElement();
+    if (isFullscreen) {
+        // Entering (or re-entering) fullscreen hides the warning.
+        wasFullscreenActive = true;
+        hideFullscreenWarning();
+    } else if (wasFullscreenActive) {
+        // Only warn if fullscreen was previously active.
+        showFullscreenWarning();
+    }
+}
+
+// ── Silent violation logger (fire-and-forget, never blocks) ────────────────
 function logViolation(type, detail) {
     try {
         if (!currentUser || !currentUser.uid) return;
@@ -385,6 +427,7 @@ function logViolation(type, detail) {
     } catch (err) {}
 }
 
+// ── Central violation handler ─────────────────────────────────────────────
 function registerViolation(reason) {
     if (isSubmitting) return;
 
@@ -397,6 +440,7 @@ function registerViolation(reason) {
     tabSwitchCount++;
 
     if (tabSwitchCount === 1) {
+        // First violation: 15-second warning only, NO submission.
         logViolation('first_violation', reason);
         showAntiCheatModal(
             'You left the exam window. This is your ONLY warning. ' +
@@ -406,6 +450,7 @@ function registerViolation(reason) {
         return;
     }
 
+    // Second violation: persistent modal + background auto-submission.
     logViolation('second_violation', reason);
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
@@ -526,19 +571,38 @@ function preventDragStart(e) {
 }
 
 function initAntiCheat() {
+    // Tab visibility / window focus
     document.addEventListener('visibilitychange', handleVisibilityLoss);
     window.addEventListener('blur', handleWindowBlur);
+
+    // Refresh / unload
     window.addEventListener('keydown', preventRefresh, true);
     window.addEventListener('beforeunload', preventBeforeUnload);
+
+    // Keyboard-level blocks (shortcuts, devtools, screenshots)
     document.addEventListener('keydown', handleKeyBlock, true);
+
+    // Clipboard blocking
     document.addEventListener('copy',  preventClipboard, true);
     document.addEventListener('cut',   preventClipboard, true);
     document.addEventListener('paste', preventClipboard, true);
+
+    // Right-click / context menu
     document.addEventListener('contextmenu', preventContextMenu, true);
+
+    // Text selection / drag
     document.addEventListener('selectstart', preventSelectStart, true);
     document.addEventListener('dragstart',   preventDragStart,   true);
+
+    // Fullscreen tracking — registered across vendor prefixes so it works
+    // in Chrome, Safari, Firefox, Edge, and older browsers.
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+        .forEach(function (evt) {
+            document.addEventListener(evt, handleFullscreenChange);
+        });
 }
 
+// Kept for backward compatibility with any external reference.
 async function forceSubmitAndRedirect() {
     if (isSubmitting) {
         try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err) {}
@@ -564,7 +628,7 @@ function shuffleArray(array) {
 }
 
 // =============================================
-// INITIALIZATION with Acadex session validation
+// INITIALIZATION
 // =============================================
 document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('currentYear').textContent = new Date().getFullYear();
@@ -996,6 +1060,9 @@ async function submitTest(redirectAfter, minRedirectDelayMs) {
     isSubmitting = true;
     const submissionStartTs = Date.now();
 
+    redirectAfter = !!redirectAfter;
+    minRedirectDelayMs = minRedirectDelayMs || 0;
+
     window.removeEventListener('beforeunload', preventBeforeUnload);
 
     hideSubmitModal();
@@ -1081,7 +1148,7 @@ async function submitTest(redirectAfter, minRedirectDelayMs) {
         if (!saveSuccess) throw new Error("Failed to save test result after retry.");
 
         if (redirectAfter) {
-            if (minRedirectDelayMs && minRedirectDelayMs > 0) {
+            if (minRedirectDelayMs > 0) {
                 const elapsed = Date.now() - submissionStartTs;
                 const wait = minRedirectDelayMs - elapsed;
                 if (wait > 0) await new Promise(function (r) { setTimeout(r, wait); });
