@@ -10,28 +10,19 @@
 // MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
 //
 // ANTI-CHEAT (this revision):
-//   • Central registerViolation() handler with 500 ms dedupe so blur +
-//     visibilitychange count as ONE violation, not two.
-//   • First violation  → 15-second warning modal (timer keeps running).
-//   • Second violation → 5-second modal while the test auto-submits in the
-//     background. Redirect happens only after BOTH the 5-second minimum and
-//     the Firestore save have completed.
-//   • Added window-blur detection (catches alt-tab / second window / DevTools
-//     focus on desktop where visibilitychange does NOT fire).
-//   • Added copy / cut / paste suppression.
-//   • Added right-click / context-menu suppression.
-//   • Added selectstart / dragstart suppression.
-//   • Added Ctrl+C/V/X/A/S/P/U, F12, Ctrl+Shift+I/J/C/S, PrintScreen blocks.
-//   • Added silent logViolation() (fire-and-forget) to a cbtViolations
-//     collection for admin review — never blocks the exam.
-//   • MODAL NOW MOBILE + DESKTOP RESPONSIVE:
-//       – Runtime-injected CSS with clamp() typography and a viewport-fitting
-//         card, plus media queries for narrow screens and short screens.
-//       – Wall-clock based countdown (checks every 250 ms against Date.now())
-//         so the modal ALWAYS stays for the full requested duration even if
-//         the browser throttles timers while the tab is hidden.
-//       – Live “Closing in N seconds…” indicator.
-//       – First warning guaranteed ≥ 15 s; second modal guaranteed ≥ 5 s.
+//   • ROOT-CAUSE FIX: dedupe window raised from 500 ms → 5000 ms. On mobile,
+//     blur and visibilitychange from a single tab-switch can arrive several
+//     seconds apart. 500 ms was too tight and caused a single switch to be
+//     counted twice (warning + submission at once). 5000 ms fixes it.
+//   • First violation  → 15-second warning ONLY. `return` before any submit.
+//   • Second violation → persistent "submitting" modal + background submission
+//     (`submitTest(true, 5000)`), redirect only after save completes.
+//   • MODAL NOW CENTERED ON EVERY VIEWPORT: full-screen flex backdrop +
+//     single centered card (`.antiCheatCard`). Previously every direct child
+//     was styled as a card, so message + countdown collapsed into a two-column
+//     layout that drifted to the top-left on phones.
+//   • Wall-clock based countdown (checks every 250 ms against Date.now()) so
+//     mobile timer throttling cannot shorten or lengthen the modal.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -315,8 +306,18 @@ let subjectCounts = {};
 // ANTI-CHEAT MODULE
 // Handles: tab switch, window blur, right-click, copy/paste,
 // screenshots, devtools shortcuts, refresh prevention.
-// Includes a wall-clock-based modal countdown that is fully
-// responsive on mobile and desktop.
+//
+// DESIGN:
+//   • One violation handler feeds both `blur` and `visibilitychange`
+//     through registerViolation(). A 5-second dedupe window ensures
+//     that the two events from a SINGLE tab-switch count as one.
+//   • First  violation → 15-second warning modal ONLY (no submission).
+//   • Second violation → persistent "submitting" modal + background
+//     submitTest(true, 5000). Redirect only after save completes.
+//   • The modal is a full-screen centered backdrop with a single
+//     responsive card. Centered on every viewport, mobile included.
+//   • Countdown is wall-clock based (checks Date.now() every 250 ms)
+//     so it can never be shortened by mobile timer throttling.
 // ============================================================
 
 /* Path to student dashboard (root/student/student-portal.html) */
@@ -326,55 +327,82 @@ let tabSwitchCount = 0;
 let isSubmitting = false;
 let lastViolationTs = 0;
 
-// Modal timing internals
+// Durations
+const VIOLATION_DEDUPE_MS = 5000;    // >= 5 s: blur + visibilitychange = 1 violation
+const FIRST_WARNING_MS    = 15000;   // 15-second first warning
+const SECOND_MODAL_MS     = 5000;    // 5-second minimum before redirect
+
+// Modal internals
 let warningIntervalHandle = null;
 let warningEndTime = 0;
 
 const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
 
-// ── 1. Inject responsive CSS once ───────────────────────────────────────────
+// ── Inject responsive CSS once ──────────────────────────────────────────────
 function injectAntiCheatStyles() {
     if (document.getElementById('antiCheatStyles')) return;
     const style = document.createElement('style');
     style.id = 'antiCheatStyles';
     style.textContent = `
-        /* Full-screen backdrop */
+        /* Full-screen backdrop — always covers viewport */
         #antiCheatWarningModal {
             position: fixed !important;
             top: 0 !important;
-            left: 0 !important;
             right: 0 !important;
             bottom: 0 !important;
-            display: none;
-            align-items: center !important;
-            justify-content: center !important;
-            background: rgba(15, 23, 42, 0.78) !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            margin: 0 !important;
             padding: 16px !important;
             box-sizing: border-box !important;
-            z-index: 99999 !important;
+            background: rgba(15, 23, 42, 0.85) !important;
+            display: none !important;
+            z-index: 2147483647 !important;
             overflow-y: auto !important;
             -webkit-overflow-scrolling: touch !important;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            text-align: center !important;
         }
 
-        /* Card container (any direct child of the modal) */
-        #antiCheatWarningModal > * {
+        /* Visible state — flex centering, works on every viewport */
+        #antiCheatWarningModal.is-visible {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        /* Single card — the ONLY direct visual child */
+        #antiCheatWarningModal .antiCheatCard {
             width: 100% !important;
             max-width: 480px !important;
             background: #ffffff !important;
             border-radius: 14px !important;
             padding: 24px 22px !important;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35) !important;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4) !important;
             box-sizing: border-box !important;
-            margin: auto !important;
+            text-align: center !important;
             border: 1px solid rgba(0, 0, 0, 0.08) !important;
+            max-height: calc(100vh - 32px) !important;
+            overflow-y: auto !important;
+            margin: 0 auto !important;
+            flex: 0 0 auto !important;
         }
 
-        /* Warning message text */
-        #antiCheatWarningModal .warning-message {
+        #antiCheatWarningModal .antiCheatIcon {
+            display: block !important;
+            font-size: clamp(32px, 8vw, 44px) !important;
+            line-height: 1 !important;
+            margin: 0 0 12px 0 !important;
+        }
+
+        #antiCheatWarningModal .antiCheatMessage {
             display: block !important;
             font-size: clamp(0.95rem, 3.8vw, 1.15rem) !important;
             line-height: 1.55 !important;
-            text-align: center !important;
             color: #b91c1c !important;
             font-weight: 600 !important;
             word-break: break-word !important;
@@ -383,159 +411,147 @@ function injectAntiCheatStyles() {
             margin: 0 !important;
         }
 
-        /* Countdown line */
-        #antiCheatWarningModal .warning-countdown {
+        #antiCheatWarningModal .antiCheatCountdown {
             display: block !important;
             margin-top: 16px !important;
             font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
-            text-align: center !important;
             color: #475569 !important;
             font-weight: 500 !important;
             letter-spacing: 0.01em !important;
         }
 
-        /* Narrow phones */
-        @media (max-width: 480px) {
+        /* Very narrow phones */
+        @media (max-width: 360px) {
             #antiCheatWarningModal {
-                padding: 12px !important;
+                padding: 10px !important;
             }
-            #antiCheatWarningModal > * {
-                padding: 20px 16px !important;
+            #antiCheatWarningModal .antiCheatCard {
+                padding: 18px 14px !important;
                 border-radius: 12px !important;
             }
         }
 
-        /* Short viewports (mobile landscape / small keyboards raised) */
+        /* Short viewports (mobile landscape / soft keyboard raised) */
         @media (max-height: 500px) {
-            #antiCheatWarningModal > * {
+            #antiCheatWarningModal {
+                padding: 8px !important;
+            }
+            #antiCheatWarningModal .antiCheatCard {
                 padding: 14px 16px !important;
                 border-radius: 10px !important;
+                max-height: calc(100vh - 16px) !important;
             }
-            #antiCheatWarningModal .warning-message {
+            #antiCheatWarningModal .antiCheatIcon {
+                font-size: 26px !important;
+                margin-bottom: 6px !important;
+            }
+            #antiCheatWarningModal .antiCheatMessage {
                 font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
                 line-height: 1.4 !important;
             }
-            #antiCheatWarningModal .warning-countdown {
+            #antiCheatWarningModal .antiCheatCountdown {
                 margin-top: 10px !important;
             }
         }
 
-        /* Very short viewports */
+        /* Extremely short viewports */
         @media (max-height: 360px) {
-            #antiCheatWarningModal > * {
-                padding: 10px 12px !important;
-            }
-            #antiCheatWarningModal .warning-message {
-                font-size: 0.85rem !important;
+            #antiCheatWarningModal .antiCheatIcon {
+                display: none !important;
             }
         }
     `;
     document.head.appendChild(style);
 }
 
-/**
- * Locate (or create) the message element inside the anti-cheat modal.
- * This makes the modal tolerant of HTML template variations so the first
- * warning is never silently dropped.
- */
-function _getOrCreateWarningMessageEl() {
+// ── Modal structure — a single centered card ───────────────────────────────
+function _ensureModalStructure() {
     if (!antiCheatWarningModal) return null;
-    let el = antiCheatWarningModal.querySelector('.warning-message')
-          || antiCheatWarningModal.querySelector('.modal-message')
-          || antiCheatWarningModal.querySelector('.modal-body')
-          || antiCheatWarningModal.querySelector('p');
-    if (!el) {
-        el = document.createElement('div');
-        el.className = 'warning-message';
-        antiCheatWarningModal.appendChild(el);
-    }
-    if (!el.classList.contains('warning-message')) {
-        el.classList.add('warning-message');
-    }
-    return el;
+    let card = antiCheatWarningModal.querySelector('.antiCheatCard');
+    if (card) return card;
+
+    // Build our own clean card ONCE. Preserves the modal element itself
+    // (id, role, external references) while giving us full layout control.
+    // We keep .warning-message / .warning-countdown as extra class names
+    // for backward compatibility with any existing CSS.
+    antiCheatWarningModal.innerHTML = '';
+    card = document.createElement('div');
+    card.className = 'antiCheatCard';
+    card.innerHTML =
+        '<div class="antiCheatIcon" aria-hidden="true">⚠️</div>' +
+        '<div class="antiCheatMessage warning-message" role="alert"></div>' +
+        '<div class="antiCheatCountdown warning-countdown" aria-live="polite"></div>';
+    antiCheatWarningModal.appendChild(card);
+    return card;
 }
 
 /**
- * Locate (or create) the countdown element inside the anti-cheat modal.
- */
-function _getOrCreateWarningCountdownEl() {
-    if (!antiCheatWarningModal) return null;
-    let el = antiCheatWarningModal.querySelector('.warning-countdown');
-    if (!el) {
-        el = document.createElement('div');
-        el.className = 'warning-countdown';
-        antiCheatWarningModal.appendChild(el);
-    }
-    return el;
-}
-
-/**
- * Show the anti-cheat modal with the given message.
- * The exam timer is NEVER paused — time keeps running while the modal
- * is on screen.
+ * Show the anti-cheat modal.
  *
- * The auto-close uses a WALL-CLOCK based countdown: it always stays
- * visible for at least `autoCloseMs` milliseconds, even if the browser
- * throttles timers while the tab is hidden (as mobile browsers do).
- *
- * @param {string} message
- * @param {number} autoCloseMs - minimum duration the modal must stay visible
+ *   autoCloseMs = number  → auto-close after N ms (wall-clock based).
+ *   autoCloseMs = null    → stay open indefinitely (used by the second
+ *                           violation's "submitting" modal).
  */
 function showAntiCheatModal(message, autoCloseMs = 5000) {
     if (!antiCheatWarningModal) return;
     injectAntiCheatStyles();
+    _ensureModalStructure();
 
-    // Clear any previous countdown
+    // Cancel any previous countdown
     if (warningIntervalHandle) {
         clearInterval(warningIntervalHandle);
         warningIntervalHandle = null;
     }
 
-    const msgEl = _getOrCreateWarningMessageEl();
+    const card = antiCheatWarningModal.querySelector('.antiCheatCard');
+    const msgEl = card ? card.querySelector('.antiCheatMessage') : null;
+    const cdEl  = card ? card.querySelector('.antiCheatCountdown') : null;
+
     if (msgEl) msgEl.textContent = message;
 
-    const countdownEl = _getOrCreateWarningCountdownEl();
+    antiCheatWarningModal.classList.add('is-visible');
+    antiCheatWarningModal.setAttribute('aria-hidden', 'false');
 
-    // Force the modal to be visible even if a CSS rule tries to keep it hidden.
-    antiCheatWarningModal.style.setProperty('display', 'flex', 'important');
-    antiCheatWarningModal.style.zIndex = '99999';
-    antiCheatWarningModal.style.position = 'fixed';
-    antiCheatWarningModal.style.top = '0';
-    antiCheatWarningModal.style.left = '0';
-    antiCheatWarningModal.style.right = '0';
-    antiCheatWarningModal.style.bottom = '0';
+    if (autoCloseMs === null || autoCloseMs === undefined) {
+        // Persistent modal — no countdown, no auto-close.
+        if (cdEl) cdEl.textContent = 'Please wait…';
+        return;
+    }
 
-    // Set the wall-clock end time
     warningEndTime = Date.now() + autoCloseMs;
 
     const tick = () => {
         const remaining = warningEndTime - Date.now();
         const seconds = Math.max(0, Math.ceil(remaining / 1000));
-        if (countdownEl) {
-            countdownEl.textContent = seconds > 0
+        if (cdEl) {
+            cdEl.textContent = seconds > 0
                 ? `Closing in ${seconds} second${seconds === 1 ? '' : 's'}…`
                 : 'Closing…';
         }
         if (remaining <= 0) {
-            antiCheatWarningModal.style.display = 'none';
+            antiCheatWarningModal.classList.remove('is-visible');
+            antiCheatWarningModal.setAttribute('aria-hidden', 'true');
             if (warningIntervalHandle) {
                 clearInterval(warningIntervalHandle);
                 warningIntervalHandle = null;
             }
         }
     };
-
-    // Immediate first paint, then poll every 250 ms.
-    // Polling (instead of a single setTimeout) means we correctly honour
-    // the full duration even when the browser throttles timers on mobile.
     tick();
     warningIntervalHandle = setInterval(tick, 250);
 }
 
-/**
- * Silent violation log (fire-and-forget, non-blocking). Never throws.
- * Used by admins/teachers to review CBT integrity after the fact.
- */
+function hideAntiCheatModal() {
+    if (!antiCheatWarningModal) return;
+    if (warningIntervalHandle) {
+        clearInterval(warningIntervalHandle);
+        warningIntervalHandle = null;
+    }
+    antiCheatWarningModal.classList.remove('is-visible');
+    antiCheatWarningModal.setAttribute('aria-hidden', 'true');
+}
+
+// ── Silent violation logger (fire-and-forget, never blocks) ────────────────
 function logViolation(type, detail = '') {
     try {
         if (!currentUser || !currentUser.uid) return;
@@ -555,43 +571,47 @@ function logViolation(type, detail = '') {
     } catch (_) { /* silent */ }
 }
 
-/**
- * Central violation handler.
- *   • 500 ms dedupe prevents blur + visibilitychange from double counting.
- *   • First violation  → 15-second warning (timer keeps running).
- *   • Second violation → 5-second modal + background submission.
- */
+// ── Central violation handler ──────────────────────────────────────────────
 function registerViolation(reason) {
     if (isSubmitting) return;
 
     const now = Date.now();
-    if (now - lastViolationTs < 500) return;   // dedupe window
+
+    // CRITICAL FIX: A single tab switch fires BOTH `blur` and
+    // `visibilitychange`. On mobile these can arrive several seconds apart.
+    // The 5-second dedupe window below guarantees they count as ONE event.
+    if (now - lastViolationTs < VIOLATION_DEDUPE_MS) {
+        return;
+    }
     lastViolationTs = now;
 
     tabSwitchCount++;
-    logViolation(tabSwitchCount === 1 ? 'first_violation' : 'second_violation', reason);
 
     if (tabSwitchCount === 1) {
-        // FIRST VIOLATION — 15-second warning, timer keeps running.
+        // FIRST VIOLATION — 15-second warning, NO submission. Timer keeps running.
+        logViolation('first_violation', reason);
         showAntiCheatModal(
             '⚠️ You left the exam window. This is your ONLY warning. ' +
             'The timer is still running. Doing it again will immediately auto-submit your test.',
-            15000
+            FIRST_WARNING_MS
         );
-        return;
+        return; // <-- absolutely no submission on the first violation
     }
 
-    // SECOND VIOLATION — auto-submit with a 5-second modal.
+    // SECOND VIOLATION — auto-submit with a persistent modal.
+    logViolation('second_violation', reason);
+
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
 
+    // Persistent modal — removed only when the page redirects.
     showAntiCheatModal(
         '❌ Repeated violation detected. Your test is being submitted automatically…',
-        5000
+        null
     );
 
-    // Run submission in the background. It will redirect only after the
-    // 5-second minimum AND the Firestore save have both completed.
-    submitTest(true, 5000).catch(err => {
+    // Background submission. Redirect happens only after BOTH the
+    // SECOND_MODAL_MS window AND the Firestore save have completed.
+    submitTest(true, SECOND_MODAL_MS).catch(err => {
         console.warn('Auto-submit failed, forcing redirect:', err);
         try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (_) {}
         window.location.href = DASHBOARD_URL;
@@ -604,8 +624,7 @@ function handleVisibilityLoss() {
 }
 
 function handleWindowBlur() {
-    // Fires on alt-tab, opening DevTools, clicking another window, etc.
-    // Catches cases where visibilitychange does NOT fire.
+    // Fires on alt-tab, second window, DevTools focus, app-switch on mobile.
     registerViolation('window_blur');
 }
 
@@ -1162,7 +1181,7 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
 // UPDATED: optional 2nd param `minRedirectDelayMs` (default 0). When set,
 // the redirect to the dashboard will wait until at least this many ms have
 // elapsed since submission started — used by the anti-cheat auto-submit path
-// so the "auto-submitting" modal is guaranteed to display for its full 5 s.
+// so the modal is guaranteed to display for its full duration.
 // All existing callers pass only one argument (or none), so their behaviour
 // is unchanged.
 // =============================================
@@ -1354,218 +1373,4 @@ function showResults(score, correctAnswers, message, subjectScores) {
     resultsModal.style.display = 'flex';
     addSolutionButton();
     sessionStorage.removeItem('currentTest');
-    try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers, completedAt: new Date().toISOString() })); } catch(e) {}
-    isSubmitting = false;
-}
-
-function addSolutionButton() {
-    const premiumNotification = document.getElementById('premiumNotification');
-    if (premiumNotification) premiumNotification.style.display = 'none';
-
-    const modalButtons = document.querySelector('#resultsModal .modal-buttons');
-    if (!modalButtons) return;
-
-    const existingBtn = document.getElementById('solutionBtn');
-    if (existingBtn) existingBtn.remove();
-
-    const solutionBtn = document.createElement('button');
-    solutionBtn.id = 'solutionBtn';
-    solutionBtn.className = 'modal-btn';
-    solutionBtn.innerHTML = '<i class="fas fa-lightbulb"></i> View Detailed Solutions';
-    solutionBtn.style.backgroundColor = '#17a2b8';
-    solutionBtn.style.cursor = 'pointer';
-    solutionBtn.addEventListener('click', () => {
-        resultsModal.style.display = 'none';
-        showSolutionsModal(testData.questions, testData.userAnswers);
-    });
-
-    const backBtn = document.getElementById('backToDashboard');
-    if (backBtn) modalButtons.insertBefore(solutionBtn, backBtn);
-    else modalButtons.appendChild(solutionBtn);
-}
-
-function showSolutionsModal(questions, userAnswers) {
-    const modal = document.getElementById('solutionModal');
-    const modalBody = document.getElementById('solutionModalBody');
-    if (!modal || !modalBody) return;
-    modalBody.innerHTML = '';
-    const container = document.createElement('div');
-    container.className = 'solutions-container';
-
-    if (testData.mode === 'jamb_drill') {
-        testData.subjects.forEach(subj => {
-            const header = document.createElement('h3');
-            header.style.color = 'var(--eggplant)';
-            header.style.margin = '20px 0 10px';
-            header.innerHTML = `<i class="fas fa-book"></i> ${subj.name}`;
-            container.appendChild(header);
-            const subjQuestions = questions.filter(q => q.subject === subj.value);
-            subjQuestions.forEach((q, idxInSubj) => {
-                const globalIdx = questions.findIndex(qq => qq.id === q.id);
-                const solutionItem = createSolutionItem(q, userAnswers[globalIdx], globalIdx+1);
-                container.appendChild(solutionItem);
-            });
-        });
-    } else {
-        questions.forEach((q, idx) => {
-            const solutionItem = createSolutionItem(q, userAnswers[idx], idx+1);
-            container.appendChild(solutionItem);
-        });
-    }
-
-    modalBody.appendChild(container);
-    const backDiv = document.createElement('div');
-    backDiv.style.marginTop = '30px';
-    backDiv.style.paddingTop = '20px';
-    backDiv.style.borderTop = '2px solid #eee';
-    backDiv.style.textAlign = 'center';
-    const backBtn = document.createElement('button');
-    backBtn.className = 'modal-btn confirm';
-    backBtn.id = 'backToDashboardFromSolution';
-    backBtn.innerHTML = '<i class="fas fa-tachometer-alt"></i> Back to Dashboard';
-    backBtn.style.backgroundColor = '#28a745';
-    backBtn.addEventListener('click', goToDashboard);
-    backDiv.appendChild(backBtn);
-    modalBody.appendChild(backDiv);
-    modal.style.display = 'flex';
-    const closeBtn = document.getElementById('closeSolutionModal');
-    if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
-    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
-}
-
-function createSolutionItem(question, userAnswer, displayNumber) {
-    const solutionItem = document.createElement('div');
-    solutionItem.className = 'solution-item';
-    const correctAnswer = question.correctAnswer;
-    const isCorrect = userAnswer === correctAnswer;
-    const hasSolutionText = question.solution && question.solution.trim() !== '';
-    const hasSolutionImage = question.solutionImage;
-    let solutionContent = '';
-    if (hasSolutionText && hasSolutionImage) {
-        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div><div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
-    } else if (hasSolutionText) {
-        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div>`;
-    } else if (hasSolutionImage) {
-        solutionContent = `<div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
-    } else {
-        solutionContent = '<div class="solution-text-preserved">No detailed solution available for this question.</div>';
-    }
-
-    let questionHtml = '';
-    const hasQuestionText = question.questionText && question.questionText.trim() !== '';
-    const hasQuestionImage = question.questionImage;
-    if (hasQuestionText && hasQuestionImage) {
-        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p><div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
-    } else if (hasQuestionText) {
-        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p>`;
-    } else if (hasQuestionImage) {
-        questionHtml = `<div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
-    }
-
-    solutionItem.innerHTML = `
-        <h4><i class="fas fa-question-circle"></i> Question ${displayNumber}</h4>
-        ${questionHtml}
-        <div class="solution-options">
-            <p><strong>Your Answer:</strong> <span class="user-answer">${userAnswer || 'Not answered'}</span>
-            <span class="${isCorrect ? 'option-correct' : 'option-incorrect'}">${isCorrect ? '✓ Correct' : '✗ Incorrect'}</span></p>
-            <p><strong>Correct Answer:</strong> <span class="correct-answer">${correctAnswer || 'Not specified'}</span></p>
-        </div>
-        <div class="option-explanation"><p><strong>Explanation:</strong></p>${solutionContent}</div>
-    `;
-    const separator = document.createElement('hr');
-    separator.style.margin = '20px 0';
-    separator.style.border = 'none';
-    separator.style.borderTop = '1px solid #eee';
-    solutionItem.appendChild(separator);
-    return solutionItem;
-}
-
-// =============================================
-// GO TO DASHBOARD
-// =============================================
-function goToDashboard() {
-    window.removeEventListener('beforeunload', preventBeforeUnload);
-    window.location.href = DASHBOARD_URL;
-}
-
-function handleKeyboardNavigation(e) {
-    if (submitModal.style.display === 'flex' || resultsModal.style.display === 'flex') {
-        if (e.key === 'Escape') { hideSubmitModal(); resultsModal.style.display = 'none'; }
-        return;
-    }
-    switch(e.key) {
-        case '1': case 'A': case 'a': selectOption('A'); break;
-        case '2': case 'B': case 'b': selectOption('B'); break;
-        case '3': case 'C': case 'c': selectOption('C'); break;
-        case '4': case 'D': case 'd': selectOption('D'); break;
-        case 'ArrowLeft': if (currentQuestionIndex > 0) loadQuestion(currentQuestionIndex - 1); break;
-        case 'ArrowRight': if (currentQuestionIndex < testData.questions.length - 1) loadQuestion(currentQuestionIndex + 1); break;
-        case 'Enter':
-            if (currentQuestionIndex < testData.questions.length - 1) loadQuestion(currentQuestionIndex + 1);
-            else showSubmitModal();
-            break;
-        case 'Escape': showSubmitModal(); break;
-    }
-}
-
-// =============================================================================
-// MODIFIED: startAssignedTest - questions are now randomised (shuffled)
-// =============================================================================
-async function startAssignedTest(cbtId) {
-    try {
-        const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
-        if (!cbtDoc.exists()) {
-            toast.error('Test not found. Please refresh the page.');
-            throw new Error('Test not found');
-        }
-        const cbtData = cbtDoc.data();
-        if (cbtData.status !== 'started') {
-            toast.error('This test is not available for taking.');
-            return;
-        }
-
-        let remainingSeconds = cbtData.durationMinutes * 60;
-        if (cbtData.startedAt) {
-            const startTime = convertTimestamp(cbtData.startedAt);
-            if (startTime) {
-                const now = new Date();
-                const elapsed = Math.floor((now - startTime) / 1000);
-                remainingSeconds = Math.max(0, cbtData.durationMinutes * 60 - elapsed);
-                if (remainingSeconds <= 0) {
-                    toast.error('This test has already expired.');
-                    return;
-                }
-            }
-        }
-
-        // MODIFIED: Shuffle questions for assigned test
-        const originalQuestions = cbtData.questions || [];
-        if (!originalQuestions.length) {
-            toast.error('No questions found for this test.');
-            return;
-        }
-        const shuffledQuestions = shuffleArray(originalQuestions);
-
-        const testData = {
-            testId: `cbt_${cbtId}_${Date.now()}`,
-            mode: 'cbt',
-            examType: cbtData.examType || 'CBT',
-            subject: cbtData.subjectName || cbtData.subjectId,
-            title: cbtData.title,
-            cbtId: cbtId,
-            questions: shuffledQuestions,
-            totalQuestions: shuffledQuestions.length,
-            totalTime: remainingSeconds,
-            startTime: new Date().toISOString(),
-            userId: currentStudentId,
-            schoolId: currentSchoolId,
-            userAnswers: Array(shuffledQuestions.length).fill(null),
-            plan: 'full_access'
-        };
-        sessionStorage.setItem('currentTest', JSON.stringify(testData));
-        window.location.href = 'test.html';
-    } catch (err) {
-        console.error('Error starting assigned test:', err);
-        toast.error('Failed to start test. Please try again.');
-    }
-}
+    try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers
