@@ -1373,4 +1373,218 @@ function showResults(score, correctAnswers, message, subjectScores) {
     resultsModal.style.display = 'flex';
     addSolutionButton();
     sessionStorage.removeItem('currentTest');
-    try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers
+    try { sessionStorage.setItem('previousTest', JSON.stringify({ ...testData, finalScore: score, correctAnswers, completedAt: new Date().toISOString() })); } catch(e) {}
+    isSubmitting = false;
+}
+
+function addSolutionButton() {
+    const premiumNotification = document.getElementById('premiumNotification');
+    if (premiumNotification) premiumNotification.style.display = 'none';
+
+    const modalButtons = document.querySelector('#resultsModal .modal-buttons');
+    if (!modalButtons) return;
+
+    const existingBtn = document.getElementById('solutionBtn');
+    if (existingBtn) existingBtn.remove();
+
+    const solutionBtn = document.createElement('button');
+    solutionBtn.id = 'solutionBtn';
+    solutionBtn.className = 'modal-btn';
+    solutionBtn.innerHTML = '<i class="fas fa-lightbulb"></i> View Detailed Solutions';
+    solutionBtn.style.backgroundColor = '#17a2b8';
+    solutionBtn.style.cursor = 'pointer';
+    solutionBtn.addEventListener('click', () => {
+        resultsModal.style.display = 'none';
+        showSolutionsModal(testData.questions, testData.userAnswers);
+    });
+
+    const backBtn = document.getElementById('backToDashboard');
+    if (backBtn) modalButtons.insertBefore(solutionBtn, backBtn);
+    else modalButtons.appendChild(solutionBtn);
+}
+
+function showSolutionsModal(questions, userAnswers) {
+    const modal = document.getElementById('solutionModal');
+    const modalBody = document.getElementById('solutionModalBody');
+    if (!modal || !modalBody) return;
+    modalBody.innerHTML = '';
+    const container = document.createElement('div');
+    container.className = 'solutions-container';
+
+    if (testData.mode === 'jamb_drill') {
+        testData.subjects.forEach(subj => {
+            const header = document.createElement('h3');
+            header.style.color = 'var(--eggplant)';
+            header.style.margin = '20px 0 10px';
+            header.innerHTML = `<i class="fas fa-book"></i> ${subj.name}`;
+            container.appendChild(header);
+            const subjQuestions = questions.filter(q => q.subject === subj.value);
+            subjQuestions.forEach((q, idxInSubj) => {
+                const globalIdx = questions.findIndex(qq => qq.id === q.id);
+                const solutionItem = createSolutionItem(q, userAnswers[globalIdx], globalIdx+1);
+                container.appendChild(solutionItem);
+            });
+        });
+    } else {
+        questions.forEach((q, idx) => {
+            const solutionItem = createSolutionItem(q, userAnswers[idx], idx+1);
+            container.appendChild(solutionItem);
+        });
+    }
+
+    modalBody.appendChild(container);
+    const backDiv = document.createElement('div');
+    backDiv.style.marginTop = '30px';
+    backDiv.style.paddingTop = '20px';
+    backDiv.style.borderTop = '2px solid #eee';
+    backDiv.style.textAlign = 'center';
+    const backBtn = document.createElement('button');
+    backBtn.className = 'modal-btn confirm';
+    backBtn.id = 'backToDashboardFromSolution';
+    backBtn.innerHTML = '<i class="fas fa-tachometer-alt"></i> Back to Dashboard';
+    backBtn.style.backgroundColor = '#28a745';
+    backBtn.addEventListener('click', goToDashboard);
+    backDiv.appendChild(backBtn);
+    modalBody.appendChild(backDiv);
+    modal.style.display = 'flex';
+    const closeBtn = document.getElementById('closeSolutionModal');
+    if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+}
+
+function createSolutionItem(question, userAnswer, displayNumber) {
+    const solutionItem = document.createElement('div');
+    solutionItem.className = 'solution-item';
+    const correctAnswer = question.correctAnswer;
+    const isCorrect = userAnswer === correctAnswer;
+    const hasSolutionText = question.solution && question.solution.trim() !== '';
+    const hasSolutionImage = question.solutionImage;
+    let solutionContent = '';
+    if (hasSolutionText && hasSolutionImage) {
+        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div><div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
+    } else if (hasSolutionText) {
+        solutionContent = `<div class="solution-text-preserved">${processSolutionText(question.solution)}</div>`;
+    } else if (hasSolutionImage) {
+        solutionContent = `<div class="solution-image-container"><img src="${question.solutionImage}" alt="Solution image" class="solution-image"></div>`;
+    } else {
+        solutionContent = '<div class="solution-text-preserved">No detailed solution available for this question.</div>';
+    }
+
+    let questionHtml = '';
+    const hasQuestionText = question.questionText && question.questionText.trim() !== '';
+    const hasQuestionImage = question.questionImage;
+    if (hasQuestionText && hasQuestionImage) {
+        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p><div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
+    } else if (hasQuestionText) {
+        questionHtml = `<p><strong>Question:</strong> ${formatTextForDisplay(question.questionText)}</p>`;
+    } else if (hasQuestionImage) {
+        questionHtml = `<div class="question-image-container" style="margin:10px 0;"><img src="${question.questionImage}" alt="Question image" style="max-width:200px; max-height:150px;"></div>`;
+    }
+
+    solutionItem.innerHTML = `
+        <h4><i class="fas fa-question-circle"></i> Question ${displayNumber}</h4>
+        ${questionHtml}
+        <div class="solution-options">
+            <p><strong>Your Answer:</strong> <span class="user-answer">${userAnswer || 'Not answered'}</span>
+            <span class="${isCorrect ? 'option-correct' : 'option-incorrect'}">${isCorrect ? '✓ Correct' : '✗ Incorrect'}</span></p>
+            <p><strong>Correct Answer:</strong> <span class="correct-answer">${correctAnswer || 'Not specified'}</span></p>
+        </div>
+        <div class="option-explanation"><p><strong>Explanation:</strong></p>${solutionContent}</div>
+    `;
+    const separator = document.createElement('hr');
+    separator.style.margin = '20px 0';
+    separator.style.border = 'none';
+    separator.style.borderTop = '1px solid #eee';
+    solutionItem.appendChild(separator);
+    return solutionItem;
+}
+
+// =============================================
+// GO TO DASHBOARD
+// =============================================
+function goToDashboard() {
+    window.removeEventListener('beforeunload', preventBeforeUnload);
+    window.location.href = DASHBOARD_URL;
+}
+
+function handleKeyboardNavigation(e) {
+    if (submitModal.style.display === 'flex' || resultsModal.style.display === 'flex') {
+        if (e.key === 'Escape') { hideSubmitModal(); resultsModal.style.display = 'none'; }
+        return;
+    }
+    switch(e.key) {
+        case '1': case 'A': case 'a': selectOption('A'); break;
+        case '2': case 'B': case 'b': selectOption('B'); break;
+        case '3': case 'C': case 'c': selectOption('C'); break;
+        case '4': case 'D': case 'd': selectOption('D'); break;
+        case 'ArrowLeft': if (currentQuestionIndex > 0) loadQuestion(currentQuestionIndex - 1); break;
+        case 'ArrowRight': if (currentQuestionIndex < testData.questions.length - 1) loadQuestion(currentQuestionIndex + 1); break;
+        case 'Enter':
+            if (currentQuestionIndex < testData.questions.length - 1) loadQuestion(currentQuestionIndex + 1);
+            else showSubmitModal();
+            break;
+        case 'Escape': showSubmitModal(); break;
+    }
+}
+
+// =============================================================================
+// MODIFIED: startAssignedTest - questions are now randomised (shuffled)
+// =============================================================================
+async function startAssignedTest(cbtId) {
+    try {
+        const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
+        if (!cbtDoc.exists()) {
+            toast.error('Test not found. Please refresh the page.');
+            throw new Error('Test not found');
+        }
+        const cbtData = cbtDoc.data();
+        if (cbtData.status !== 'started') {
+            toast.error('This test is not available for taking.');
+            return;
+        }
+
+        let remainingSeconds = cbtData.durationMinutes * 60;
+        if (cbtData.startedAt) {
+            const startTime = convertTimestamp(cbtData.startedAt);
+            if (startTime) {
+                const now = new Date();
+                const elapsed = Math.floor((now - startTime) / 1000);
+                remainingSeconds = Math.max(0, cbtData.durationMinutes * 60 - elapsed);
+                if (remainingSeconds <= 0) {
+                    toast.error('This test has already expired.');
+                    return;
+                }
+            }
+        }
+
+        // MODIFIED: Shuffle questions for assigned test
+        const originalQuestions = cbtData.questions || [];
+        if (!originalQuestions.length) {
+            toast.error('No questions found for this test.');
+            return;
+        }
+        const shuffledQuestions = shuffleArray(originalQuestions);
+
+        const testData = {
+            testId: `cbt_${cbtId}_${Date.now()}`,
+            mode: 'cbt',
+            examType: cbtData.examType || 'CBT',
+            subject: cbtData.subjectName || cbtData.subjectId,
+            title: cbtData.title,
+            cbtId: cbtId,
+            questions: shuffledQuestions,
+            totalQuestions: shuffledQuestions.length,
+            totalTime: remainingSeconds,
+            startTime: new Date().toISOString(),
+            userId: currentStudentId,
+            schoolId: currentSchoolId,
+            userAnswers: Array(shuffledQuestions.length).fill(null),
+            plan: 'full_access'
+        };
+        sessionStorage.setItem('currentTest', JSON.stringify(testData));
+        window.location.href = 'test.html';
+    } catch (err) {
+        console.error('Error starting assigned test:', err);
+        toast.error('Failed to start test. Please try again.');
+    }
+}
