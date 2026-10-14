@@ -12,7 +12,7 @@
 // ANTI-CHEAT (this revision):
 //   • Central registerViolation() handler with 500 ms dedupe so blur +
 //     visibilitychange count as ONE violation, not two.
-//   • First violation  → 15-second warning modal. Timer keeps running.
+//   • First violation  → 15-second warning modal (timer keeps running).
 //   • Second violation → 5-second modal while the test auto-submits in the
 //     background. Redirect happens only after BOTH the 5-second minimum and
 //     the Firestore save have completed.
@@ -24,8 +24,14 @@
 //   • Added Ctrl+C/V/X/A/S/P/U, F12, Ctrl+Shift+I/J/C/S, PrintScreen blocks.
 //   • Added silent logViolation() (fire-and-forget) to a cbtViolations
 //     collection for admin review — never blocks the exam.
-//   • submitTest gained an OPTIONAL 2nd param `minRedirectDelayMs` (default 0)
-//     so nothing else in the exam changes behaviour.
+//   • MODAL NOW MOBILE + DESKTOP RESPONSIVE:
+//       – Runtime-injected CSS with clamp() typography and a viewport-fitting
+//         card, plus media queries for narrow screens and short screens.
+//       – Wall-clock based countdown (checks every 250 ms against Date.now())
+//         so the modal ALWAYS stays for the full requested duration even if
+//         the browser throttles timers while the tab is hidden.
+//       – Live “Closing in N seconds…” indicator.
+//       – First warning guaranteed ≥ 15 s; second modal guaranteed ≥ 5 s.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -309,6 +315,8 @@ let subjectCounts = {};
 // ANTI-CHEAT MODULE
 // Handles: tab switch, window blur, right-click, copy/paste,
 // screenshots, devtools shortcuts, refresh prevention.
+// Includes a wall-clock-based modal countdown that is fully
+// responsive on mobile and desktop.
 // ============================================================
 
 /* Path to student dashboard (root/student/student-portal.html) */
@@ -316,10 +324,114 @@ const DASHBOARD_URL = '../../student/student-portal.html';
 
 let tabSwitchCount = 0;
 let isSubmitting = false;
-let warningTimeout = null;
 let lastViolationTs = 0;
 
+// Modal timing internals
+let warningIntervalHandle = null;
+let warningEndTime = 0;
+
 const antiCheatWarningModal = document.getElementById('antiCheatWarningModal');
+
+// ── 1. Inject responsive CSS once ───────────────────────────────────────────
+function injectAntiCheatStyles() {
+    if (document.getElementById('antiCheatStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'antiCheatStyles';
+    style.textContent = `
+        /* Full-screen backdrop */
+        #antiCheatWarningModal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            display: none;
+            align-items: center !important;
+            justify-content: center !important;
+            background: rgba(15, 23, 42, 0.78) !important;
+            padding: 16px !important;
+            box-sizing: border-box !important;
+            z-index: 99999 !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+
+        /* Card container (any direct child of the modal) */
+        #antiCheatWarningModal > * {
+            width: 100% !important;
+            max-width: 480px !important;
+            background: #ffffff !important;
+            border-radius: 14px !important;
+            padding: 24px 22px !important;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35) !important;
+            box-sizing: border-box !important;
+            margin: auto !important;
+            border: 1px solid rgba(0, 0, 0, 0.08) !important;
+        }
+
+        /* Warning message text */
+        #antiCheatWarningModal .warning-message {
+            display: block !important;
+            font-size: clamp(0.95rem, 3.8vw, 1.15rem) !important;
+            line-height: 1.55 !important;
+            text-align: center !important;
+            color: #b91c1c !important;
+            font-weight: 600 !important;
+            word-break: break-word !important;
+            overflow-wrap: anywhere !important;
+            white-space: normal !important;
+            margin: 0 !important;
+        }
+
+        /* Countdown line */
+        #antiCheatWarningModal .warning-countdown {
+            display: block !important;
+            margin-top: 16px !important;
+            font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
+            text-align: center !important;
+            color: #475569 !important;
+            font-weight: 500 !important;
+            letter-spacing: 0.01em !important;
+        }
+
+        /* Narrow phones */
+        @media (max-width: 480px) {
+            #antiCheatWarningModal {
+                padding: 12px !important;
+            }
+            #antiCheatWarningModal > * {
+                padding: 20px 16px !important;
+                border-radius: 12px !important;
+            }
+        }
+
+        /* Short viewports (mobile landscape / small keyboards raised) */
+        @media (max-height: 500px) {
+            #antiCheatWarningModal > * {
+                padding: 14px 16px !important;
+                border-radius: 10px !important;
+            }
+            #antiCheatWarningModal .warning-message {
+                font-size: clamp(0.85rem, 3.2vw, 1rem) !important;
+                line-height: 1.4 !important;
+            }
+            #antiCheatWarningModal .warning-countdown {
+                margin-top: 10px !important;
+            }
+        }
+
+        /* Very short viewports */
+        @media (max-height: 360px) {
+            #antiCheatWarningModal > * {
+                padding: 10px 12px !important;
+            }
+            #antiCheatWarningModal .warning-message {
+                font-size: 0.85rem !important;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
 
 /**
  * Locate (or create) the message element inside the anti-cheat modal.
@@ -335,7 +447,23 @@ function _getOrCreateWarningMessageEl() {
     if (!el) {
         el = document.createElement('div');
         el.className = 'warning-message';
-        el.style.cssText = 'padding:24px;text-align:center;font-size:1.05rem;line-height:1.5;';
+        antiCheatWarningModal.appendChild(el);
+    }
+    if (!el.classList.contains('warning-message')) {
+        el.classList.add('warning-message');
+    }
+    return el;
+}
+
+/**
+ * Locate (or create) the countdown element inside the anti-cheat modal.
+ */
+function _getOrCreateWarningCountdownEl() {
+    if (!antiCheatWarningModal) return null;
+    let el = antiCheatWarningModal.querySelector('.warning-countdown');
+    if (!el) {
+        el = document.createElement('div');
+        el.className = 'warning-countdown';
         antiCheatWarningModal.appendChild(el);
     }
     return el;
@@ -346,26 +474,62 @@ function _getOrCreateWarningMessageEl() {
  * The exam timer is NEVER paused — time keeps running while the modal
  * is on screen.
  *
+ * The auto-close uses a WALL-CLOCK based countdown: it always stays
+ * visible for at least `autoCloseMs` milliseconds, even if the browser
+ * throttles timers while the tab is hidden (as mobile browsers do).
+ *
  * @param {string} message
- * @param {number} autoCloseMs - duration before auto-hide (default 5000)
+ * @param {number} autoCloseMs - minimum duration the modal must stay visible
  */
 function showAntiCheatModal(message, autoCloseMs = 5000) {
     if (!antiCheatWarningModal) return;
-    if (warningTimeout) { clearTimeout(warningTimeout); warningTimeout = null; }
+    injectAntiCheatStyles();
+
+    // Clear any previous countdown
+    if (warningIntervalHandle) {
+        clearInterval(warningIntervalHandle);
+        warningIntervalHandle = null;
+    }
 
     const msgEl = _getOrCreateWarningMessageEl();
     if (msgEl) msgEl.textContent = message;
+
+    const countdownEl = _getOrCreateWarningCountdownEl();
 
     // Force the modal to be visible even if a CSS rule tries to keep it hidden.
     antiCheatWarningModal.style.setProperty('display', 'flex', 'important');
     antiCheatWarningModal.style.zIndex = '99999';
     antiCheatWarningModal.style.position = 'fixed';
-    antiCheatWarningModal.style.inset = '0';
+    antiCheatWarningModal.style.top = '0';
+    antiCheatWarningModal.style.left = '0';
+    antiCheatWarningModal.style.right = '0';
+    antiCheatWarningModal.style.bottom = '0';
 
-    warningTimeout = setTimeout(() => {
-        antiCheatWarningModal.style.display = 'none';
-        warningTimeout = null;
-    }, autoCloseMs);
+    // Set the wall-clock end time
+    warningEndTime = Date.now() + autoCloseMs;
+
+    const tick = () => {
+        const remaining = warningEndTime - Date.now();
+        const seconds = Math.max(0, Math.ceil(remaining / 1000));
+        if (countdownEl) {
+            countdownEl.textContent = seconds > 0
+                ? `Closing in ${seconds} second${seconds === 1 ? '' : 's'}…`
+                : 'Closing…';
+        }
+        if (remaining <= 0) {
+            antiCheatWarningModal.style.display = 'none';
+            if (warningIntervalHandle) {
+                clearInterval(warningIntervalHandle);
+                warningIntervalHandle = null;
+            }
+        }
+    };
+
+    // Immediate first paint, then poll every 250 ms.
+    // Polling (instead of a single setTimeout) means we correctly honour
+    // the full duration even when the browser throttles timers on mobile.
+    tick();
+    warningIntervalHandle = setInterval(tick, 250);
 }
 
 /**
@@ -548,6 +712,9 @@ function preventDragStart(e) {
 }
 
 function initAntiCheat() {
+    // Inject responsive modal styles as early as possible.
+    injectAntiCheatStyles();
+
     // Tab hidden + window blur (both feed the same registerViolation)
     document.addEventListener('visibilitychange', handleVisibilityLoss);
     window.addEventListener('blur', handleWindowBlur);
