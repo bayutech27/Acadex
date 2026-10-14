@@ -10,19 +10,22 @@
 // MODIFIED: Assigned test questions are now randomised (shuffled) before starting the test.
 //
 // ANTI-CHEAT (this revision):
-//   • ROOT-CAUSE FIX: dedupe window raised from 500 ms → 5000 ms. On mobile,
-//     blur and visibilitychange from a single tab-switch can arrive several
-//     seconds apart. 500 ms was too tight and caused a single switch to be
-//     counted twice (warning + submission at once). 5000 ms fixes it.
+//   • Dedupe window is 5 s so blur + visibilitychange from a single tab-switch
+//     always count as ONE violation. Fixes the "warning + submission at once" bug.
 //   • First violation  → 15-second warning ONLY. `return` before any submit.
 //   • Second violation → persistent "submitting" modal + background submission
 //     (`submitTest(true, 5000)`), redirect only after save completes.
-//   • MODAL NOW CENTERED ON EVERY VIEWPORT: full-screen flex backdrop +
-//     single centered card (`.antiCheatCard`). Previously every direct child
-//     was styled as a card, so message + countdown collapsed into a two-column
-//     layout that drifted to the top-left on phones.
-//   • Wall-clock based countdown (checks every 250 ms against Date.now()) so
-//     mobile timer throttling cannot shorten or lengthen the modal.
+//   • MODAL IS CENTERED ON EVERY VIEWPORT:
+//       – The old `class="anti-cheat-modal"` on #antiCheatWarningModal has been
+//         removed in test.html. Its `transform: translate(-50%, -50%)` rule was
+//         fighting the injected full-screen backdrop and shifting the modal to
+//         the top-left corner on mobile and desktop.
+//       – The injected CSS below now force-resets every potentially conflicting
+//         property (transform, border, border-radius, box-shadow, inset) with
+//         `!important`, so the modal is guaranteed to fill the viewport and
+//         center its card on any screen size.
+//   • Wall-clock based countdown (checks Date.now() every 250 ms) so mobile
+//     timer throttling cannot shorten or lengthen the modal.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -304,20 +307,6 @@ let subjectCounts = {};
 
 // ============================================================
 // ANTI-CHEAT MODULE
-// Handles: tab switch, window blur, right-click, copy/paste,
-// screenshots, devtools shortcuts, refresh prevention.
-//
-// DESIGN:
-//   • One violation handler feeds both `blur` and `visibilitychange`
-//     through registerViolation(). A 5-second dedupe window ensures
-//     that the two events from a SINGLE tab-switch count as one.
-//   • First  violation → 15-second warning modal ONLY (no submission).
-//   • Second violation → persistent "submitting" modal + background
-//     submitTest(true, 5000). Redirect only after save completes.
-//   • The modal is a full-screen centered backdrop with a single
-//     responsive card. Centered on every viewport, mobile included.
-//   • Countdown is wall-clock based (checks Date.now() every 250 ms)
-//     so it can never be shortened by mobile timer throttling.
 // ============================================================
 
 /* Path to student dashboard (root/student/student-portal.html) */
@@ -344,9 +333,20 @@ function injectAntiCheatStyles() {
     const style = document.createElement('style');
     style.id = 'antiCheatStyles';
     style.textContent = `
-        /* Full-screen backdrop — always covers viewport */
+        /*
+         * Full-screen backdrop — covers the ENTIRE viewport on every device.
+         *
+         * DEFENSIVE OVERRIDES:
+         * The old `class="anti-cheat-modal"` rule used to set
+         *   top: 50%; left: 50%; transform: translate(-50%, -50%);
+         * which shifted this full-screen box off-centre. We now force-reset
+         * every one of those properties with !important so no external class
+         * can ever move the modal off-centre again.
+         */
         #antiCheatWarningModal {
+            /* Positioning: cover the viewport */
             position: fixed !important;
+            inset: 0 !important;
             top: 0 !important;
             right: 0 !important;
             bottom: 0 !important;
@@ -355,19 +355,35 @@ function injectAntiCheatStyles() {
             height: 100vh !important;
             max-width: 100vw !important;
             max-height: 100vh !important;
+
+            /* Kill any conflicting transforms / decorative styles */
+            transform: none !important;
+            -webkit-transform: none !important;
             margin: 0 !important;
-            padding: 16px !important;
-            box-sizing: border-box !important;
-            background: rgba(15, 23, 42, 0.85) !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            outline: none !important;
+
+            /* Layout: full-screen flex, centering its content */
             display: none !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-sizing: border-box !important;
+            padding: 16px !important;
+            background: rgba(15, 23, 42, 0.85) !important;
             z-index: 2147483647 !important;
             overflow-y: auto !important;
+            overflow-x: hidden !important;
             -webkit-overflow-scrolling: touch !important;
+
+            /* Typography */
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
             text-align: center !important;
         }
 
-        /* Visible state — flex centering, works on every viewport */
+        /* Visible state — flex centering on every viewport */
         #antiCheatWarningModal.is-visible {
             display: flex !important;
             flex-direction: column !important;
@@ -375,7 +391,7 @@ function injectAntiCheatStyles() {
             justify-content: center !important;
         }
 
-        /* Single card — the ONLY direct visual child */
+        /* Single card — the ONLY visual child */
         #antiCheatWarningModal .antiCheatCard {
             width: 100% !important;
             max-width: 480px !important;
@@ -470,10 +486,9 @@ function _ensureModalStructure() {
     let card = antiCheatWarningModal.querySelector('.antiCheatCard');
     if (card) return card;
 
-    // Build our own clean card ONCE. Preserves the modal element itself
-    // (id, role, external references) while giving us full layout control.
-    // We keep .warning-message / .warning-countdown as extra class names
-    // for backward compatibility with any existing CSS.
+    // Rebuild the modal DOM ONCE with a self-contained card.
+    // Keeps the modal element itself (id, role, external references).
+    // We wipe any legacy <h3>/<p> children that were there before.
     antiCheatWarningModal.innerHTML = '';
     card = document.createElement('div');
     card.className = 'antiCheatCard';
@@ -577,9 +592,9 @@ function registerViolation(reason) {
 
     const now = Date.now();
 
-    // CRITICAL FIX: A single tab switch fires BOTH `blur` and
-    // `visibilitychange`. On mobile these can arrive several seconds apart.
-    // The 5-second dedupe window below guarantees they count as ONE event.
+    // CRITICAL: A single tab-switch fires BOTH `blur` and `visibilitychange`.
+    // On mobile these can arrive several seconds apart. The 5-second dedupe
+    // window below guarantees they count as ONE event.
     if (now - lastViolationTs < VIOLATION_DEDUPE_MS) {
         return;
     }
