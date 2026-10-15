@@ -9,17 +9,13 @@
 //  • saveReport invalidates precise per-period caches and is snapshot-friendly.
 //  • loadSessionOptions now also derives sessions from saved reports.
 //  • Report cache keys now include schoolId + studentId + classId + term + session.
-//  • ADDED: getRandomQuestions — indexed random sampling for practice tests.
-//  • ADDED: getTestResultStatsByUser — Firestore aggregate stats for dashboard.
-//  • Existing getQuestions / getTestResultsByUser remain unchanged for other callers.
 
 import { db } from './firebase-config.js';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc,
   getDocs, collection, query, where, orderBy, limit, startAfter,
   onSnapshot, serverTimestamp, writeBatch, increment,
-  arrayUnion, arrayRemove, documentId,
-  getAggregateFromServer, count as fsCount, average as fsAverage
+  arrayUnion, arrayRemove, documentId
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as cache from './cache.js';
 import * as offlineQueue from './offlineQueue.js';
@@ -38,18 +34,6 @@ function _docData(snap) {
 }
 function _queryData(snap) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-// ── Internal Fisher–Yates shuffle used only by getRandomQuestions ────────────
-function _shuffleArray(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = a[i];
-    a[i] = a[j];
-    a[j] = tmp;
-  }
-  return a;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -539,6 +523,12 @@ export async function saveScoresBatch(scoresArray, schoolId, term, session) {
   await batch.commit();
   cache.invalidateByTag('scores');
 }
+
+/**
+ * NEW: return the unique studentIds that have scores for the given school/class/term/session.
+ * Used by the historical roster builder. Relies on the fact that newer score documents
+ * carry a classId field. Legacy scores without a classId will not be matched here.
+ */
 export async function getStudentIdsWithScoresForClass(schoolId, classId, term, session) {
   if (!schoolId || !classId || !term || !session) return [];
   const key = _k('score-studentids', schoolId, classId, term, session);
@@ -560,6 +550,11 @@ export async function getStudentIdsWithScoresForClass(schoolId, classId, term, s
     { ttl: TTL_MED, tags: ['scores', _k('score-studentids', schoolId, classId)] }
   );
 }
+
+/**
+ * loadSessionOptions – now includes sessions from scores AND saved reports
+ * so that historical sessions with only reports remain selectable on the admin page.
+ */
 export async function loadSessionOptions(schoolId) {
   const key = _k('sessions', schoolId);
   return cache.getFreshOrCached(
@@ -567,6 +562,7 @@ export async function loadSessionOptions(schoolId) {
     async () => {
       const set = new Set();
 
+      // From scores
       try {
         const scoresQ = query(collection(db, 'scores'), where('schoolId', '==', schoolId));
         const scoresSnap = await getDocs(scoresQ);
@@ -575,6 +571,7 @@ export async function loadSessionOptions(schoolId) {
         console.warn('[loadSessionOptions] scores query failed:', err);
       }
 
+      // From reports (historical sessions that have reports but no scores)
       try {
         const reportsQ = query(collection(db, 'reports'), where('schoolId', '==', schoolId));
         const reportsSnap = await getDocs(reportsQ);
@@ -592,6 +589,13 @@ export async function loadSessionOptions(schoolId) {
 // ════════════════════════════════════════════════════════════════════════════
 // REPORTS
 // ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch a single saved report scoped by schoolId + studentId + term + session
+ * (and optionally classId). When classId is supplied it is used in the query so
+ * that a student's report for a specific class is uniquely retrieved — even if
+ * the student has been moved, made inactive or graduated since.
+ */
 export async function getReportByStudent(studentId, schoolId, term, session, classId = null) {
   const key = _k('report', 'one', schoolId, studentId, classId || 'any', term, session);
   return cache.getFreshOrCached(
@@ -612,6 +616,11 @@ export async function getReportByStudent(studentId, schoolId, term, session, cla
     { ttl: TTL_MED, tags: ['reports', _k('reports', studentId)] }
   );
 }
+
+/**
+ * NEW: Return ALL saved reports for a specific school + class + term + session.
+ * Used by the admin page to build the historical student roster.
+ */
 export async function getReportsByClassTermSession(schoolId, classId, term, session) {
   if (!schoolId || !classId || !term || !session) return [];
   const key = _k('report', 'class', schoolId, classId, term, session);
@@ -631,6 +640,7 @@ export async function getReportsByClassTermSession(schoolId, classId, term, sess
     { ttl: TTL_MED, tags: ['reports', _k('reports', 'class', classId)] }
   );
 }
+
 export async function saveReport(reportData, existingId = null) {
   const data = { ...reportData, updatedAt: new Date() };
   if (!existingId) data.createdAt = new Date();
@@ -642,6 +652,7 @@ export async function saveReport(reportData, existingId = null) {
       const ref = await addDoc(collection(db, 'reports'), data);
       existingId = ref.id;
     }
+    // Precise per-period invalidation
     cache.invalidateByTag('reports');
     cache.del(_k('report', 'one', reportData.schoolId, reportData.studentId, reportData.classId || 'any', reportData.term, reportData.session));
     cache.del(_k('report', 'class', reportData.schoolId, reportData.classId, reportData.term, reportData.session));
@@ -902,9 +913,7 @@ export async function saveTestResult(data) {
   const resultData = { ...data, completedAt: serverTimestamp() };
   if (_online()) {
     const ref = await addDoc(collection(db, 'test_results'), resultData);
-    // Invalidate both tag forms so any cached summary is refreshed.
     cache.invalidateByTag('test-results');
-    cache.invalidateByTag('test_results');
     return ref.id;
   } else {
     return offlineQueue.enqueue({ type: 'CREATE', collection: 'test_results', payload: resultData });
@@ -919,7 +928,7 @@ export async function getTestResultsByUser(userId) {
       const snap = await getDocs(q);
       return _queryData(snap);
     },
-    { ttl: TTL_SHORT, tags: ['test-results', 'test_results', _k('test-results', userId)] }
+    { ttl: TTL_SHORT, tags: ['test-results', _k('test-results', userId)] }
   );
 }
 export async function getAssignedCbtScoresByStudent(studentId) {
@@ -941,46 +950,9 @@ export async function getAssignedCbtScoresByStudent(studentId) {
   );
 }
 
-/**
- * NEW — Dashboard statistics via Firestore aggregation.
- * Reads only the small aggregate result (count + average) instead of every
- * historical test_results document. Cache tags include both `test-results`
- * and `test_results` so both online saves and offline-queue sync invalidate
- * the summary. Also tagged with a per-user tag for defence in depth.
- */
-export async function getTestResultStatsByUser(userId) {
-  if (!userId) return { count: 0, average: 0 };
-  const key = _k('test-result-stats', userId);
-  return cache.getFreshOrCached(
-    key,
-    async () => {
-      const q = query(
-        collection(db, 'test_results'),
-        where('userId', '==', userId),
-        where('normalizedScore', '>=', 0)
-      );
-      const snap = await getAggregateFromServer(q, {
-        count: fsCount(),
-        avgScore: fsAverage('normalizedScore')
-      });
-      const data = snap.data();
-      return {
-        count: Number(data.count) || 0,
-        average: (data.avgScore === null || data.avgScore === undefined) ? 0 : Number(data.avgScore)
-      };
-    },
-    { ttl: TTL_SHORT, tags: ['test-results', 'test_results', _k('test-result-stats', userId)] }
-  );
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // QUESTIONS
 // ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Existing full-bank fetch. Kept for unrelated consumers. Not used by the
- * practice-test flows after Priority 1.
- */
 export async function getQuestions(examType, subject) {
   const key = _k('questions', examType, subject);
   return cache.getFreshOrCached(
@@ -996,64 +968,6 @@ export async function getQuestions(examType, subject) {
     },
     { ttl: TTL_LONG, tags: ['questions'] }
   );
-}
-
-/**
- * NEW — Indexed random sampling. Uses a numeric `randomKey` field
- * (Math.random() ∈ [0, 1)) written by cbt-admin.js. Two bounded queries
- * cover the two disjoint ranges around a per-attempt random pivot.
- *
- * Returns at most `requiredCount` matching documents. The final array is
- * shuffled in memory so the caller receives a random order. No static cache
- * key is used — every attempt produces a fresh sample.
- *
- * If the underlying bank contains fewer than `requiredCount` matching docs,
- * the returned array is shorter than requested. The existing caller then
- * shows the insufficient-questions error.
- */
-export async function getRandomQuestions(examType, subject, requiredCount) {
-  if (!examType || !subject || !requiredCount || requiredCount <= 0) return [];
-
-  const pivot = Math.random();
-  const results = [];
-  const seenIds = new Set();
-
-  // Query 1: randomKey >= pivot
-  const q1 = query(
-    collection(db, 'questions'),
-    where('examType', '==', examType),
-    where('subject',  '==', subject),
-    where('randomKey', '>=', pivot),
-    orderBy('randomKey'),
-    limit(requiredCount)
-  );
-  const snap1 = await getDocs(q1);
-  snap1.forEach(d => {
-    results.push({ id: d.id, ...d.data() });
-    seenIds.add(d.id);
-  });
-
-  // Query 2: randomKey < pivot — only the remainder that is still needed
-  if (results.length < requiredCount) {
-    const remaining = requiredCount - results.length;
-    const q2 = query(
-      collection(db, 'questions'),
-      where('examType', '==', examType),
-      where('subject',  '==', subject),
-      where('randomKey', '<', pivot),
-      orderBy('randomKey'),
-      limit(remaining)
-    );
-    const snap2 = await getDocs(q2);
-    snap2.forEach(d => {
-      if (!seenIds.has(d.id)) {
-        results.push({ id: d.id, ...d.data() });
-        seenIds.add(d.id);
-      }
-    });
-  }
-
-  return _shuffleArray(results);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
