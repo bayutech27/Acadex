@@ -5,6 +5,9 @@
 // All user-facing errors now show clear, friendly messages without technical jargon.
 // NEW: Added subscription check. If school subscription is expired, all CBT buttons are disabled
 //      and a notification is shown at the top of the page.
+// NEW: The "Student Name" column in the CBT Scores table now shows the real student name
+//      pulled from the `students` collection's `name` field (via the student's UID),
+//      instead of the auth-account-derived userName stored on each test_results document.
 
 import * as service from './service.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -177,10 +180,10 @@ async function loadSubjects() {
   if (!currentSchoolId) return [];
   try {
     return await service.getSubjectsBySchool(currentSchoolId);
-  } catch (e) { 
+  } catch (e) {
     console.warn('Subjects load error:', e);
     toast.error('Unable to load subjects. Please refresh the page.');
-    return []; 
+    return [];
   }
 }
 
@@ -336,7 +339,7 @@ async function endTest(testId) {
   try {
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
     toast.success('Test ended successfully.');
-  } catch (e) { 
+  } catch (e) {
     console.error('End test error:', e);
     toast.error('Failed to end test. Please try again.');
   }
@@ -349,7 +352,7 @@ async function startTest(testId) {
     showLoader();
     await updateDoc(doc(db, 'cbt', testId), { status: 'started', startedAt: serverTimestamp() });
     toast.success('Test activated! Students can now take it.');
-  } catch (e) { 
+  } catch (e) {
     console.error('Start test error:', e);
     toast.error('Failed to start test. Please try again.');
   }
@@ -364,7 +367,7 @@ async function confirmDeleteTest(testId) {
     await service.deleteCbt(testId);
     if (expirationTimers[testId]) { clearTimeout(expirationTimers[testId]); delete expirationTimers[testId]; }
     toast.success('Test deleted successfully.');
-  } catch (e) { 
+  } catch (e) {
     console.error('Delete test error:', e);
     toast.error('Failed to delete test. Please try again.');
   }
@@ -564,13 +567,13 @@ function saveCurrentQuestion() {
     toast.error('Question text or image is required.');
     return false;
   }
-  if (!optA || !optB || !optC || !optD) { 
+  if (!optA || !optB || !optC || !optD) {
     toast.error('All four options (A–D) are required.');
-    return false; 
+    return false;
   }
-  if (!['A','B','C','D'].includes(correct)) { 
+  if (!['A','B','C','D'].includes(correct)) {
     toast.error('Please select a valid correct answer.');
-    return false; 
+    return false;
   }
 
   currentQuestions[currentQuestionIndex] = {
@@ -708,16 +711,16 @@ async function saveTestToFirestore() {
   }
 
   const totalQ = parseInt(questionCountEl.value, 10);
-  if (!totalQ || totalQ < 1) { 
+  if (!totalQ || totalQ < 1) {
     toast.error('Please set the number of questions.');
-    return; 
+    return;
   }
   if (questionsSection.style.display !== 'none' && !saveCurrentQuestion()) return;
 
   const incomplete = currentQuestions.filter(q => !q || (!q.questionText && !q.questionImage));
-  if (incomplete.length > 0) { 
+  if (incomplete.length > 0) {
     toast.error(`${incomplete.length} question(s) are empty. Please complete all questions.`);
-    return; 
+    return;
   }
 
   const className = teacherClasses.find(c => c.id === classId)?.name || classId;
@@ -873,14 +876,14 @@ async function loadSchoolInfo() {
     const schoolAddressEl = document.getElementById('schoolAddress');
     if (schoolNameEl)    schoolNameEl.textContent    = school ? school.name : 'Unknown School';
     if (schoolAddressEl && school) schoolAddressEl.textContent = school.address || 'No address provided';
-    
+
     const logoImg = document.getElementById('schoolLogoImg');
     if (logoImg && school?.logo) {
       logoImg.src = school.logo;
     } else if (logoImg) {
       logoImg.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="%23e2e8f0"%3E%3Ccircle cx="12" cy="12" r="12"/%3E%3C/svg%3E';
     }
-    
+
     const session   = getCurrentSession();
     const term      = getCurrentTerm();
     const termDisplay = document.getElementById('currentTermDisplay');
@@ -894,7 +897,7 @@ async function loadSchoolInfo() {
 }
 
 // ============================================================
-// CBT SCORES MODULE — using service.getTestResultsByUser? Not suitable; keep direct queries.
+// CBT SCORES MODULE
 // ============================================================
 const cbtScoresModule = (() => {
   const classFilterEl   = () => document.getElementById('scoresClassSelect');
@@ -979,23 +982,23 @@ const cbtScoresModule = (() => {
     const sessionEl = sessionFilterEl();
     const termEl = termFilterEl();
     if (!classEl || !subjectEl || !sessionEl || !termEl) return;
-    
+
     classEl.innerHTML = '<option value="">Loading classes…</option>';
     subjectEl.innerHTML = '<option value="">Loading subjects…</option>';
     sessionEl.innerHTML = '<option value="">Loading sessions…</option>';
     termEl.innerHTML = '<option value="">Loading terms…</option>';
-    
+
     const [classes, subjects, sessionTermData] = await Promise.all([
       _fetchAssignedClasses(),
       _fetchAssignedSubjects(),
       _fetchDistinctSessionsAndTerms()
     ]);
-    
+
     _teacherClasses = classes;
     _teacherSubjects = subjects;
     _distinctSessions = sessionTermData.sessions;
     _distinctTerms = sessionTermData.terms;
-    
+
     classEl.innerHTML = '<option value="">— Select Class —</option>' + (classes.length ? classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('') : '<option value="" disabled>No classes assigned</option>');
     subjectEl.innerHTML = '<option value="">— Select Subject —</option>' + (subjects.length ? subjects.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('') : '<option value="" disabled>No subjects assigned</option>');
     sessionEl.innerHTML = '<option value="">— Select Session —</option>' + (_distinctSessions.length ? _distinctSessions.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('') : '<option value="" disabled>No sessions found</option>');
@@ -1020,17 +1023,21 @@ const cbtScoresModule = (() => {
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(doc => doc.subject === subjectName);
   }
 
-  function _groupByStudent(results) {
+  // UPDATED: now async — fetches real student names from the `students`
+  // collection (students/{uid}.name) using the userId of each grouped student.
+  // Falls back to the test_results userName/studentName if the student doc
+  // cannot be resolved.
+  async function _groupByStudent(results) {
     const map = new Map();
     for (const r of results) {
       const sid = r.userId || 'unknown';
-      const name = r.userName || r.studentName || 'Unknown Student';
-      if (!map.has(sid)) map.set(sid, { studentName: name, attempts: [] });
-      
+      const fallbackName = r.userName || r.studentName || '';
+      if (!map.has(sid)) map.set(sid, { studentName: fallbackName, attempts: [] });
+
       const rawScore = r.rawScore ?? r.correctAnswers ?? 0;
       const totalQuestions = r.totalQuestions ?? r.total ?? 0;
       const percentage = totalQuestions > 0 ? Math.round((rawScore / totalQuestions) * 100) : null;
-      
+
       map.get(sid).attempts.push({
         rawScore: rawScore,
         total: totalQuestions,
@@ -1040,7 +1047,26 @@ const cbtScoresModule = (() => {
         term: r.term || ''
       });
     }
+
+    // Fetch real student names from the students collection.
+    const ids = Array.from(map.keys()).filter(id => id && id !== 'unknown');
+    if (ids.length > 0) {
+      try {
+        const students = await service.getStudentsByIds(ids);
+        for (const s of students) {
+          const entry = map.get(s.id);
+          if (entry && s.name) {
+            entry.studentName = s.name;
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch student names from students collection:', err);
+      }
+    }
+
+    // Ensure every entry has a display name and sort attempts newest-first.
     for (const [, data] of map) {
+      if (!data.studentName) data.studentName = 'Unknown Student';
       data.attempts.sort((a, b) => {
         const da = a.completedAt?.toDate ? a.completedAt.toDate() : a.completedAt;
         const db = b.completedAt?.toDate ? b.completedAt.toDate() : b.completedAt;
@@ -1122,7 +1148,8 @@ const cbtScoresModule = (() => {
       if (results.length === 0) {
         _setResultsState('empty', `No CBT scores found for ${className} · ${subjectName} during ${selectedSession} ${selectedTerm}.`);
       } else {
-        const grouped = _groupByStudent(results);
+        // UPDATED: _groupByStudent is now async and fetches real student names.
+        const grouped = await _groupByStudent(results);
         _renderTable(grouped, results.length, className, subjectName);
         toast.success(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`);
       }
@@ -1188,8 +1215,8 @@ async function initializeTeacherContext() {
 
       // Apply subscription UI once more after all dynamic elements are ready.
       applySubscriptionUI();
-    } catch (err) { 
-      console.error("Initialization error:", err); 
+    } catch (err) {
+      console.error("Initialization error:", err);
       toast.error('Failed to load teacher data. Please refresh the page.');
       if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">⚠️ Failed to load teacher data. Please refresh.</p>';
     }
@@ -1202,11 +1229,11 @@ async function initializeTeacherContext() {
 export async function initTeacherCBT(teacherId, schoolId) {
   currentTeacherId = teacherId;
   currentSchoolId = schoolId;
-  if (!currentTeacherId || !currentSchoolId) { 
-    console.error('Invalid teacherId or schoolId provided'); 
+  if (!currentTeacherId || !currentSchoolId) {
+    console.error('Invalid teacherId or schoolId provided');
     toast.error('Invalid teacher or school information. Please refresh.');
     if (testsTableWrapper) testsTableWrapper.innerHTML = '<p class="no-data-msg">Invalid teacher or school information. Please refresh.</p>';
-    return; 
+    return;
   }
 
   await checkSubscriptionStatus();
