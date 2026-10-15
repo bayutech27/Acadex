@@ -4,19 +4,10 @@
 // In recent tests, shows actual subject name plus "(Assigned Test)" for CBT tests.
 //
 // All Firestore operations go through service.js where possible.
+// TODO: service.js does not yet support real-time listeners for test_results,
+// real-time listeners for assigned CBT tests (array-contains-any), or getCbtById
+// for starting a test – those remain as direct Firestore calls.
 // All user-facing errors now show clear, friendly messages without technical jargon.
-//
-// UPDATED (read optimisation):
-//  • Practice starters now use service.getRandomQuestions() for indexed random
-//    sampling instead of downloading the full question bank and slicing in JS.
-//  • updateBasicStats() now uses service.getTestResultStatsByUser() (Firestore
-//    aggregation) instead of downloading each historical result document.
-//  • setupRecentTests() is now a one-shot getDocs() query. Pagination and
-//    rendering are unchanged. The old onSnapshot listener has been removed.
-//  • The assigned-test listener now populates an in-memory map. The Take Test
-//    handler uses the map when the current snapshot is server-confirmed, so
-//    the redundant getDoc on every launch is avoided. A revalidation fallback
-//    is retained for the exceptional offline / cached-only case.
 
 import { auth, db } from '../../js/firebase-config.js';
 import { 
@@ -96,17 +87,9 @@ const cbtErrorMessage = getElement('cbtErrorMessage');
 let currentStudentData = null;
 let currentStudentId = null;
 let currentSchoolId = null;
+let unsubscribeRecentTests = null;
 let lastVisibleRecentDoc = null;
 let unsubscribeAssignedTests = null;
-
-// In-memory map of the currently loaded assigned CBT tests, keyed by CBT id.
-// Populated by the assigned-tests listener; used by startAssignedTest() to
-// avoid a redundant per-click getDoc on the normal online path.
-let assignedTestsMap = new Map();
-// True when the most recent assigned-tests snapshot was server-confirmed
-// (i.e. not served from the local Firestore cache). Only then is the map
-// safe to trust without re-validating.
-let assignedTestsServerConfirmed = false;
 
 // ========== HELPER FUNCTIONS (existing, unchanged) ==========
 function convertTimestamp(value) {
@@ -203,24 +186,21 @@ function populateWaecNecoSubjects() {
     });
 }
 
-// ========== RECENT TESTS (one-shot getDocs – Priority 3) ==========
-async function setupRecentTests(userId) {
+// ========== RECENT TESTS (real-time listener – kept direct Firestore) ==========
+function setupRecentTests(userId) {
+    if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
     const loadMoreContainer = document.getElementById('recentTestsMore');
     const loadMoreBtn = document.getElementById('loadMoreRecentBtn');
     if (!recentTestsList) return;
-
     lastVisibleRecentDoc = null;
-
     const q = query(
         collection(db, "test_results"),
         where("userId", "==", userId),
         orderBy("completedAt", "desc"),
         limit(RECENT_TESTS_PAGE_SIZE)
     );
-
-    try {
-        const snapshot = await getDocs(q);
+    unsubscribeRecentTests = onSnapshot(q, (snapshot) => {
         if (snapshot.empty) {
             recentTestsList.innerHTML = '<p class="no-tests">No tests yet. Start practicing!</p>';
             if (loadMoreContainer) loadMoreContainer.style.display = 'none';
@@ -233,11 +213,11 @@ async function setupRecentTests(userId) {
         if (results.length === RECENT_TESTS_PAGE_SIZE && loadMoreContainer) loadMoreContainer.style.display = 'block';
         else if (loadMoreContainer) loadMoreContainer.style.display = 'none';
         if (loadMoreBtn) loadMoreBtn.onclick = async () => await loadMoreRecentTests(userId);
-    } catch (error) {
+    }, (error) => {
         console.error("Error loading recent tests:", error);
         toast.error('Unable to load recent tests. Please refresh the page.');
         recentTestsList.innerHTML = '<p class="error">Error loading recent tests. Please refresh.</p>';
-    }
+    });
 }
 
 async function loadMoreRecentTests(userId) {
@@ -377,13 +357,21 @@ function renderUnknownTest(test) {
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
 }
 
-// ========== STATISTICS (Firestore aggregation – Priority 2) ==========
+// ========== STATISTICS (using service.getTestResultsByUser) ==========
 async function updateBasicStats(userId) {
     try {
-        const stats = await service.getTestResultStatsByUser(userId);
-        const totalTests = stats.count || 0;
-        const avg = totalTests > 0 ? Math.round(stats.average || 0) : 0;
+        const results = await service.getTestResultsByUser(userId);
+        let totalTests = 0, totalScore = 0;
+        results.forEach(data => {
+            let score = data.score;
+            if (data.mode === 'jamb_drill' && data.totalQuestions) score = (data.rawScore / data.totalQuestions) * 100;
+            if (score !== undefined && score !== null) {
+                totalTests++;
+                totalScore += score;
+            }
+        });
         if (completedTests) completedTests.textContent = totalTests;
+        const avg = totalTests > 0 ? Math.round(totalScore / totalTests) : 0;
         if (averageScore) averageScore.textContent = avg;
         let msg = "Start practicing!";
         if (avg >= 90) msg = "Excellent!";
@@ -397,7 +385,7 @@ async function updateBasicStats(userId) {
     }
 }
 
-// ========== ASSIGNED TESTS TABLE (listener + in-memory map – Priority 4) ==========
+// ========== ASSIGNED TESTS TABLE (real-time listener – kept direct Firestore) ==========
 function subscribeToAssignedTests() {
     if (!currentSchoolId || !currentStudentId || !currentStudentData) return;
     if (unsubscribeAssignedTests) unsubscribeAssignedTests();
@@ -411,15 +399,10 @@ function subscribeToAssignedTests() {
 
     unsubscribeAssignedTests = onSnapshot(q, (snapshot) => {
         const tests = [];
-        assignedTestsMap.clear();
         snapshot.forEach(docSnap => {
             const test = { id: docSnap.id, ...docSnap.data() };
             tests.push(test);
-            assignedTestsMap.set(docSnap.id, test);
         });
-        // Track whether the current snapshot came from the server (safe to
-        // use without revalidating) or from the local cache.
-        assignedTestsServerConfirmed = !snapshot.metadata.fromCache;
         renderAssignedTestsTable(tests);
     }, (err) => {
         console.error('Error listening to assigned tests:', err);
@@ -483,28 +466,12 @@ function renderAssignedTestsTable(tests) {
 
 async function startAssignedTest(cbtId) {
     try {
-        let cbtData = null;
-
-        // Prefer the in-memory assignment map when the current snapshot has
-        // been confirmed by the server. This avoids a redundant getDoc on the
-        // normal online path while preserving status validation downstream.
-        if (assignedTestsServerConfirmed) {
-            const cached = assignedTestsMap.get(cbtId);
-            if (cached) cbtData = cached;
+        const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
+        if (!cbtDoc.exists()) {
+            toast.error('Test not found. Please refresh the page.');
+            throw new Error('Test not found');
         }
-
-        // Safety fallback: if we do not have a server-confirmed object
-        // (offline, cached-only snapshot, or missing entry), fetch it so the
-        // same status and existence checks still run.
-        if (!cbtData) {
-            const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
-            if (!cbtDoc.exists()) {
-                toast.error('Test not found. Please refresh the page.');
-                throw new Error('Test not found');
-            }
-            cbtData = cbtDoc.data();
-        }
-
+        const cbtData = cbtDoc.data();
         if (cbtData.status !== 'started') {
             toast.error('This test is not available for taking.');
             return;
@@ -554,7 +521,7 @@ async function startAssignedTest(cbtId) {
     }
 }
 
-// ========== EXISTING TEST LAUNCHERS (now with random sampling – Priority 1) ==========
+// ========== EXISTING TEST LAUNCHERS (using service.getQuestions) ==========
 async function startQuickTest() {
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
@@ -565,12 +532,14 @@ async function startQuickTest() {
     try {
         showLoadingState(true, startQuickTestBtn);
         const firestoreExamType = EXAM_TYPE_MAP[selectedExam] || selectedExam;
-        const selectedQuestions = await fetchRandomQuestions(firestoreExamType, selectedSubject, QUESTIONS_TO_FETCH);
-        if (selectedQuestions.length < QUESTIONS_TO_FETCH) {
+        const allQuestions = await fetchQuestions(firestoreExamType, selectedSubject);
+        if (allQuestions.length < QUESTIONS_TO_FETCH) {
             showLoadingState(false, startQuickTestBtn);
-            toast.error(`Only ${selectedQuestions.length} questions available for "${selectedSubject}". Please add more questions.`);
+            toast.error(`Only ${allQuestions.length} questions available for "${selectedSubject}". Please add more questions.`);
             return;
         }
+        const shuffledQuestions = shuffleArray([...allQuestions]);
+        const selectedQuestions = shuffledQuestions.slice(0, QUESTIONS_TO_FETCH);
         const totalTime = selectedQuestions.reduce((total, q) => total + (parseInt(q.timeLimit) || 120), 0);
         const testData = {
             testId: generateTestId(),
@@ -611,13 +580,14 @@ async function startJambDrill() {
         showLoadingState(true, startJambDrillBtn);
         const subjectQuestionMap = {};
         for (let subj of subjects) {
-            const randomQuestions = await fetchRandomQuestions('JAMB', subj.value, subj.count);
-            if (randomQuestions.length < subj.count) {
+            const questions = await fetchQuestions('JAMB', subj.value);
+            if (questions.length < subj.count) {
                 showLoadingState(false, startJambDrillBtn);
-                toast.error(`Not enough questions for ${subj.name}. Available: ${randomQuestions.length}, needed: ${subj.count}.`);
+                toast.error(`Not enough questions for ${subj.name}. Available: ${questions.length}, needed: ${subj.count}.`);
                 return;
             }
-            const selected = randomQuestions.map(q => ({ ...q, subject: subj.value, subjectName: subj.name }));
+            const shuffled = shuffleArray(questions);
+            const selected = shuffled.slice(0, subj.count).map(q => ({ ...q, subject: subj.value, subjectName: subj.name }));
             subjectQuestionMap[subj.value] = selected;
         }
         const finalQuestions = [];
@@ -652,12 +622,14 @@ async function startWaecNecoDrill() {
     }
     try {
         showLoadingState(true, startWaecNecoDrillBtn);
-        const selectedQuestions = await fetchRandomQuestions('WAEC/NECO', selectedSubject, WAEC_NECO_QUESTIONS);
-        if (selectedQuestions.length < WAEC_NECO_QUESTIONS) {
+        const allQuestions = await fetchQuestions('WAEC/NECO', selectedSubject);
+        if (allQuestions.length < WAEC_NECO_QUESTIONS) {
             showLoadingState(false, startWaecNecoDrillBtn);
-            toast.error(`Only ${selectedQuestions.length} WAEC/NECO questions available for "${selectedSubject}". Please add more questions.`);
+            toast.error(`Only ${allQuestions.length} WAEC/NECO questions available for "${selectedSubject}". Please add more questions.`);
             return;
         }
+        const shuffled = shuffleArray([...allQuestions]);
+        const selectedQuestions = shuffled.slice(0, WAEC_NECO_QUESTIONS);
         const testData = {
             testId: generateTestId(),
             mode: 'waec_neco',
@@ -680,10 +652,6 @@ async function startWaecNecoDrill() {
     }
 }
 
-/**
- * Existing full-bank loader. Kept for backward compatibility with any future
- * consumer. Not used by the three practice starters above.
- */
 async function fetchQuestions(examType, subject) {
     try {
         const questions = await service.getQuestions(examType, subject);
@@ -700,33 +668,6 @@ async function fetchQuestions(examType, subject) {
         return processed;
     } catch (error) {
         console.error('Error in fetchQuestions:', error);
-        toast.error('Failed to load questions. Please check your internet connection.');
-        throw error;
-    }
-}
-
-/**
- * NEW: indexed random sample via service.getRandomQuestions(). Returns up to
- * `requiredCount` matching questions. The selection is already shuffled by
- * the service layer. If the underlying bank contains fewer matching
- * documents, the returned array is shorter and the caller shows the
- * insufficient-questions error.
- */
-async function fetchRandomQuestions(examType, subject, requiredCount) {
-    try {
-        const questions = await service.getRandomQuestions(examType, subject, requiredCount);
-        return questions.map(q => ({
-            id: q.id,
-            ...q,
-            options: q.options || {
-                A: q.optionA || "",
-                B: q.optionB || "",
-                C: q.optionC || "",
-                D: q.optionD || ""
-            }
-        }));
-    } catch (error) {
-        console.error('Error in fetchRandomQuestions:', error);
         toast.error('Failed to load questions. Please check your internet connection.');
         throw error;
     }
@@ -853,7 +794,7 @@ async function initCBTDashboard() {
             populateQuickTestSubjects();
             populateWaecNecoSubjects();
             setupJambDrillSubjects();
-            await setupRecentTests(currentStudentId);
+            setupRecentTests(currentStudentId);
             await updateBasicStats(currentStudentId);
             createTabs();
         } else {
