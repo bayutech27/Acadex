@@ -6,7 +6,6 @@
 //        .antiCheatMessage / .antiCheatCountdown children the JS expects,
 //        and the CSS defines .anti-cheat-modal.is-visible.
 // ADDED: Fullscreen-exit warning handler (was missing in the original file).
-// ADDED: normalizedScore field on new test_results (dashboard aggregation).
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -946,15 +945,6 @@ function autoSubmitTest() {
 
 // =============================================
 // SAVE TEST RESULT TO FIRESTORE
-// -----------------------------------------------------------------------------
-// UPDATED: adds `normalizedScore` so the dashboard aggregation can run on a
-// single numeric field. The value follows the existing dashboard semantics:
-//   • JAMB Drill with valid totalQuestions → (rawScore / totalQuestions) * 100
-//   • Otherwise → the stored `score` value
-//   • If neither is a valid finite number, no field is written (the doc is
-//     simply excluded from aggregate statistics).
-// The existing displayed score, questions payload and every other field are
-// left exactly as they were.
 // =============================================
 async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores) {
     try {
@@ -1038,18 +1028,6 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
             session: session,
             term: term
         };
-
-        // ── normalizedScore (aggregation-ready) ─────────────────────────────
-        let normalizedScore = null;
-        if (testData.mode === 'jamb_drill' && testData.totalQuestions && testData.totalQuestions > 0) {
-            normalizedScore = (rawScore / testData.totalQuestions) * 100;
-        } else if (typeof score === 'number' && Number.isFinite(score)) {
-            normalizedScore = score;
-        }
-        if (normalizedScore !== null && Number.isFinite(normalizedScore)) {
-            resultData.normalizedScore = normalizedScore;
-        }
-        // ────────────────────────────────────────────────────────────────────
 
         if (testData.mode === 'jamb_drill') {
             resultData.subjects = testData.subjects;
