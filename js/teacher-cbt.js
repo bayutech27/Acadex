@@ -241,6 +241,8 @@ function subscribeToTests() {
 
   unsubscribeTests = service.subscribeToTeacherCbt(currentTeacherId, currentSchoolId, (testsList) => {
     tests = testsList;
+    // NEW: rebuild the Session/Term filters now that the teacher's tests are loaded.
+    cbtScoresModule.refreshSessionTerm();
     checkAndExpireTests(tests);
     renderTestsTable(tests);
     // After rendering dynamic buttons, re-apply UI state.
@@ -949,31 +951,67 @@ const cbtScoresModule = (() => {
     } catch (err) { console.warn(err); return []; }
   }
 
-  async function _fetchDistinctSessionsAndTerms() {
-    if (!currentSchoolId) return { sessions: [], terms: [] };
+  // NEW: builds the Session/Term filter options from data already in memory
+  // (module-level `tests` array + academic calendar). Makes ZERO Firestore reads.
+  function _fetchDistinctSessionsAndTerms() {
+    const sessionsSet = new Set();
+    const termsSet = new Set();
+
+    // Current session from the academic calendar (may not be initialised yet).
     try {
-      const q = query(
-        collection(db, 'test_results'),
-        where('schoolId', '==', currentSchoolId),
-        where('examType', '==', 'CBT'),
-        where('mode', '==', 'cbt')
-      );
-      const snap = await getDocs(q);
-      const sessions = new Set();
-      const terms = new Set();
-      snap.docs.forEach(d => {
-        const data = d.data();
-        if (data.session) sessions.add(data.session);
-        if (data.term) terms.add(data.term);
-      });
-      return {
-        sessions: Array.from(sessions).sort(),
-        terms: Array.from(terms).sort()
-      };
-    } catch (err) {
-      console.warn('Error fetching distinct sessions/terms:', err);
-      return { sessions: [], terms: [] };
+      const currentSession = getCurrentSession();
+      if (currentSession) sessionsSet.add(currentSession);
+    } catch (_) { /* calendar not ready — skip */ }
+
+    // Sessions and terms seen in the teacher's own tests.
+    if (Array.isArray(tests)) {
+      for (const t of tests) {
+        if (t && t.session) sessionsSet.add(t.session);
+        if (t && t.term) termsSet.add(t.term);
+      }
     }
+
+    // Fixed term labels used across the app (see academic-calendar.js),
+    // followed by any extra term strings found on the teacher's tests.
+    const orderedTerms = ['First Term', 'Second Term', 'Third Term'];
+    for (const t of termsSet) {
+      if (!orderedTerms.includes(t)) orderedTerms.push(t);
+    }
+
+    // Sessions newest first (e.g. "2025/2026" before "2024/2025").
+    const sessions = Array.from(sessionsSet)
+      .sort((a, b) => String(b).localeCompare(String(a)));
+
+    return { sessions, terms: orderedTerms };
+  }
+
+  // NEW: rebuild only the Session and Term <select> options.
+  // Called from the subscribeToTests callback once `tests` has loaded.
+  // Makes ZERO Firestore reads.
+  function refreshSessionTerm() {
+    const sessionEl = sessionFilterEl();
+    const termEl = termFilterEl();
+    if (!sessionEl || !termEl) return;
+
+    const data = _fetchDistinctSessionsAndTerms();
+    _distinctSessions = data.sessions;
+    _distinctTerms = data.terms;
+
+    const prevSession = sessionEl.value;
+    const prevTerm = termEl.value;
+
+    sessionEl.innerHTML = '<option value="">— Select Session —</option>' +
+      (_distinctSessions.length
+        ? _distinctSessions.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')
+        : '<option value="" disabled>No sessions found</option>');
+    termEl.innerHTML = '<option value="">— Select Term —</option>' +
+      (_distinctTerms.length
+        ? _distinctTerms.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')
+        : '<option value="" disabled>No terms found</option>');
+
+    // Keep the user's previous selection if it is still valid.
+    if (prevSession && _distinctSessions.includes(prevSession)) sessionEl.value = prevSession;
+    if (prevTerm && _distinctTerms.includes(prevTerm)) termEl.value = prevTerm;
   }
 
   async function populateDropdowns() {
@@ -988,11 +1026,13 @@ const cbtScoresModule = (() => {
     sessionEl.innerHTML = '<option value="">Loading sessions…</option>';
     termEl.innerHTML = '<option value="">Loading terms…</option>';
 
-    const [classes, subjects, sessionTermData] = await Promise.all([
+    const [classes, subjects] = await Promise.all([
       _fetchAssignedClasses(),
-      _fetchAssignedSubjects(),
-      _fetchDistinctSessionsAndTerms()
+      _fetchAssignedSubjects()
     ]);
+
+    // NEW: sessions/terms now come from in-memory data only — no Firestore reads.
+    const sessionTermData = _fetchDistinctSessionsAndTerms();
 
     _teacherClasses = classes;
     _teacherSubjects = subjects;
@@ -1174,7 +1214,7 @@ const cbtScoresModule = (() => {
     await populateDropdowns();
   }
 
-  return { init, populateDropdowns };
+  return { init, populateDropdowns, refreshSessionTerm };
 })();
 
 // ==============================
