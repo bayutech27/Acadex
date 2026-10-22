@@ -357,22 +357,13 @@ function renderUnknownTest(test) {
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
 }
 
-// ========== STATISTICS (using service.getTestResultsByUser) ==========
+// ========== STATISTICS (using service.getTestStatsByUser – aggregate) ==========
 async function updateBasicStats(userId) {
     try {
-        const results = await service.getTestResultsByUser(userId);
-        let totalTests = 0, totalScore = 0;
-        results.forEach(data => {
-            let score = data.score;
-            if (data.mode === 'jamb_drill' && data.totalQuestions) score = (data.rawScore / data.totalQuestions) * 100;
-            if (score !== undefined && score !== null) {
-                totalTests++;
-                totalScore += score;
-            }
-        });
-        if (completedTests) completedTests.textContent = totalTests;
-        const avg = totalTests > 0 ? Math.round(totalScore / totalTests) : 0;
-        if (averageScore) averageScore.textContent = avg;
+        const stats = await service.getTestStatsByUser(userId);
+        if (completedTests) completedTests.textContent = stats.totalTests;
+        if (averageScore) averageScore.textContent = stats.averageScore;
+        const avg = stats.averageScore;
         let msg = "Start practicing!";
         if (avg >= 90) msg = "Excellent!";
         else if (avg >= 80) msg = "Great job!";
