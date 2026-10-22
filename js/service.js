@@ -15,7 +15,8 @@ import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc,
   getDocs, collection, query, where, orderBy, limit, startAfter,
   onSnapshot, serverTimestamp, writeBatch, increment,
-  arrayUnion, arrayRemove, documentId
+  arrayUnion, arrayRemove, documentId,
+  count, sum, getAggregateFromServer
 } from 'https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js';
 import * as cache from './cache.js';
 import * as offlineQueue from './offlineQueue.js';
@@ -931,6 +932,62 @@ export async function getTestResultsByUser(userId) {
     { ttl: TTL_SHORT, tags: ['test-results', _k('test-results', userId)] }
   );
 }
+
+/**
+ * NEW: cheap aggregate stats for a user's test_results.
+ * Uses server-side aggregation (billed ~1 read per 1,000 matching docs)
+ * instead of downloading every full result document.
+ *
+ *   totalTests   = count() of test_results where userId == userId
+ *   averageScore = per-mode (count, sum of 'score') across
+ *                  ['quick','waec_neco','cbt','jamb_drill'];
+ *                  'jamb_drill' score is out of 400 → normalised as score/4;
+ *                  all other modes use score directly (already a percentage).
+ *                  avg = Math.round(sum of normalised / sum of per-mode counts).
+ *
+ * Cached with TTL_SHORT and tagged 'test-results' so the existing
+ * saveTestResult() invalidation refreshes it after every submission.
+ */
+export async function getTestStatsByUser(userId) {
+  if (!userId) return { totalTests: 0, averageScore: 0 };
+  const key = _k('test-stats', userId);
+  return cache.getFreshOrCached(
+    key,
+    async () => {
+      const coll = collection(db, 'test_results');
+
+      // 1) total tests — one aggregate query
+      const totalSnap = await getAggregateFromServer(
+        query(coll, where('userId', '==', userId)),
+        { totalTests: count() }
+      );
+      const totalTests = totalSnap.data().totalTests || 0;
+
+      // 2) per-mode score aggregation (4 cheap aggregate queries)
+      const modes = ['quick', 'waec_neco', 'cbt', 'jamb_drill'];
+      let normalisedSum = 0;
+      let totalCounted = 0;
+      for (const mode of modes) {
+        const snap = await getAggregateFromServer(
+          query(coll, where('userId', '==', userId), where('mode', '==', mode)),
+          { cnt: count(), scoreSum: sum('score') }
+        );
+        const data = snap.data();
+        const cnt = data.cnt || 0;
+        const scoreSum = data.scoreSum || 0;
+        if (cnt > 0) {
+          normalisedSum += (mode === 'jamb_drill') ? (scoreSum / 4) : scoreSum;
+          totalCounted += cnt;
+        }
+      }
+
+      const averageScore = totalCounted > 0 ? Math.round(normalisedSum / totalCounted) : 0;
+      return { totalTests, averageScore };
+    },
+    { ttl: TTL_SHORT, tags: ['test-results', _k('test-results', userId)] }
+  );
+}
+
 export async function getAssignedCbtScoresByStudent(studentId) {
   const key = _k('assigned-cbt', studentId);
   return cache.getFreshOrCached(
