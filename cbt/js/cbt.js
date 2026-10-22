@@ -38,7 +38,7 @@ import { toast } from '../../js/error-handler.js';
 const WAEC_NECO_QUESTIONS = 50;
 const WAEC_NECO_TIME = 40 * 60;
 const QUESTIONS_TO_FETCH = 20;
-const RECENT_TESTS_PAGE_SIZE = 12;
+const RECENT_TESTS_PAGE_SIZE = 5;
 
 const EXAM_TYPE_MAP = {
     'waec': 'WAEC/NECO',
@@ -186,8 +186,12 @@ function populateWaecNecoSubjects() {
     });
 }
 
-// ========== RECENT TESTS (real-time listener – kept direct Firestore) ==========
-function setupRecentTests(userId) {
+// ========== RECENT TESTS (one-shot getDocs – no live listener) ==========
+// FIX 5: replaces the previous onSnapshot with a single getDocs of the
+// same query (same where/orderBy/limit → same index). Page size reduced
+// to 5. `unsubscribeRecentTests` remains declared for compatibility but
+// is no longer assigned a listener.
+async function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
     const loadMoreContainer = document.getElementById('recentTestsMore');
@@ -200,7 +204,8 @@ function setupRecentTests(userId) {
         orderBy("completedAt", "desc"),
         limit(RECENT_TESTS_PAGE_SIZE)
     );
-    unsubscribeRecentTests = onSnapshot(q, (snapshot) => {
+    try {
+        const snapshot = await getDocs(q);
         if (snapshot.empty) {
             recentTestsList.innerHTML = '<p class="no-tests">No tests yet. Start practicing!</p>';
             if (loadMoreContainer) loadMoreContainer.style.display = 'none';
@@ -213,11 +218,11 @@ function setupRecentTests(userId) {
         if (results.length === RECENT_TESTS_PAGE_SIZE && loadMoreContainer) loadMoreContainer.style.display = 'block';
         else if (loadMoreContainer) loadMoreContainer.style.display = 'none';
         if (loadMoreBtn) loadMoreBtn.onclick = async () => await loadMoreRecentTests(userId);
-    }, (error) => {
+    } catch (error) {
         console.error("Error loading recent tests:", error);
         toast.error('Unable to load recent tests. Please refresh the page.');
         recentTestsList.innerHTML = '<p class="error">Error loading recent tests. Please refresh.</p>';
-    });
+    }
 }
 
 async function loadMoreRecentTests(userId) {
@@ -376,30 +381,57 @@ async function updateBasicStats(userId) {
     }
 }
 
-// ========== ASSIGNED TESTS TABLE (real-time listener – kept direct Firestore) ==========
+// ========== ASSIGNED TESTS TABLE ==========
+// FIX 6 (Option A): Firestore rejects array-contains-any combined with 'in'
+// in the same query. Split into two live listeners — one for status 'pending',
+// one for status 'started' — each an equality filter combined with the
+// existing array-contains-any scope. Students still see a newly assigned test
+// immediately, and see a test the moment the teacher starts it. Expired tests
+// are no longer listed on the Assigned Tests tab.
 function subscribeToAssignedTests() {
     if (!currentSchoolId || !currentStudentId || !currentStudentData) return;
     if (unsubscribeAssignedTests) unsubscribeAssignedTests();
 
     const studentClassId = currentStudentData.classId;
-    const q = query(
+    const qPending = query(
         collection(db, 'cbt'),
         where('schoolId', '==', currentSchoolId),
-        where('assignedTo', 'array-contains-any', [currentStudentId, studentClassId])
+        where('assignedTo', 'array-contains-any', [currentStudentId, studentClassId]),
+        where('status', '==', 'pending')
+    );
+    const qStarted = query(
+        collection(db, 'cbt'),
+        where('schoolId', '==', currentSchoolId),
+        where('assignedTo', 'array-contains-any', [currentStudentId, studentClassId]),
+        where('status', '==', 'started')
     );
 
-    unsubscribeAssignedTests = onSnapshot(q, (snapshot) => {
-        const tests = [];
-        snapshot.forEach(docSnap => {
-            const test = { id: docSnap.id, ...docSnap.data() };
-            tests.push(test);
-        });
-        renderAssignedTestsTable(tests);
+    let pendingTests = [];
+    let startedTests = [];
+    const renderMerged = () => renderAssignedTestsTable([...pendingTests, ...startedTests]);
+
+    const unsubPending = onSnapshot(qPending, (snap) => {
+        pendingTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderMerged();
     }, (err) => {
-        console.error('Error listening to assigned tests:', err);
+        console.error('Error listening to pending tests:', err);
         toast.warning('Unable to load assigned tests. Please refresh the page.');
         if (assignedTestsWrapper) assignedTestsWrapper.innerHTML = '<p class="error">Error loading assigned tests. Please refresh.</p>';
     });
+
+    const unsubStarted = onSnapshot(qStarted, (snap) => {
+        startedTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderMerged();
+    }, (err) => {
+        console.error('Error listening to started tests:', err);
+        // Show the error only if the pending listener has not already done so.
+        if (assignedTestsWrapper && !assignedTestsWrapper.querySelector('.error')) {
+            toast.warning('Unable to load assigned tests. Please refresh the page.');
+            assignedTestsWrapper.innerHTML = '<p class="error">Error loading assigned tests. Please refresh.</p>';
+        }
+    });
+
+    unsubscribeAssignedTests = () => { unsubPending(); unsubStarted(); };
 }
 
 function renderAssignedTestsTable(tests) {
