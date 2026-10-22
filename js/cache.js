@@ -5,6 +5,7 @@
 const CACHE_STORAGE_KEY = 'acadex_cache_v2';
 const DEFAULT_TTL       = 5 * 60 * 1000;   // 5 minutes
 const PERSIST_DEBOUNCE  = 300;              // ms – avoid hammering localStorage
+const MAX_PERSIST_ENTRY_CHARS = 50000;      // NEW: skip persisting entries larger than this (stay in memory)
 
 // ── In-memory store ──────────────────────────────────────────────────────────
 const _mem = new Map();
@@ -41,13 +42,76 @@ function _schedulePersist() {
   _persistTimer = setTimeout(_writeToStorage, PERSIST_DEBOUNCE);
 }
 
+function _isQuotaError(err) {
+  if (!err) return false;
+  return (
+    err.name === 'QuotaExceededError' ||
+    err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    err.code === 22 ||
+    err.code === 1014
+  );
+}
+
 function _writeToStorage() {
   try {
+    // Build the persistable object, skipping entries that are too large
+    // to safely fit in localStorage (they stay in memory only).
     const out = {};
     for (const [k, v] of _mem.entries()) {
-      if (!_isExpired(v)) out[k] = v;
+      if (_isExpired(v)) continue;
+      let serialized;
+      try {
+        serialized = JSON.stringify(v);
+      } catch (_) {
+        continue; // unserializable entry – skip
+      }
+      if (typeof serialized !== 'string' || serialized.length > MAX_PERSIST_ENTRY_CHARS) {
+        continue; // too large – stays in memory only
+      }
+      out[k] = v;
     }
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(out));
+
+    try {
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(out));
+      return;
+    } catch (e) {
+      // Only attempt trimming for quota errors; other errors (e.g. storage
+      // disabled) won't be helped by removing entries.
+      if (!_isQuotaError(e)) {
+        console.warn('[Cache] localStorage write failed:', e.message);
+        return;
+      }
+    }
+
+    // Quota exceeded – remove largest remaining entries one by one and retry
+    // until it fits or the object becomes empty. Never throw out of this fn.
+    const sized = [];
+    for (const [k, v] of Object.entries(out)) {
+      let len = 0;
+      try { len = JSON.stringify(v).length; } catch (_) { len = 0; }
+      sized.push([k, len]);
+    }
+    sized.sort((a, b) => b[1] - a[1]); // largest first
+
+    const attempt = { ...out };
+    while (sized.length > 0) {
+      const [biggestKey] = sized.shift();
+      delete attempt[biggestKey];
+      try {
+        localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(attempt));
+        return; // fit!
+      } catch (e) {
+        if (!_isQuotaError(e)) {
+          console.warn('[Cache] localStorage write failed after trimming:', e.message);
+          return;
+        }
+        // still over quota – keep trimming
+      }
+    }
+
+    // Nothing left to trim – clean up so stale data is not left behind.
+    try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch (_) {}
+    console.warn('[Cache] localStorage write failed even after trimming (entry too large to persist).');
   } catch (e) {
     console.warn('[Cache] localStorage write failed:', e.message);
   }
