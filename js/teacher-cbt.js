@@ -915,6 +915,13 @@ const cbtScoresModule = (() => {
   let _distinctTerms = [];
   let _isFetching = false;
 
+  // FIX 2: 60-second in-memory reuse for test_results queries.
+  // Module variable only — never persisted to localStorage.
+  const RESULTS_REUSE_MS = 60 * 1000;
+  let _resultsCacheKey = null;
+  let _resultsCacheTs = 0;
+  let _resultsCacheData = null;
+
   function _formatDate(val) {
     if (!val) return '—';
     if (typeof val.toDate === 'function') return formatDateOnly(val.toDate());
@@ -1045,29 +1052,63 @@ const cbtScoresModule = (() => {
     termEl.innerHTML = '<option value="">— Select Term —</option>' + (_distinctTerms.length ? _distinctTerms.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') : '<option value="" disabled>No terms found</option>');
   }
 
+  // FIX 2: query test_results only for the teacher's own tests that match
+  // this class/subject/session/term. Uses `cbtId in [<=10]` chunks scoped
+  // by schoolId. 60-second in-memory reuse prevents repeat-click cost.
   async function _queryTestResults(classId, subjectId, selectedSession, selectedTerm) {
     const selectedSubject = _teacherSubjects.find(s => s.id === subjectId);
     const subjectName = selectedSubject ? selectedSubject.name : null;
     if (!subjectName) return [];
 
-    const q = query(
-      collection(db, 'test_results'),
-      where('examType', '==', 'CBT'),
-      where('mode', '==', 'cbt'),
-      where('classId', '==', classId),
-      where('schoolId', '==', currentSchoolId),
-      where('session', '==', selectedSession),
-      where('term', '==', selectedTerm)
+    const cacheKey = classId + '|' + subjectId + '|' + selectedSession + '|' + selectedTerm;
+    const now = Date.now();
+    if (_resultsCacheKey === cacheKey &&
+        (now - _resultsCacheTs) < RESULTS_REUSE_MS &&
+        Array.isArray(_resultsCacheData)) {
+      return _resultsCacheData;
+    }
+
+    // Find the teacher's own tests that match this class + subject + session + term.
+    const matchingTests = (Array.isArray(tests) ? tests : []).filter(t =>
+      t &&
+      t.classId === classId &&
+      t.subjectId === subjectId &&
+      t.session === selectedSession &&
+      t.term === selectedTerm
     );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(doc => doc.subject === subjectName);
+    const cbtIds = matchingTests.map(t => t.id).filter(Boolean);
+
+    if (cbtIds.length === 0) {
+      _resultsCacheKey = cacheKey;
+      _resultsCacheTs = now;
+      _resultsCacheData = [];
+      return [];
+    }
+
+    const allResults = [];
+    for (let i = 0; i < cbtIds.length; i += 10) {
+      const chunk = cbtIds.slice(i, i + 10);
+      const q = query(
+        collection(db, 'test_results'),
+        where('schoolId', '==', currentSchoolId),
+        where('cbtId', 'in', chunk)
+      );
+      const snapshot = await getDocs(q);
+      snapshot.docs.forEach(d => allResults.push({ id: d.id, ...d.data() }));
+    }
+
+    _resultsCacheKey = cacheKey;
+    _resultsCacheTs = now;
+    _resultsCacheData = allResults;
+    return allResults;
   }
 
-  // UPDATED: now async — fetches real student names from the `students`
-  // collection (students/{uid}.name) using the userId of each grouped student.
-  // Falls back to the test_results userName/studentName if the student doc
-  // cannot be resolved.
-  async function _groupByStudent(results) {
+  // FIX 3: classId parameter added. Uses cached service.getStudentsByClass
+  // (5-minute TTL, active students only) to build an id -> name map,
+  // replacing per-ID student reads. Inactive/graduated students are not
+  // in the active roster and correctly fall back to the stored
+  // userName/studentName on the result, then 'Unknown Student'.
+  async function _groupByStudent(results, classId) {
     const map = new Map();
     for (const r of results) {
       const sid = r.userId || 'unknown';
@@ -1088,19 +1129,20 @@ const cbtScoresModule = (() => {
       });
     }
 
-    // Fetch real student names from the students collection.
-    const ids = Array.from(map.keys()).filter(id => id && id !== 'unknown');
-    if (ids.length > 0) {
+    // Fetch real student names from the cached class roster.
+    if (classId) {
       try {
-        const students = await service.getStudentsByIds(ids);
-        for (const s of students) {
-          const entry = map.get(s.id);
-          if (entry && s.name) {
-            entry.studentName = s.name;
-          }
+        const roster = await service.getStudentsByClass(currentSchoolId, classId);
+        const nameById = new Map();
+        for (const s of roster) {
+          if (s && s.id && s.name) nameById.set(s.id, s.name);
+        }
+        for (const [sid, entry] of map) {
+          const name = nameById.get(sid);
+          if (name) entry.studentName = name;
         }
       } catch (err) {
-        console.warn('Could not fetch student names from students collection:', err);
+        console.warn('Could not fetch class roster for student names:', err);
       }
     }
 
@@ -1188,8 +1230,8 @@ const cbtScoresModule = (() => {
       if (results.length === 0) {
         _setResultsState('empty', `No CBT scores found for ${className} · ${subjectName} during ${selectedSession} ${selectedTerm}.`);
       } else {
-        // UPDATED: _groupByStudent is now async and fetches real student names.
-        const grouped = await _groupByStudent(results);
+        // FIX 3: classId passed so _groupByStudent uses the cached roster.
+        const grouped = await _groupByStudent(results, classId);
         _renderTable(grouped, results.length, className, subjectName);
         toast.success(`Loaded ${grouped.size} student(s) with ${results.length} attempt(s).`);
       }
