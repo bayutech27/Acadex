@@ -6,6 +6,19 @@
 //        .antiCheatMessage / .antiCheatCountdown children the JS expects,
 //        and the CSS defines .anti-cheat-modal.is-visible.
 // ADDED: Fullscreen-exit warning handler (was missing in the original file).
+//
+// NEW: Per-student submission markers. After a CBT result is saved to
+//      `test_results`, a marker document is written to `cbt_submissions`
+//      (`{cbtId}_{studentId}`) so the student dashboard can disable the
+//      "Take Test" button and prevent retakes while the test is still open.
+//      The write is NON-FATAL: if it fails (e.g. missing Firestore rule),
+//      the student dashboard's GUARD 3 (test_results existence + epoch check)
+//      still blocks the student on the next attempt.
+//
+// REMOVED: dead duplicate startAssignedTest() at the bottom of this file —
+//          it was never called; the live version lives in cbt/js/cbt.js and
+//          has its own guards. Removing it eliminates a future footgun where
+//          a deep-linked test.html?cbtId=… could bypass guards.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -398,11 +411,9 @@ function hideFullscreenWarning() {
 function handleFullscreenChange() {
     const isFullscreen = !!getFullscreenElement();
     if (isFullscreen) {
-        // Entering (or re-entering) fullscreen hides the warning.
         wasFullscreenActive = true;
         hideFullscreenWarning();
     } else if (wasFullscreenActive) {
-        // Only warn if fullscreen was previously active.
         showFullscreenWarning();
     }
 }
@@ -440,7 +451,6 @@ function registerViolation(reason) {
     tabSwitchCount++;
 
     if (tabSwitchCount === 1) {
-        // First violation: 15-second warning only, NO submission.
         logViolation('first_violation', reason);
         showAntiCheatModal(
             'You left the exam window. This is your ONLY warning. ' +
@@ -450,7 +460,6 @@ function registerViolation(reason) {
         return;
     }
 
-    // Second violation: persistent modal + background auto-submission.
     logViolation('second_violation', reason);
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
@@ -460,7 +469,8 @@ function registerViolation(reason) {
         null
     );
 
-    submitTest(true, SECOND_MODAL_MS).catch(function (err) {
+    // NEW: submissionType 'auto' → cbt_submissions marker records it as auto.
+    submitTest(true, SECOND_MODAL_MS, 'auto').catch(function (err) {
         console.warn('Auto-submit failed, forcing redirect:', err);
         try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err2) {}
         window.location.href = DASHBOARD_URL;
@@ -571,31 +581,18 @@ function preventDragStart(e) {
 }
 
 function initAntiCheat() {
-    // Tab visibility / window focus
     document.addEventListener('visibilitychange', handleVisibilityLoss);
     window.addEventListener('blur', handleWindowBlur);
-
-    // Refresh / unload
     window.addEventListener('keydown', preventRefresh, true);
     window.addEventListener('beforeunload', preventBeforeUnload);
-
-    // Keyboard-level blocks (shortcuts, devtools, screenshots)
     document.addEventListener('keydown', handleKeyBlock, true);
-
-    // Clipboard blocking
     document.addEventListener('copy',  preventClipboard, true);
     document.addEventListener('cut',   preventClipboard, true);
     document.addEventListener('paste', preventClipboard, true);
-
-    // Right-click / context menu
     document.addEventListener('contextmenu', preventContextMenu, true);
-
-    // Text selection / drag
     document.addEventListener('selectstart', preventSelectStart, true);
     document.addEventListener('dragstart',   preventDragStart,   true);
 
-    // Fullscreen tracking — registered across vendor prefixes so it works
-    // in Chrome, Safari, Firefox, Edge, and older browsers.
     ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
         .forEach(function (evt) {
             document.addEventListener(evt, handleFullscreenChange);
@@ -938,15 +935,23 @@ function updateTimerDisplay() {
 
 function showSubmitModal() { updateAnsweredCount(); submitModal.style.display = 'flex'; }
 function hideSubmitModal() { submitModal.style.display = 'none'; }
+
+// NEW: timer-expiry submission is now explicitly marked 'auto'.
 function autoSubmitTest() {
     getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...';
-    setTimeout(function () { submitTest(false); }, 1000);
+    setTimeout(function () { submitTest(false, 0, 'auto'); }, 1000);
 }
 
 // =============================================
 // SAVE TEST RESULT TO FIRESTORE
+//
+// CHANGED: new `submissionType` parameter ('manual' | 'auto' | 'backfill').
+// CHANGED: after successfully saving `test_results`, write a per-student
+//          marker to `cbt_submissions/{cbtId}_{studentId}`. The write is
+//          non-fatal: if it fails, the student dashboard's GUARD 3 still
+//          blocks the student on the next attempt.
 // =============================================
-async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores) {
+async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores, submissionType = 'manual') {
     try {
         if (!currentUser) {
             await new Promise(function (resolve) { setTimeout(resolve, 200); });
@@ -1043,6 +1048,31 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         console.log("Saving test result to Firestore via service:", resultData);
         const docRef = await service.saveTestResult(resultData);
         console.log('Test result saved to Firestore with ID:', docRef);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // NEW: write per-student "submitted" marker for CBT tests.
+        // Non-fatal: if this fails, the dashboard's GUARD 3 (test_results
+        // existence + epoch check) still blocks the student on the next click.
+        // ─────────────────────────────────────────────────────────────────────
+        if (testData.mode === 'cbt' && testData.cbtId) {
+            try {
+                const submissionDocId = testData.cbtId + '_' + currentUser.uid;
+                await setDoc(doc(db, 'cbt_submissions', submissionDocId), {
+                    cbtId: testData.cbtId,
+                    studentId: currentUser.uid,
+                    schoolId: schoolId,
+                    testResultId: docRef,
+                    score: score,
+                    rawScore: correctAnswers,
+                    totalQuestions: testData.questions.length,
+                    submittedAt: serverTimestamp(),
+                    submissionType: submissionType
+                }, { merge: true });
+            } catch (e) {
+                console.warn('Failed to write cbt_submissions record (non-fatal):', e);
+            }
+        }
+
         toast.success('Test result saved successfully!');
         return docRef;
     } catch (error) {
@@ -1054,14 +1084,18 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
 
 // =============================================
 // SUBMIT TEST
+//
+// CHANGED: new optional `explicitSubmissionType` parameter — used to
+//          distinguish 'auto' (timer / anti-cheat) from 'manual'.
 // =============================================
-async function submitTest(redirectAfter, minRedirectDelayMs) {
+async function submitTest(redirectAfter, minRedirectDelayMs, explicitSubmissionType) {
     if (isSubmitting) return;
     isSubmitting = true;
     const submissionStartTs = Date.now();
 
     redirectAfter = !!redirectAfter;
     minRedirectDelayMs = minRedirectDelayMs || 0;
+    const submissionType = explicitSubmissionType || (redirectAfter ? 'auto' : 'manual');
 
     window.removeEventListener('beforeunload', preventBeforeUnload);
 
@@ -1127,7 +1161,7 @@ async function submitTest(redirectAfter, minRedirectDelayMs) {
 
         let saveSuccess = false;
         try {
-            await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores);
+            await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores, submissionType);
             saveSuccess = true;
         } catch (firstError) {
             if (firstError.message.indexOf('permission') !== -1 || firstError.code === 'permission-denied') {
@@ -1135,7 +1169,7 @@ async function submitTest(redirectAfter, minRedirectDelayMs) {
                 await new Promise(function (resolve) { setTimeout(resolve, 500); });
                 currentUser = auth.currentUser;
                 if (currentUser) {
-                    await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores);
+                    await saveTestResultToFirestore(finalDisplayScore, correctAnswers, correctAnswers, subjectScores, submissionType);
                     saveSuccess = true;
                 } else {
                     throw new Error("Authentication lost. Please log in again.");
@@ -1407,63 +1441,7 @@ function handleKeyboardNavigation(e) {
     }
 }
 
-// =============================================================================
-// startAssignedTest — questions are randomised (shuffled) before starting
-// =============================================================================
-async function startAssignedTest(cbtId) {
-    try {
-        const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
-        if (!cbtDoc.exists()) {
-            toast.error('Test not found. Please refresh the page.');
-            throw new Error('Test not found');
-        }
-        const cbtData = cbtDoc.data();
-        if (cbtData.status !== 'started') {
-            toast.error('This test is not available for taking.');
-            return;
-        }
-
-        let remainingSeconds = cbtData.durationMinutes * 60;
-        if (cbtData.startedAt) {
-            const startTime = convertTimestamp(cbtData.startedAt);
-            if (startTime) {
-                const now = new Date();
-                const elapsed = Math.floor((now - startTime) / 1000);
-                remainingSeconds = Math.max(0, cbtData.durationMinutes * 60 - elapsed);
-                if (remainingSeconds <= 0) {
-                    toast.error('This test has already expired.');
-                    return;
-                }
-            }
-        }
-
-        const originalQuestions = cbtData.questions || [];
-        if (!originalQuestions.length) {
-            toast.error('No questions found for this test.');
-            return;
-        }
-        const shuffledQuestions = shuffleArray(originalQuestions);
-
-        const newTestData = {
-            testId: 'cbt_' + cbtId + '_' + Date.now(),
-            mode: 'cbt',
-            examType: cbtData.examType || 'CBT',
-            subject: cbtData.subjectName || cbtData.subjectId,
-            title: cbtData.title,
-            cbtId: cbtId,
-            questions: shuffledQuestions,
-            totalQuestions: shuffledQuestions.length,
-            totalTime: remainingSeconds,
-            startTime: new Date().toISOString(),
-            userId: currentStudentId,
-            schoolId: currentSchoolId,
-            userAnswers: new Array(shuffledQuestions.length).fill(null),
-            plan: 'full_access'
-        };
-        sessionStorage.setItem('currentTest', JSON.stringify(newTestData));
-        window.location.href = 'test.html';
-    } catch (err) {
-        console.error('Error starting assigned test:', err);
-        toast.error('Failed to start test. Please try again.');
-    }
-}
+// ⚠️ REMOVED: dead duplicate `startAssignedTest()` that used to sit here.
+//              The live version lives in cbt/js/cbt.js and is fully guarded.
+//              Removing it eliminates a footgun where a manual navigation to
+//              test.html?cbtId=... could have bypassed the guards.
