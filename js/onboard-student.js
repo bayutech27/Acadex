@@ -6,7 +6,6 @@
 // NEW: Added "Nursery" level support (level is determined by the assigned class).
 // NEW: Email optional for Nursery and Primary students. For students without email, no auth account is created.
 // REMOVED: "Promote" button and promotion logic – only admins can promote students.
-// All other functionality remains unchanged.
 //
 // NEW: The `required` attribute on the email input is toggled at runtime based on
 //      the current class level (currentClassLevel):
@@ -28,6 +27,13 @@
 // NEW: All newly-created students are ALWAYS locked (locked: true) on creation,
 //      irrespective of the school's subscription state. Only a super-admin can
 //      unlock a student later.
+//
+// NEW (access control): If the signed-in teacher is NOT a class teacher (i.e.
+//      has no host classes), the page redirects them back to
+//      teacher-dashboard.html instead of showing a broken UI.
+//      The "no host classes" error from loadTeacherClassesAndPopulateDropdown()
+//      is tagged with `err.code = 'no-class-teacher'` so the catch block in
+//      initOnboardStudentPage() can distinguish it from unrelated failures.
 
 import { auth, db } from './firebase-config.js';
 import {
@@ -199,6 +205,10 @@ function calculateAndDisplayAge() {
  * Load teacher's host classes and populate dropdown.
  * Returns true if at least one class is assigned.
  * Enhanced: also queries classes collection for teacherId.
+ *
+ * If the teacher has no host class, the thrown error carries
+ * `err.code = 'no-class-teacher'` so initOnboardStudentPage() can redirect
+ * the user back to teacher-dashboard.html.
  */
 async function loadTeacherClassesAndPopulateDropdown() {
   const user = auth.currentUser;
@@ -234,7 +244,11 @@ async function loadTeacherClassesAndPopulateDropdown() {
   }
 
   if (hostIds.length === 0) {
-    throw new Error('You are not assigned as a class teacher for any class.');
+    // Tag the error so the caller can distinguish "not a class teacher"
+    // from a generic failure and redirect appropriately.
+    const err = new Error('You are not assigned as a class teacher for any class.');
+    err.code = 'no-class-teacher';
+    throw err;
   }
 
   teacherHostClassIds = hostIds;
@@ -973,8 +987,14 @@ export async function initOnboardStudentPage() {
     }
 
     // Load teacher classes and populate dropdown (also sets currentClassId, schoolId, class info)
+    // If the teacher has no host class, this throws err.code === 'no-class-teacher'.
     await loadTeacherClassesAndPopulateDropdown();
-    if (!currentClassId) throw new Error('No class assigned.');
+    if (!currentClassId) {
+      const err = new Error('No class assigned.');
+      err.code = 'no-class-teacher';
+      throw err;
+    }
+    isClassTeacher = true;
 
     // Load subjects for the current class level
     await loadSubjectsByLevel(currentClassLevel);
@@ -991,6 +1011,25 @@ export async function initOnboardStudentPage() {
 
   } catch (err) {
     console.error('Onboard init error:', err);
-    showAccessDenied(err.message || 'You must be a class teacher to onboard students.');
+    const message = err.message || 'You must be a class teacher to onboard students.';
+    showAccessDenied(message);
+
+    // ───────────────────────────────────────────────────────────────────────
+    // REDIRECT non-class-teachers (and any auth/record failure that would
+    // otherwise leave the page in a broken state) back to the dashboard.
+    // Belt-and-suspenders: onboard-student.html also gates on
+    // checkClassTeacherStatus() before calling this function.
+    // ───────────────────────────────────────────────────────────────────────
+    const shouldRedirect =
+      err.code === 'no-class-teacher' ||
+      /not assigned as a class teacher|not a class teacher|no class assigned/i.test(message) ||
+      /not authenticated|teacher record not found/i.test(message);
+
+    if (shouldRedirect) {
+      // Give the user ~2.2s to see the red message before navigation.
+      setTimeout(() => {
+        window.location.href = 'teacher-dashboard.html';
+      }, 2200);
+    }
   }
 }
