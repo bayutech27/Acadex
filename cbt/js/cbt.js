@@ -1,19 +1,30 @@
 // cbt/js/cbt.js - Acadex CBT Dashboard (Student)
 // Preserves all existing practice test functionality.
-// Adds real‑time assigned tests table with status from Firestore.
+// Adds real-time assigned tests table with status from Firestore.
 // In recent tests, shows actual subject name plus "(Assigned Test)" for CBT tests.
 //
+// NEW (per-student submission gate):
+//   • Listens to `cbt_submissions/{cbtId}_{studentId}` in real time.
+//   • Renders the "Take Test" button as "✅ Submitted" (disabled) once a
+//     submission marker exists — even while the test's global status is
+//     still 'started'.
+//   • startAssignedTest() runs THREE defence-in-depth guards so a student
+//     cannot retake a test they have already submitted:
+//         GUARD 1 — in-memory Set (instant, zero reads)
+//         GUARD 2 — authoritative read of cbt_submissions/{cbtId}_{uid}
+//         GUARD 3 — fallback query of test_results, epoch-scoped to the
+//                   current run (compare completedAt vs cbt.startedAt).
+//     GUARD 3 protects against the case where the cbt_submissions write in
+//     test.js silently failed (e.g. missing Firestore rule) — the student
+//     is still blocked because test_results is immutable from their side.
+//
 // All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support real-time listeners for test_results,
-// real-time listeners for assigned CBT tests (array-contains-any), or getCbtById
-// for starting a test – those remain as direct Firestore calls.
-// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from '../../js/firebase-config.js';
-import { 
-    collection, 
-    query, 
-    where, 
+import {
+    collection,
+    query,
+    where,
     getDocs,
     orderBy,
     getDoc,
@@ -26,9 +37,9 @@ import {
     startAfter
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-import { 
+import {
     signOut,
-    onAuthStateChanged 
+    onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 
 import * as service from '../../js/service.js';
@@ -90,6 +101,12 @@ let currentSchoolId = null;
 let unsubscribeRecentTests = null;
 let lastVisibleRecentDoc = null;
 let unsubscribeAssignedTests = null;
+
+// NEW: per-student submission tracking + module-level listeners snapshots.
+let submittedCbtIds       = new Set();   // cbtIds this student has already submitted
+let unsubscribeSubmissions = null;
+let pendingAssignedTests   = [];         // latest snapshot from 'pending' listener
+let startedAssignedTests   = [];         // latest snapshot from 'started' listener
 
 // ========== HELPER FUNCTIONS (existing, unchanged) ==========
 function convertTimestamp(value) {
@@ -187,10 +204,6 @@ function populateWaecNecoSubjects() {
 }
 
 // ========== RECENT TESTS (one-shot getDocs – no live listener) ==========
-// FIX 5: replaces the previous onSnapshot with a single getDocs of the
-// same query (same where/orderBy/limit → same index). Page size reduced
-// to 5. `unsubscribeRecentTests` remains declared for compatibility but
-// is no longer assigned a listener.
 async function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
@@ -267,7 +280,7 @@ function buildRecentTestHTML(test) {
     const completedAt = test.completedAt ? convertTimestamp(test.completedAt) : null;
     const dateStr = completedAt ? completedAt.toLocaleDateString() : 'Unknown date';
     let typeIcon = '', typeLabel = '', mainContent = '';
-    
+
     if (mode === 'cbt') {
         typeIcon = '<i class="fas fa-chalkboard-teacher"></i>';
         typeLabel = 'Assigned Test';
@@ -382,12 +395,10 @@ async function updateBasicStats(userId) {
 }
 
 // ========== ASSIGNED TESTS TABLE ==========
-// FIX 6 (Option A): Firestore rejects array-contains-any combined with 'in'
-// in the same query. Split into two live listeners — one for status 'pending',
-// one for status 'started' — each an equality filter combined with the
-// existing array-contains-any scope. Students still see a newly assigned test
-// immediately, and see a test the moment the teacher starts it. Expired tests
-// are no longer listed on the Assigned Tests tab.
+// Two live listeners (pending + started) — Firestore forbids combining
+// `array-contains-any` and `in` in one query, but two equality `status`
+// filters with `array-contains-any` is fine. Snapshots land in module-level
+// arrays and every listener triggers the same no-argument re-render.
 function subscribeToAssignedTests() {
     if (!currentSchoolId || !currentStudentId || !currentStudentData) return;
     if (unsubscribeAssignedTests) unsubscribeAssignedTests();
@@ -406,13 +417,12 @@ function subscribeToAssignedTests() {
         where('status', '==', 'started')
     );
 
-    let pendingTests = [];
-    let startedTests = [];
-    const renderMerged = () => renderAssignedTestsTable([...pendingTests, ...startedTests]);
+    pendingAssignedTests = [];
+    startedAssignedTests = [];
 
     const unsubPending = onSnapshot(qPending, (snap) => {
-        pendingTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderMerged();
+        pendingAssignedTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderAssignedTestsTable();
     }, (err) => {
         console.error('Error listening to pending tests:', err);
         toast.warning('Unable to load assigned tests. Please refresh the page.');
@@ -420,11 +430,10 @@ function subscribeToAssignedTests() {
     });
 
     const unsubStarted = onSnapshot(qStarted, (snap) => {
-        startedTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderMerged();
+        startedAssignedTests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderAssignedTestsTable();
     }, (err) => {
         console.error('Error listening to started tests:', err);
-        // Show the error only if the pending listener has not already done so.
         if (assignedTestsWrapper && !assignedTestsWrapper.querySelector('.error')) {
             toast.warning('Unable to load assigned tests. Please refresh the page.');
             assignedTestsWrapper.innerHTML = '<p class="error">Error loading assigned tests. Please refresh.</p>';
@@ -434,8 +443,38 @@ function subscribeToAssignedTests() {
     unsubscribeAssignedTests = () => { unsubPending(); unsubStarted(); };
 }
 
-function renderAssignedTestsTable(tests) {
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW: real-time listener for this student's cbt submissions.
+// The moment test.js writes a cbt_submissions doc, submittedCbtIds updates
+// and the assigned-tests table re-renders — flipping "Take Test" to
+// "✅ Submitted" without a page reload.
+// ─────────────────────────────────────────────────────────────────────────────
+function subscribeToSubmissions() {
+    if (!currentSchoolId || !currentStudentId) return;
+    if (unsubscribeSubmissions) unsubscribeSubmissions();
+
+    const qSub = query(
+        collection(db, 'cbt_submissions'),
+        where('studentId', '==', currentStudentId),
+        where('schoolId', '==', currentSchoolId)
+    );
+
+    unsubscribeSubmissions = onSnapshot(qSub, (snap) => {
+        submittedCbtIds = new Set(
+            snap.docs.map(d => d.data().cbtId).filter(Boolean)
+        );
+        renderAssignedTestsTable();
+    }, (err) => {
+        // Non-fatal: the click path in startAssignedTest() also checks
+        // cbt_submissions and test_results, so the student is still blocked.
+        console.warn('cbt_submissions listener error (non-fatal):', err);
+    });
+}
+
+function renderAssignedTestsTable() {
     if (!assignedTestsWrapper) return;
+
+    const tests = [...pendingAssignedTests, ...startedAssignedTests];
 
     if (!tests || tests.length === 0) {
         assignedTestsWrapper.innerHTML = '<p class="no-tests">No assigned tests yet.</p>';
@@ -444,14 +483,18 @@ function renderAssignedTestsTable(tests) {
 
     const rows = tests.map(test => {
         const status = test.status || 'pending';
+        const hasSubmitted = submittedCbtIds.has(test.id);
+
         let statusBadge = '';
         if (status === 'started') statusBadge = '<span class="status-badge status-started">Started</span>';
         else if (status === 'pending') statusBadge = '<span class="status-badge status-pending">Pending</span>';
         else if (status === 'expired') statusBadge = '<span class="status-badge status-expired">Expired</span>';
         else statusBadge = `<span class="status-badge">${escapeHtml(status)}</span>`;
 
-        const isTakeEnabled = (status === 'started');
-        const takeButton = `<button class="take-test-btn" data-id="${test.id}" ${!isTakeEnabled ? 'disabled' : ''}>Take Test</button>`;
+        // Take Test only when: status === 'started' AND not already submitted.
+        const isTakeEnabled = (status === 'started') && !hasSubmitted;
+        const buttonLabel = hasSubmitted ? '✅ Submitted' : 'Take Test';
+        const takeButton = `<button class="take-test-btn" data-id="${test.id}" ${!isTakeEnabled ? 'disabled' : ''}>${buttonLabel}</button>`;
 
         return `
             <tr data-id="${test.id}">
@@ -466,13 +509,15 @@ function renderAssignedTestsTable(tests) {
         `;
     }).join('');
 
+    // NOTE: pre-existing malformed markup fixed — original had `</table>`
+    // inside the <tr> of the header, which browsers silently corrected.
     assignedTestsWrapper.innerHTML = `
         <div class="assigned-tests-table-wrapper">
             <table class="assigned-tests-table">
                 <thead>
                     <tr>
                         <th>Type</th><th>Subject</th><th>Questions</th><th>Duration</th><th>Scheduled Date</th><th>Status</th><th>Action</th>
-                    </table>
+                    </tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
@@ -480,15 +525,37 @@ function renderAssignedTestsTable(tests) {
     `;
 
     document.querySelectorAll('.take-test-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
+        btn.addEventListener('click', async () => {
             const cbtId = btn.dataset.id;
             await startAssignedTest(cbtId);
         });
     });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// startAssignedTest() — three defence-in-depth guards.
+//
+// GUARD 1 (in-memory Set) — instant, zero Firestore reads. Catches any click
+//                           on a stale disabled button and most bypass attempts.
+// GUARD 2 (authoritative)  — direct read of cbt_submissions/{cbtId}_{uid}.
+//                           This is the primary source of truth.
+// GUARD 3 (fallback)       — query test_results, epoch-scoped to the current
+//                           run (completedAt >= cbt.startedAt). Covers the
+//                           case where the cbt_submissions write failed
+//                           (e.g. missing Firestore rule). Because students
+//                           cannot delete test_results, this still blocks
+//                           them. Epoch-scoped so a legitimate future
+//                           "restart same test" (which resets startedAt)
+//                           does not falsely block past attempts.
+// ─────────────────────────────────────────────────────────────────────────────
 async function startAssignedTest(cbtId) {
     try {
+        // GUARD 1 — in-memory Set, no reads.
+        if (submittedCbtIds.has(cbtId)) {
+            toast.error('You have already submitted this test. It cannot be retaken.');
+            return;
+        }
+
         const cbtDoc = await getDoc(doc(db, 'cbt', cbtId));
         if (!cbtDoc.exists()) {
             toast.error('Test not found. Please refresh the page.');
@@ -498,6 +565,67 @@ async function startAssignedTest(cbtId) {
         if (cbtData.status !== 'started') {
             toast.error('This test is not available for taking.');
             return;
+        }
+
+        // GUARD 2 — authoritative per-student read.
+        try {
+            const submissionSnap = await getDoc(doc(db, 'cbt_submissions', cbtId + '_' + currentStudentId));
+            if (submissionSnap.exists()) {
+                toast.error('You have already submitted this test. It cannot be retaken.');
+                return;
+            }
+        } catch (e) {
+            console.warn('cbt_submissions check failed (falling back to test_results):', e);
+        }
+
+        // GUARD 3 — fallback query of test_results, epoch-scoped.
+        try {
+            const startedAtRaw = cbtData.startedAt;
+            let startedAtMs = 0;
+            if (startedAtRaw) {
+                if (typeof startedAtRaw.seconds === 'number') {
+                    startedAtMs = startedAtRaw.seconds * 1000;
+                } else if (typeof startedAtRaw.toDate === 'function') {
+                    startedAtMs = startedAtRaw.toDate().getTime();
+                } else if (startedAtRaw instanceof Date) {
+                    startedAtMs = startedAtRaw.getTime();
+                } else if (typeof startedAtRaw === 'string') {
+                    const parsed = new Date(startedAtRaw);
+                    if (!isNaN(parsed.getTime())) startedAtMs = parsed.getTime();
+                }
+            }
+
+            const resultsCheck = await getDocs(query(
+                collection(db, 'test_results'),
+                where('cbtId', '==', cbtId),
+                where('userId', '==', currentStudentId)
+            ));
+
+            const hasSubmittedThisRun = resultsCheck.docs.some(d => {
+                const data = d.data();
+                const ca = data.completedAt;
+                let completedMs = 0;
+                if (ca) {
+                    if (typeof ca.seconds === 'number') completedMs = ca.seconds * 1000;
+                    else if (typeof ca.toDate === 'function') completedMs = ca.toDate().getTime();
+                    else if (ca instanceof Date) completedMs = ca.getTime();
+                    else if (typeof ca === 'string') {
+                        const parsed = new Date(ca);
+                        if (!isNaN(parsed.getTime())) completedMs = parsed.getTime();
+                    }
+                }
+                // If the current run's start time is unknown, treat any
+                // historical result as current-run (safe conservative default).
+                if (startedAtMs === 0) return true;
+                return completedMs >= startedAtMs;
+            });
+
+            if (hasSubmittedThisRun) {
+                toast.error('You have already submitted this test. It cannot be retaken.');
+                return;
+            }
+        } catch (e) {
+            console.warn('test_results check failed:', e);
         }
 
         let remainingSeconds = cbtData.durationMinutes * 60;
@@ -717,12 +845,12 @@ function setupJambDrillSubjects() {
 function validateJambSubjectSelection() {
     const checkboxes = document.querySelectorAll('.jamb-subject-checkbox:checked');
     const hint = document.getElementById('subjectSelectionHint');
-    if (checkboxes.length === 3) { 
-        hint.innerHTML = '✅ 3 subjects selected. Ready to start.'; 
-        hint.style.color = '#28a745'; 
-    } else { 
-        hint.innerHTML = `Select exactly 3 subjects (currently ${checkboxes.length} selected)`; 
-        hint.style.color = '#dc3545'; 
+    if (checkboxes.length === 3) {
+        hint.innerHTML = '✅ 3 subjects selected. Ready to start.';
+        hint.style.color = '#28a745';
+    } else {
+        hint.innerHTML = `Select exactly 3 subjects (currently ${checkboxes.length} selected)`;
+        hint.style.color = '#dc3545';
     }
 }
 
@@ -818,6 +946,11 @@ async function initCBTDashboard() {
             populateWaecNecoSubjects();
             setupJambDrillSubjects();
             setupRecentTests(currentStudentId);
+
+            // NEW: start the submissions listener immediately so submittedCbtIds
+            // is populated before the student ever opens the Assigned tab.
+            subscribeToSubmissions();
+
             await updateBasicStats(currentStudentId);
             createTabs();
         } else {
