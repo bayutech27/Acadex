@@ -925,7 +925,7 @@
   </main>
 </div>
 
-<!-- ===================== SCRIPTS (unchanged) ===================== -->
+<!-- ===================== SCRIPTS ===================== -->
 <script src="../js/card-3d-effects.js"></script>
 <script type="module" src="./student-portal.js"></script>
 
@@ -975,6 +975,23 @@
     });
   })();
 </script>
+
+<!-- NEW: Daily educational quote — student variant.
+     Runs once per calendar day per student per device. Waits for Firebase
+     auth to settle so the modal appears on the fully-loaded dashboard,
+     never on a loading screen. -->
+<script type="module">
+  import { auth } from '../js/firebase-config.js';
+  import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+  import { initEducationalQuote } from '../js/educational-quotes.js';
+
+  onAuthStateChanged(auth, (user) => {
+    if (user && user.uid) {
+      initEducationalQuote({ role: 'student', userId: user.uid });
+    }
+  });
+</script>
+
 <script>
   // Unregister any existing service worker, then clear all its caches.
   if ('serviceWorker' in navigator) {
