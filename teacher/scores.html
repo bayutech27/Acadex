@@ -4,116 +4,256 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Enter Scores</title>
+
+  <!-- Google Fonts: Inter (SF Pro alternative) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* Original scores page styles */
+    /* =========================================================
+       iOS-STYLE SCORES PAGE
+       Visual refactor only — IDs, classes and structure untouched.
+       ========================================================= */
+    :root {
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-red:       #FF3B30;
+
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+    }
+
+    /* Original scores page styles — restyled with iOS system */
     .scores-container {
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 22px 24px;
       margin-top: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      box-shadow: var(--ios-shadow);
+      border: none;
     }
     .filters {
       display: flex;
-      gap: 20px;
+      gap: 16px;
       flex-wrap: wrap;
       margin-bottom: 20px;
       align-items: flex-end;
     }
-    .filter-group {
-      flex: 1;
-      min-width: 150px;
-    }
+    .filter-group { flex: 1; min-width: 150px; }
     .filter-group label {
       display: block;
       margin-bottom: 6px;
       font-weight: 600;
-      color: #2d3748;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--ios-label-secondary);
     }
     .filter-group select {
       width: 100%;
-      padding: 10px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      font-size: 1rem;
+      padding: 0.65rem 0.85rem;
+      border: 1px solid var(--ios-separator);
+      border-radius: var(--ios-radius-sm);
+      font-size: 0.9rem;
+      background: var(--ios-bg);
+      color: var(--ios-label);
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
     }
+    .filter-group select:focus {
+      outline: none;
+      border-color: var(--ios-blue);
+      background: var(--ios-bg-elevated);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+    }
+
     .scores-table {
       width: 100%;
       border-collapse: collapse;
       margin-top: 16px;
+      border-radius: var(--ios-radius-lg);
+      overflow: hidden;
+      box-shadow: var(--ios-shadow-sm);
+      background: var(--ios-bg-elevated);
     }
     .scores-table th, .scores-table td {
-      border: 1px solid #cbd5e1;
-      padding: 8px;
+      border: 1px solid var(--ios-separator);
+      padding: 10px;
       text-align: center;
+      font-size: 0.88rem;
+      color: var(--ios-label);
     }
     .scores-table th {
-      background-color: #f8fafc;
+      background: var(--ios-bg);
       font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--ios-label-secondary);
     }
     .ca-input, .exam-input {
       width: 70px;
-      padding: 4px;
+      padding: 6px 8px;
       text-align: center;
+      border: 1px solid var(--ios-separator);
+      border-radius: 8px;
+      font-family: inherit;
+      background: var(--ios-bg-elevated);
+      color: var(--ios-label);
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
     }
+    .ca-input:focus, .exam-input:focus {
+      outline: none;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+    }
+
     .action-buttons {
       margin-top: 20px;
       display: flex;
       justify-content: flex-end;
     }
     .btn-primary {
-      background-color: #3b82f6;
-      color: white;
-      padding: 10px 20px;
+      background: var(--ios-blue);
+      color: #fff;
+      padding: 0.7rem 1.4rem;
       border: none;
-      border-radius: 8px;
+      border-radius: 999px;
       cursor: pointer;
       font-weight: 600;
+      font-family: inherit;
+      letter-spacing: -0.005em;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
     }
+    .btn-primary:hover  { background: var(--ios-blue-600); }
+    .btn-primary:active { transform: scale(0.96); }
     .btn-primary:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
+
     .subscription-banner {
-      background: #fee2e2;
-      border-left: 4px solid #dc2626;
-      color: #991b1b;
+      background: rgba(255, 59, 48, 0.12);
+      border-left: 4px solid var(--ios-red);
+      color: #B3261E;
       padding: 12px 16px;
       margin-bottom: 20px;
-      border-radius: 8px;
+      border-radius: var(--ios-radius);
       font-weight: 500;
     }
     .school-address {
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-top: 4px;
+      font-size: 0.74rem;
+      color: var(--ios-label-secondary);
+      margin-top: 3px;
     }
+
     .academic-badge {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: 500;
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+      border: 1px solid rgba(0, 122, 255, 0.12);
       margin-left: 16px;
     }
     .academic-badge .override-badge {
-      background: #f59e0b;
-      color: #000;
-      padding: 2px 6px;
-      border-radius: 12px;
-      font-size: 0.7rem;
+      background: var(--ios-orange);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
     }
 
     /* Hide hamburger on desktop */
     @media (min-width: 769px) {
-      .hamburger-menu {
-        display: none !important;
+      .hamburger-menu { display: none !important; }
+    }
+
+    /* Mobile header treatment */
+    @media (max-width: 768px) {
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
+      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 10px; }
+      .school-name { flex: 1 1 auto; min-width: 0; }
+      .school-name h1#schoolName {
+        font-size: 1rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
       }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.25;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      .school-header-left .school-logo .camera-icon { display: none !important; }
+      .school-header-left .school-logo {
+        width: 46px !important;
+        height: 46px !important;
+        flex-shrink: 0;
+        border-radius: 50%;
+        overflow: hidden;
+        background: var(--ios-fill);
+        cursor: pointer;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover;
+        border-radius: 50%;
+        display: block;
+        pointer-events: none;
+      }
+      .header-right .subscription-badge { display: none !important; }
+      .academic-badge { font-size: 0.72rem; padding: 5px 12px; margin-left: 0; }
     }
   </style>
 </head>
