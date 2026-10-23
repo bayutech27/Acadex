@@ -618,7 +618,7 @@
 </div>
 
 <!-- ===================== SCRIPTS ===================== -->
- <script src="../js/card-3d-effects.js"></script>
+<script src="../js/card-3d-effects.js"></script>
 <script type="module">
   import {
     protectTeacherPage,
@@ -632,6 +632,9 @@
   } from '../js/teacher-dashboard.js';
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: daily educational quote imports
+  import { auth }               from '../js/firebase-config.js';
+  import { initEducationalQuote } from '../js/educational-quotes.js';
 
   /* Year stamps */
   const yr = new Date().getFullYear();
@@ -710,6 +713,16 @@
     const headerLogoutBtn = document.getElementById('logoutBtn');
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
+    }
+
+    // ── NEW: Daily educational quote ─────────────────────────
+    // Fires once per calendar day per teacher per device.
+    try {
+      if (auth.currentUser && auth.currentUser.uid) {
+        initEducationalQuote({ role: 'teacher', userId: auth.currentUser.uid });
+      }
+    } catch (err) {
+      console.warn('[Teacher] Quote init skipped:', err);
     }
   });
 
