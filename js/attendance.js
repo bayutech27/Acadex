@@ -6,6 +6,13 @@
 // Supports teachers assigned as class teacher of multiple classes (hostClassIds array).
 // Academic calendar (session + term) comes exclusively from the Central
 // Academic Calendar Engine (academic-calendar.js + calendar-sync.js).
+//
+// NEW (access control): If the signed-in teacher is NOT a class teacher
+// (no host classes), the page redirects them back to teacher-dashboard.html
+// after a short visual warning. The "no host classes" error is tagged with
+// `err.code = 'no-class-teacher'` so it can be distinguished from unrelated
+// failures (auth, calendar, network, etc.), which continue to show toasts
+// without redirecting.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { auth, db } from './firebase-config.js';
@@ -820,7 +827,11 @@ async function loadTeacherHostClassesAndPopulateDropdown() {
   }
 
   if (hostIds.length === 0) {
-    throw new Error('You are not assigned as a class teacher for any class.');
+    // Tag the error so callers can distinguish "not a class teacher" from
+    // a transient auth/network failure and redirect accordingly.
+    const err = new Error('You are not assigned as a class teacher for any class.');
+    err.code = 'no-class-teacher';
+    throw err;
   }
   STATE.teacher.hostClassIds = hostIds;
 
@@ -914,9 +925,11 @@ function authenticateTeacher() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// NO-CLASS WARNING
+// NO-CLASS WARNING (with auto-redirect)
 // ═════════════════════════════════════════════════════════════════════════════
-function showNoClassWarning() {
+function showNoClassWarning(options = {}) {
+  const { autoRedirect = true, delay = 2200 } = options;
+
   setupSidebar();
   setupLogout();
   try { initMobileMenu(); } catch (_) { }
@@ -927,12 +940,19 @@ function showNoClassWarning() {
     <div class="no-class-warning">
       <div class="warning-icon">⚠️</div>
       <h2>No Class Assigned</h2>
-      <p>You are not currently assigned as a class teacher.
-         Please contact your school admin to get a host class assigned
+      <p>You are not currently assigned as a class teacher.${
+        autoRedirect ? ' Redirecting you back to the dashboard in a moment.' : ''
+      } Please contact your school admin to get a host class assigned
          before you can record attendance.</p>
       <a href="teacher-dashboard.html" class="btn-back">← Back to Dashboard</a>
     </div>
   `;
+
+  if (autoRedirect) {
+    setTimeout(() => {
+      window.location.href = 'teacher-dashboard.html';
+    }, delay);
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1002,9 +1022,10 @@ export async function initAttendancePage() {
 
   try {
     // Load teacher's host classes and populate dropdown (this also sets STATE.class.id)
+    // If the teacher has no host class, this throws err.code === 'no-class-teacher'.
     await loadTeacherHostClassesAndPopulateDropdown();
     if (!STATE.class.id) {
-      showNoClassWarning();
+      showNoClassWarning({ autoRedirect: true });
       hideLoader();
       return;
     }
@@ -1013,8 +1034,17 @@ export async function initAttendancePage() {
     await loadAttendanceFromFirestore();
   } catch (err) {
     console.error('[Attendance] Data loading error:', err);
-    if (err.message.includes('not assigned as a class teacher')) {
-      showNoClassWarning();
+    // ─────────────────────────────────────────────────────────────────────
+    // REDIRECT non-class-teachers back to the dashboard. The "no host
+    // classes" error is tagged with err.code === 'no-class-teacher' inside
+    // loadTeacherHostClassesAndPopulateDropdown().
+    // ─────────────────────────────────────────────────────────────────────
+    const isNoClassTeacher =
+      err.code === 'no-class-teacher' ||
+      /not assigned as a class teacher|not a class teacher|no class assigned/i.test(err.message || '');
+
+    if (isNoClassTeacher) {
+      showNoClassWarning({ autoRedirect: true });
       hideLoader();
       return;
     }
