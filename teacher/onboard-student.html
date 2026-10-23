@@ -754,7 +754,14 @@
 </div>
 
 <script type="module">
-  import { protectTeacherPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/teacher-dashboard.js';
+  import {
+    protectTeacherPage,
+    loadSchoolInfo,
+    setupSidebar,
+    setupLogout,
+    setupLogoUpload,
+    checkClassTeacherStatus
+  } from '../js/teacher-dashboard.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
   import { initOnboardStudentPage } from '../js/onboard-student.js';
@@ -763,6 +770,24 @@
   document.getElementById('sidebarYear').innerText = new Date().getFullYear();
 
   protectTeacherPage().then(async ({ teacherName }) => {
+    // ─────────────────────────────────────────────────────────────────────
+    // GATE: Non-class-teachers must never reach the onboarding page.
+    // Mirrors the check in class.html so both pages behave consistently.
+    // The onboard-student.js module also self-defends (see its catch block).
+    // ─────────────────────────────────────────────────────────────────────
+    let isClassTeacher = false;
+    try {
+      isClassTeacher = await checkClassTeacherStatus();
+    } catch (err) {
+      console.error('checkClassTeacherStatus error:', err);
+      isClassTeacher = false;
+    }
+    if (!isClassTeacher) {
+      alert('You are not assigned as a class teacher. Redirecting to dashboard.');
+      window.location.href = 'teacher-dashboard.html';
+      return;
+    }
+
     await loadSchoolInfo();
     setupSidebar();
     setupLogout();
