@@ -4,11 +4,61 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acadex - Class Attendance</title>
+
+  <!-- Google Fonts: Inter (SF Pro alternative) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="../css/styles.css">
   <style>
-    /* ══════════════════════════════════════════════
-       ATTENDANCE-SPECIFIC STYLES
-    ══════════════════════════════════════════════ */
+    /* =========================================================
+       iOS-STYLE CLASS ATTENDANCE PAGE
+       Visual refactor only — IDs, classes and structure untouched.
+       PRINT STYLES ARE PRESERVED VERBATIM.
+       ========================================================= */
+
+    :root {
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-purple:    #AF52DE;
+      --ios-red:       #FF3B30;
+      --ios-teal:      #5AC8FA;
+
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+      --ios-bg-secondary:  #E5E5EA;
+
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+    }
 
     /* ── Page header / action row ─────────────────── */
     .attendance-page-header {
@@ -21,56 +71,73 @@
     }
     .attendance-page-header h2 {
       margin: 0 0 0.25rem;
+      font-family: var(--ios-font-display);
       font-size: 1.4rem;
-      color: #1e293b;
+      font-weight: 700;
+      color: var(--ios-label);
+      letter-spacing: -0.02em;
     }
     #classNameDisplay {
       font-size: 0.9rem;
-      color: #64748b;
+      color: var(--ios-label-secondary);
     }
     .action-buttons {
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
     }
-    .btn-save     { background: #2563eb; color: #fff; }
-    .btn-print    { background: #0f766e; color: #fff; }
-    .btn-download { background: #7c3aed; color: #fff; }
     .btn-save, .btn-print, .btn-download {
-      padding: 0.5rem 1rem;
+      padding: 0.6rem 1.1rem;
       border: none;
-      border-radius: 6px;
+      border-radius: 999px;
       font-size: 0.85rem;
       font-weight: 600;
+      font-family: inherit;
       cursor: pointer;
-      transition: opacity 0.2s;
+      letter-spacing: -0.005em;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
     }
-    .btn-save:hover, .btn-print:hover, .btn-download:hover { opacity: 0.88; }
+    .btn-save     { background: var(--ios-blue);   color: #fff; }
+    .btn-print    { background: var(--ios-green);  color: #fff; }
+    .btn-download { background: var(--ios-indigo); color: #fff; }
+    .btn-save:hover  { background: var(--ios-blue-600); }
+    .btn-print:hover { background: #248A3D; }
+    .btn-download:hover { background: #4A48BC; }
+    .btn-save:active, .btn-print:active, .btn-download:active { transform: scale(0.96); }
 
-    /* ── Class selector row (multi‑class support) ── */
+    /* ── Class selector row ── */
     .class-selector-row {
-      background: #f8fafc;
-      padding: 10px 16px;
-      border-radius: 10px;
+      background: var(--ios-bg-elevated);
+      padding: 12px 16px;
+      border-radius: var(--ios-radius-lg);
       margin-bottom: 20px;
       display: flex;
       align-items: center;
       gap: 15px;
       flex-wrap: wrap;
-      border: 1px solid #e2e8f0;
+      box-shadow: var(--ios-shadow-sm);
+      border: none;
     }
     .class-selector-row label {
       font-weight: 600;
-      color: #1e293b;
+      color: var(--ios-label);
       margin-bottom: 0;
+      font-size: 0.9rem;
     }
     #classSelect {
-      padding: 6px 12px;
-      border-radius: 8px;
-      border: 1px solid #cbd5e1;
-      background: white;
+      padding: 0.6rem 0.85rem;
+      border-radius: var(--ios-radius-sm);
+      border: 1px solid var(--ios-separator);
+      background: var(--ios-bg-elevated);
       font-size: 0.9rem;
       min-width: 200px;
+      font-family: inherit;
+      color: var(--ios-label);
+    }
+    #classSelect:focus {
+      outline: none;
+      border-color: var(--ios-blue);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
     }
 
     /* ── Class stats cards ────────────────────────── */
@@ -81,28 +148,45 @@
       margin-bottom: 1.5rem;
     }
     .stat-chip {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 0.6rem 1.2rem;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      padding: 0.75rem 1.3rem;
       text-align: center;
       min-width: 90px;
+      box-shadow: var(--ios-shadow-sm);
+      border: none;
+      border-left: 4px solid var(--ios-blue);
     }
-    .stat-chip .chip-val { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
-    .stat-chip .chip-lbl { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
-    .stat-chip.boys  { border-left: 4px solid #3b82f6; }
-    .stat-chip.girls { border-left: 4px solid #ec4899; }
-    .stat-chip.total { border-left: 4px solid #10b981; }
+    .stat-chip .chip-val {
+      font-family: var(--ios-font-display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-chip .chip-lbl {
+      font-size: 0.72rem;
+      color: var(--ios-label-secondary);
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .stat-chip.boys  { border-left-color: var(--ios-blue); }
+    .stat-chip.girls { border-left-color: var(--ios-purple); }
+    .stat-chip.total { border-left-color: var(--ios-green); }
 
     /* ── Attendance table wrapper ─────────────────── */
     .table-scroll-wrapper {
       overflow-x: auto;
       overflow-y: auto;
       max-height: 72vh;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border: 1px solid var(--ios-separator);
+      border-radius: var(--ios-radius-lg);
       margin-bottom: 2rem;
       -webkit-overflow-scrolling: touch;
+      background: var(--ios-bg-elevated);
+      box-shadow: var(--ios-shadow-sm);
     }
 
     /* ── Attendance table ─────────────────────────── */
@@ -115,7 +199,7 @@
     }
     .attendance-table th,
     .attendance-table td {
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--ios-separator);
       padding: 3px 4px;
       text-align: center;
       vertical-align: middle;
@@ -123,19 +207,18 @@
 
     /* Week header row */
     .attendance-table .th-week {
-      background: #1e40af;
+      background: var(--ios-blue);
       color: #fff;
       font-size: 0.7rem;
       font-weight: 700;
-      border-right: 2px solid #3b82f6;
+      border-right: 2px solid var(--ios-blue-600);
       min-width: 22px;
     }
-    /* Alternate week colour */
-    .attendance-table .th-week.even { background: #1d4ed8; }
+    .attendance-table .th-week.even { background: var(--ios-blue-600); }
 
     /* Day header row */
     .attendance-table .th-day {
-      background: #3b82f6;
+      background: rgba(0, 122, 255, 0.7);
       color: #fff;
       font-size: 0.68rem;
       font-weight: 600;
@@ -143,8 +226,8 @@
 
     /* Period header row */
     .attendance-table .th-period {
-      background: #dbeafe;
-      color: #1e40af;
+      background: rgba(0, 122, 255, 0.12);
+      color: var(--ios-blue);
       font-size: 0.65rem;
       font-weight: 700;
       width: 20px;
@@ -152,19 +235,16 @@
     }
 
     /* Sticky columns */
-    .sticky-col { position: sticky; background: #fff; z-index: 2; }
+    .sticky-col { position: sticky; background: var(--ios-bg-elevated); z-index: 2; }
     .sticky-sn  { left: 0;   min-width: 36px; width: 36px; }
     .sticky-name{ left: 36px; min-width: 140px; width: 140px; text-align: left !important; padding: 3px 6px !important; }
-    .sticky-total{ right: 0; min-width: 44px; width: 44px; font-weight: 700; background: #f0fdf4 !important; }
+    .sticky-total{ right: 0; min-width: 44px; width: 44px; font-weight: 700; background: rgba(52, 199, 89, 0.08) !important; color: var(--ios-green); }
 
     /* Sticky headers get elevated z-index */
     .attendance-table thead .sticky-col { z-index: 4; }
     .attendance-table thead th          { position: sticky; top: 0; z-index: 3; }
-    /* Row 1: week headers */
     .attendance-table thead tr:nth-child(1) th { top: 0; }
-    /* Row 2: day headers — sits below week row (30px) */
     .attendance-table thead tr:nth-child(2) th { top: 30px; }
-    /* Row 3: period headers */
     .attendance-table thead tr:nth-child(3) th { top: 58px; }
 
     /* Checkbox cells */
@@ -176,52 +256,62 @@
       width: 13px; height: 13px;
       cursor: pointer;
       margin: 0;
-      accent-color: #2563eb;
+      accent-color: var(--ios-blue);
     }
 
     /* S/N and Name body cells */
-    .td-sn   { color: #64748b; font-size: 0.68rem; }
-    .td-name { text-align: left !important; padding: 3px 6px !important; font-weight: 500; }
-    .td-total{ font-weight: 700; color: #059669; }
+    .td-sn   { color: var(--ios-label-secondary); font-size: 0.68rem; }
+    .td-name { text-align: left !important; padding: 3px 6px !important; font-weight: 500; color: var(--ios-label); }
+    .td-total{ font-weight: 700; color: var(--ios-green); }
 
-    /* Holiday columns — visual dimming (applied via JS) */
+    /* Holiday columns — visual dimming */
     .att-checkbox:disabled { accent-color: #94a3b8; opacity: 0.4; cursor: default; }
 
     /* ── Weekly summary table ─────────────────────── */
     .section-title {
+      font-family: var(--ios-font-display);
       font-size: 1.05rem;
       font-weight: 700;
-      color: #1e293b;
+      color: var(--ios-label);
       margin: 2rem 0 0.75rem;
       padding-bottom: 0.4rem;
-      border-bottom: 2px solid #e2e8f0;
+      border-bottom: 2px solid var(--ios-separator);
+      letter-spacing: -0.02em;
     }
     .summary-table {
       border-collapse: collapse;
       font-size: 0.82rem;
       min-width: 600px;
       width: 100%;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      overflow: hidden;
+      box-shadow: var(--ios-shadow-sm);
     }
     .summary-table th {
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      padding: 6px 10px;
+      background: var(--ios-bg);
+      border: 1px solid var(--ios-separator);
+      padding: 10px;
       font-weight: 600;
-      color: #334155;
+      color: var(--ios-label-secondary);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
       white-space: nowrap;
     }
     .summary-table td {
-      border: 1px solid #e2e8f0;
-      padding: 5px 10px;
+      border: 1px solid var(--ios-separator);
+      padding: 8px 10px;
       text-align: center;
+      color: var(--ios-label);
     }
-    .summary-table .week-label { font-weight: 600; color: #1e40af; }
-    .holiday-cell { background: #fef9c3; color: #92400e; font-size: 0.72rem; }
-    .open-day-cell { background: #f0fdf4; }
-    .day-detail { color: #64748b; font-size: 0.68rem; }
-    .stat-cell  { color: #1e293b; }
+    .summary-table .week-label { font-weight: 600; color: var(--ios-blue); }
+    .holiday-cell { background: rgba(255, 149, 0, 0.14); color: #8A4A00; font-size: 0.72rem; }
+    .open-day-cell { background: rgba(52, 199, 89, 0.08); }
+    .day-detail { color: var(--ios-label-secondary); font-size: 0.68rem; }
+    .stat-cell  { color: var(--ios-label); }
     .stat-cell.combined   { font-weight: 700; }
-    .stat-cell.percentage { font-weight: 700; color: #059669; }
+    .stat-cell.percentage { font-weight: 700; color: var(--ios-green); }
 
     /* ── Term summary ─────────────────────────────── */
     .term-summary-grid {
@@ -232,53 +322,95 @@
       margin-bottom: 2rem;
     }
     .term-stat {
-      background: #f8fafc;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      padding: 1rem 1.25rem;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      border: none;
+      padding: 1.1rem 1.3rem;
+      box-shadow: var(--ios-shadow-sm);
     }
-    .term-stat-label { font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem; }
-    .term-stat-value { font-size: 1.4rem; font-weight: 700; color: #1e293b; }
-    .term-stat-value.good { color: #059669; }
-    .term-stat-value.fair { color: #d97706; }
-    .term-stat-value.poor { color: #dc2626; }
+    .term-stat-label {
+      font-size: 0.72rem;
+      color: var(--ios-label-secondary);
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .term-stat-value {
+      font-family: var(--ios-font-display);
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--ios-label);
+      font-variant-numeric: tabular-nums;
+    }
+    .term-stat-value.good { color: var(--ios-green); }
+    .term-stat-value.fair { color: var(--ios-orange); }
+    .term-stat-value.poor { color: var(--ios-red); }
 
     /* ── No class / empty states ──────────────────── */
     .no-class-warning {
       text-align: center;
       padding: 3rem 1.5rem;
-      background: #fef9c3;
-      border: 1px solid #fbbf24;
-      border-radius: 12px;
+      background: rgba(255, 149, 0, 0.10);
+      border: 1px solid rgba(255, 149, 0, 0.25);
+      border-radius: var(--ios-radius-xl);
       margin: 2rem 0;
     }
     .no-class-warning .warning-icon { font-size: 3rem; margin-bottom: 1rem; }
-    .no-class-warning h2  { font-size: 1.3rem; margin-bottom: 0.5rem; color: #92400e; }
-    .no-class-warning p   { color: #78350f; font-size: 0.9rem; max-width: 400px; margin: 0 auto 1.25rem; }
+    .no-class-warning h2  { font-size: 1.3rem; margin-bottom: 0.5rem; color: #8A4A00; }
+    .no-class-warning p   { color: #8A4A00; font-size: 0.9rem; max-width: 400px; margin: 0 auto 1.25rem; }
     .btn-back {
       display: inline-block;
-      padding: 0.5rem 1.25rem;
-      background: #1e40af;
+      padding: 0.6rem 1.3rem;
+      background: var(--ios-blue);
       color: #fff;
-      border-radius: 6px;
+      border-radius: 999px;
       text-decoration: none;
       font-weight: 600;
       font-size: 0.875rem;
     }
-    .no-data-msg { color: #64748b; font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; }
-    .empty-state { padding: 2rem; text-align: center; color: #64748b; }
+    .no-data-msg { color: var(--ios-label-secondary); font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; }
+    .empty-state { padding: 2rem; text-align: center; color: var(--ios-label-secondary); }
 
     /* ── Hide hamburger on desktop ────────────────── */
     @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
 
     /* ── Mobile adjustments ───────────────────────── */
+    @media (max-width: 768px) {
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
+      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 10px; }
+      .school-name { flex: 1 1 auto; min-width: 0; }
+      .school-name h1#schoolName {
+        font-size: 1rem; line-height: 1.3; font-weight: 700;
+        letter-spacing: -0.02em; white-space: normal;
+        overflow-wrap: break-word; word-break: break-word; margin: 0;
+      }
+      .school-address {
+        font-size: 0.7rem; line-height: 1.25;
+        white-space: normal; overflow-wrap: break-word; word-break: break-word;
+      }
+      .school-header-left .school-logo .camera-icon { display: none !important; }
+      .school-header-left .school-logo {
+        width: 46px !important; height: 46px !important; flex-shrink: 0;
+        border-radius: 50%; overflow: hidden; background: var(--ios-fill);
+        cursor: pointer; display: flex !important;
+        align-items: center; justify-content: center; touch-action: manipulation;
+      }
+      .school-header-left .school-logo img {
+        width: 100% !important; height: 100% !important;
+        object-fit: cover; border-radius: 50%; display: block; pointer-events: none;
+      }
+      .header-right .subscription-badge { display: none !important; }
+      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
+    }
+
     @media (max-width: 640px) {
       .attendance-page-header { flex-direction: column; }
       .action-buttons { width: 100%; }
       .btn-save, .btn-print, .btn-download { flex: 1; text-align: center; }
       .term-summary-grid { grid-template-columns: 1fr; }
 
-      /* ---- Reduce name column width to fit more checkboxes ---- */
       .sticky-name {
         left: 36px;
         min-width: 70px !important;
@@ -317,21 +449,19 @@
         width: 32px !important;
         font-size: 0.65rem !important;
       }
-      /* Adjust sticky header positions (they stay same) */
       .attendance-table thead tr:nth-child(2) th { top: 26px; }
       .attendance-table thead tr:nth-child(3) th { top: 50px; }
     }
 
-    /* ══════════════════════════════════════════════
-       PRINT STYLES
-    ══════════════════════════════════════════════ */
+    /* ── Print header (hidden on screen) ── */
     .print-header { display: none; }
 
+    /* ============================================================
+       PRINT STYLES — PRESERVED VERBATIM (DO NOT MODIFY)
+       ============================================================ */
     @media print {
-      /* Page orientation & size */
       @page { size: A3 landscape; margin: 8mm; }
 
-      /* Hide all non-essential UI */
       .sidebar,
       .mobile-sidebar,
       .overlay,
@@ -344,7 +474,6 @@
       .camera-icon,
       #logoUploadInput { display: none !important; }
 
-      /* Show print header */
       .print-header {
         display: block !important;
         margin-bottom: 8px;
@@ -354,14 +483,12 @@
       .print-header h2 { font-size: 11pt; margin: 0 0 2px; }
       .print-header p  { font-size: 8pt;  margin: 0; }
 
-      /* Layout */
       .dashboard-container { display: block; }
       .main-content        { margin: 0; padding: 0; }
       .header              { padding: 0; box-shadow: none; }
       #schoolName          { font-size: 11pt; }
       #schoolAddress       { display: none; }
 
-      /* Table must be fully visible */
       .table-scroll-wrapper {
         overflow: visible;
         max-height: none;
@@ -374,11 +501,9 @@
       .sticky-col               { position: static; }
       .sticky-name              { min-width: 80px; width: auto; }
 
-      /* Summary tables */
       .summary-table { font-size: 0.65rem; }
       .term-summary-grid { grid-template-columns: repeat(3, 1fr); }
 
-      /* Section breaks */
       .section-title { break-before: avoid; }
       #weeklySummaryContainer { break-before: page; }
     }
