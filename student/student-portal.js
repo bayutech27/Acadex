@@ -9,8 +9,15 @@
 //   * Badge shows unread count based on a localStorage lastSeen timestamp.
 //   * Dropdown holds the 10 latest items, styled beautifully.
 //
-// MODIFIED: Results tab now shows assigned CBT scores from test_results collection.
-//   Columns: Subject, Score, Term/Session, Date.
+// MODIFIED (Results tab):
+//   * Columns: Subject | Score | Percentage (%) | Term/Session | Date.
+//   * Score displays as "{score}/{total}" (e.g. 6/10).
+//   * Percentage displays as "{score/total*100}%" rounded to 1 dp (e.g. 60%, 70.5%).
+//   * Table is paginated: 10 rows initially, "See more" reveals 5 more per click.
+//   * Pagination is CLIENT-SIDE — the Firestore query is unchanged (fetches all).
+//     This gives instant expansion with no spinner and no extra reads.
+//   * `visibleCbtCount` resets to 10 on every entry into the Results section
+//     (matches the "10 max" requirement on each visit).
 //
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support test_results queries, real-time scores/cbt listeners,
@@ -65,6 +72,14 @@ let globalCurrentSession = '';
 // Subscription state
 let isSchoolSubscriptionActive = true;
 let unsubscribeSubscription = null;
+
+// ── Results pagination state (NEW) ──────────────────────────────────────────
+const RESULTS_PAGE_SIZE = 10;    // initial visible rows
+const RESULTS_LOAD_STEP = 5;     // rows added per "See more" click
+
+let allCbtScores        = [];    // full fetched dataset for current view
+let visibleCbtCount     = RESULTS_PAGE_SIZE;
+let cbtScoresFetched    = false; // tracks whether we've loaded at least once
 
 // ─────────────────────────────────── Utilities ───────────────────────────────
 function safeVal(v) {
@@ -159,8 +174,8 @@ async function resolveClassName(schoolId, classId) {
   try {
     const classData = await service.getClassById(classId);
     if (classData) return safeVal(classData.name || classData.className);
-  } catch (err) { 
-    console.warn('[StudentPortal] Class name fail:', err); 
+  } catch (err) {
+    console.warn('[StudentPortal] Class name fail:', err);
     toast.warning('Unable to load class name. Please refresh.');
   }
   return '';
@@ -301,9 +316,9 @@ function renderHero(student) {
 function renderProfile(student) {
   const container = document.getElementById('profileTab');
   if (!container) return;
-  if (!student) { 
-    container.innerHTML = '<div class="card">No profile data available.</div>'; 
-    return; 
+  if (!student) {
+    container.innerHTML = '<div class="card">No profile data available.</div>';
+    return;
   }
   const item = (label, value) => `
     <div class="info-item">
@@ -376,9 +391,9 @@ function renderAttendance(records) {
 function renderSubjects(subjects) {
   const container = document.getElementById('subjectsTab');
   if (!container) return;
-  if (!subjects.length) { 
-    container.innerHTML = '<div class="card" style="padding:1.2rem">No subjects assigned for this term.</div>'; 
-    return; 
+  if (!subjects.length) {
+    container.innerHTML = '<div class="card" style="padding:1.2rem">No subjects assigned for this term.</div>';
+    return;
   }
   const names = subjects.map(s => safeVal(s.name || s.subjectName) || '—');
   container.innerHTML = `<div class="card" style="padding:1.2rem"><h3>📚 Subjects</h3><ul style="margin-top:0.75rem; list-style-type: disc; padding-left: 1.5rem;">${names.map(n => `<li>${n}</li>`).join('')}</ul></div>`;
@@ -388,9 +403,9 @@ function renderSubjects(subjects) {
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
   if (!container) return;
-  if (!assignments.length) { 
-    container.innerHTML = '<div class="card">📭 No assignments available at the moment.</div>'; 
-    return; 
+  if (!assignments.length) {
+    container.innerHTML = '<div class="card">📭 No assignments available at the moment.</div>';
+    return;
   }
   const cards = assignments.map(a => `
     <div class="stat-card" style="margin-bottom:1rem;text-align:left">
@@ -403,6 +418,10 @@ function renderAssignments(assignments) {
 }
 
 // ======================= CBT SCORES FOR RESULTS TAB (direct Firestore) =======================
+// MODIFIED: now also captures `total` (total questions) so the Score column can
+// render as "{score}/{total}" and the Percentage column can be computed.
+// The Firestore query itself is unchanged — still fetches all CBT results for
+// the student. Pagination is purely client-side in renderResultsSection().
 async function fetchCbtScores() {
   if (!currentStudentId || !currentSchoolId) return [];
   try {
@@ -420,6 +439,7 @@ async function fetchCbtScores() {
       results.push({
         subject: data.subject || 'Unknown Subject',
         score: data.rawScore ?? data.correctAnswers ?? 0,
+        total: data.totalQuestions ?? data.total ?? data.totalPossible ?? 0,
         term: data.term || '—',
         session: data.session || '—',
         date: data.completedAt ? data.completedAt.toDate() : null
@@ -433,6 +453,110 @@ async function fetchCbtScores() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Build a single results row for the CBT table.
+//   • Score column:     "{score}/{total}"  (falls back to "{score}" if total <= 0)
+//   • Percentage column: "{pct}%"          (rounded to 1 dp; '—' if total <= 0)
+// ─────────────────────────────────────────────────────────────────────────────
+function buildResultsRow(item) {
+  const scoreNum  = Number(item.score) || 0;
+  const totalNum  = Number(item.total) || 0;
+
+  // Score cell — "{score}/{total}" when we have a valid denominator.
+  const scoreDisplay = totalNum > 0 ? `${scoreNum}/${totalNum}` : `${scoreNum}`;
+
+  // Percentage cell — compute with 1-decimal precision. `Math.round(x*10)/10`
+  // naturally drops trailing zeros, so 50 stays "50%" and 70.5 stays "70.5%".
+  let pctDisplay = '—';
+  if (totalNum > 0) {
+    const pct = (scoreNum / totalNum) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+    pctDisplay = `${rounded}%`;
+  }
+
+  const dateStr = item.date
+    ? item.date.toLocaleDateString('en-NG', { year:'numeric', month:'short', day:'numeric' })
+    : '—';
+  const termSession = `${item.term} ${item.session}`.trim();
+
+  return `
+    <tr>
+      <td class="subject-name-cell">${escapeHtml(item.subject)}</td>
+      <td class="score-highlight">${scoreDisplay}</td>
+      <td class="percentage-cell">${pctDisplay}</td>
+      <td>${escapeHtml(termSession || '—')}</td>
+      <td>${dateStr}</td>
+    </tr>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render the CBT results table body (paginated) into #resultsTableContainer.
+// Uses module-level `allCbtScores` and `visibleCbtCount`.
+// ─────────────────────────────────────────────────────────────────────────────
+function renderResultsTableBody() {
+  const tableEl = document.getElementById('resultsTableContainer');
+  if (!tableEl) return;
+
+  if (!allCbtScores.length) {
+    tableEl.innerHTML = `
+      <div style="text-align:center; padding:2rem; color: var(--gray-500);">
+        <i class="fa-solid fa-clipboard-list" style="font-size:2rem; margin-bottom:0.5rem; display:block;"></i>
+        No CBT scores found yet.<br>
+        Complete a CBT test to see your results here.
+      </div>`;
+    return;
+  }
+
+  const visibleSlice = allCbtScores.slice(0, visibleCbtCount);
+  const remaining    = allCbtScores.length - visibleSlice.length;
+  const hasMore      = remaining > 0;
+
+  let html = `
+    <div class="table-responsive-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>Score</th>
+            <th>Percentage (%)</th>
+            <th>Term / Session</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visibleSlice.map(item => buildResultsRow(item)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  if (hasMore) {
+    html += `
+      <button type="button" class="see-more-btn" id="seeMoreResultsBtn" aria-label="Load more results">
+        <i class="fa-solid fa-chevron-down"></i>
+        <span>See more</span>
+        <span class="remaining-count">${remaining}</span>
+      </button>
+    `;
+  }
+
+  tableEl.innerHTML = html;
+
+  if (hasMore) {
+    document.getElementById('seeMoreResultsBtn').addEventListener('click', () => {
+      visibleCbtCount += RESULTS_LOAD_STEP;
+      renderResultsTableBody();
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full results-section renderer.
+// Resets pagination to page-1 (10 rows) on each entry into the Results view,
+// then fetches and renders. Subsequent "See more" clicks only re-render the
+// body via renderResultsTableBody() — no re-fetch, no spinner.
+// ─────────────────────────────────────────────────────────────────────────────
 async function renderResultsSection() {
   const summaryEl = document.getElementById('resultsSummaryContainer');
   const tableEl   = document.getElementById('resultsTableContainer');
@@ -441,52 +565,13 @@ async function renderResultsSection() {
   summaryEl.innerHTML = '';
   tableEl.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading CBT results...</div>';
 
+  // Reset pagination each time the section is shown (per requirement: "10 max").
+  visibleCbtCount = RESULTS_PAGE_SIZE;
+
   try {
-    const scores = await fetchCbtScores();
-
-    if (!scores.length) {
-      tableEl.innerHTML = `
-        <div style="text-align:center; padding:2rem; color: var(--gray-500);">
-          <i class="fa-solid fa-clipboard-list" style="font-size:2rem; margin-bottom:0.5rem; display:block;"></i>
-          No CBT scores found yet.<br>
-          Complete a CBT test to see your results here.
-        </div>`;
-      return;
-    }
-
-    let html = `
-      <div class="table-responsive-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Subject</th>
-              <th>Score</th>
-              <th>Term / Session</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    scores.forEach(item => {
-      const dateStr = item.date ? item.date.toLocaleDateString('en-NG', { year:'numeric', month:'short', day:'numeric' }) : '—';
-      const termSession = `${item.term} ${item.session}`.trim();
-      html += `
-        <tr>
-          <td class="subject-name-cell">${escapeHtml(item.subject)}</td>
-          <td class="score-highlight">${item.score}</td>
-          <td>${escapeHtml(termSession || '—')}</td>
-          <td>${dateStr}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
-        </table>
-      </div>
-    `;
-    tableEl.innerHTML = html;
+    allCbtScores = await fetchCbtScores();
+    cbtScoresFetched = true;
+    renderResultsTableBody();
   } catch (err) {
     console.error('[StudentPortal] Error rendering CBT results:', err);
     toast.error('Failed to load results. Please try again later.');
@@ -508,9 +593,9 @@ async function fetchTeacherName(teacherId) {
     try {
       const teacher = await service.getTeacherById(teacherId);
       return teacher?.name || teacher?.fullName || 'Teacher';
-    } catch (err) { 
-      console.warn('Teacher fetch error:', err); 
-      return 'Teacher'; 
+    } catch (err) {
+      console.warn('Teacher fetch error:', err);
+      return 'Teacher';
     }
   })();
   teacherNameCache.set(teacherId, promise);
@@ -721,8 +806,8 @@ async function resolveSubjects(rawSubjects) {
         const snap = await getDoc(doc(db, 'subjects', id));
         const d = snap.exists() ? snap.data() : {};
         return { id, name: safeVal(d.name || d.subjectName) || id, ca: null, exam: null, total: null, grade: null };
-      } catch { 
-        return { id, name: id, ca: null, exam: null, total: null, grade: null }; 
+      } catch {
+        return { id, name: id, ca: null, exam: null, total: null, grade: null };
       }
     });
     resolved = await Promise.all(promises);
@@ -754,8 +839,8 @@ async function resolveSubjects(rawSubjects) {
           };
         });
       }
-    } catch (err) { 
-      console.warn('Scores supplement failed:', err); 
+    } catch (err) {
+      console.warn('Scores supplement failed:', err);
       toast.warning('Unable to load score details. Please refresh.');
     }
   }
@@ -857,9 +942,9 @@ async function loadStudentDashboard() {
   try {
     const classId = safeVal(currentStudentData?.classId);
     if (classId) resolvedClassName = await resolveClassName(currentSchoolId, classId);
-  } catch (err) { 
-    console.warn('Class resolve:', err); 
-    resolvedClassName = ''; 
+  } catch (err) {
+    console.warn('Class resolve:', err);
+    resolvedClassName = '';
   }
 
   loadSchoolHeader(currentSchoolId).catch(err => console.warn('School header failed:', err));
@@ -882,18 +967,18 @@ async function loadStudentDashboard() {
         }
       });
     }
-  } catch (err) { 
-    console.warn('Attendance load fail:', err); 
+  } catch (err) {
+    console.warn('Attendance load fail:', err);
     toast.warning('Unable to load attendance data. Please refresh.');
-    attendanceRecords = []; 
+    attendanceRecords = [];
   }
 
   try {
     const rawSubjects = currentStudentData?.subjects;
     subjectsList = await resolveSubjects(rawSubjects);
-  } catch (err) { 
-    console.warn('Subjects fail:', err); 
-    subjectsList = []; 
+  } catch (err) {
+    console.warn('Subjects fail:', err);
+    subjectsList = [];
   }
 
   try {
@@ -901,9 +986,9 @@ async function loadStudentDashboard() {
     if (currentSchoolId && classId) {
       assignmentsList = await service.getAssignmentsByClass(currentSchoolId, classId);
     } else assignmentsList = [];
-  } catch (err) { 
-    console.warn('Assignments fail:', err); 
-    assignmentsList = []; 
+  } catch (err) {
+    console.warn('Assignments fail:', err);
+    assignmentsList = [];
   }
 
   setupNotificationListeners(safeVal(currentStudentData?.classId), currentStudentId);
@@ -973,9 +1058,9 @@ function initDownload() {
 
 // ─────────────────────────────────── App entry ───────────────────────────────
 onAuthStateChanged(auth, async user => {
-  if (!user) { 
-    window.location.href = '/'; 
-    return; 
+  if (!user) {
+    window.location.href = '/';
+    return;
   }
   try {
     const userData = await service.getUserById(user.uid);
