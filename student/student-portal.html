@@ -302,46 +302,133 @@
     .empty-notification i { display: block; font-size: 1.6rem; margin-bottom: .5rem; opacity: .5; }
 
     /* =========================================================
-       INTERNAL TABS (iOS segmented feel)
+       TAB CARDS (iOS home-screen style, replaces old pill tabs)
        ========================================================= */
-    .internal-tabs {
-      display: flex;
-      gap: .25rem;
-      border-bottom: 1px solid var(--ios-separator);
+    .tab-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
       margin-bottom: 1.5rem;
-      flex-wrap: wrap;
     }
-    .internal-tab-btn {
-      background: transparent;
+    .tab-card {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 20px 12px 16px;
       border: none;
-      padding: .55rem 1.1rem;
-      font-family: var(--ios-font);
-      font-weight: 600;
-      font-size: .83rem;
-      color: var(--ios-label-secondary);
+      box-shadow: var(--ios-shadow);
       cursor: pointer;
-      transition: all .18s var(--ios-smooth);
-      border-radius: var(--ios-radius-sm) var(--ios-radius-sm) 0 0;
+      transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-smooth);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      text-align: center;
+      font-family: inherit;
+      animation: fadeSlideUp 0.45s var(--ios-smooth) both;
+      position: relative;
+      overflow: hidden;
+    }
+    .tab-card:hover {
+      transform: translateY(-3px) scale(1.015);
+      box-shadow: var(--ios-shadow-lg);
+    }
+    .tab-card:active { transform: scale(0.97); }
+
+    .tab-card-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
       display: flex;
       align-items: center;
-      gap: .4rem;
-      letter-spacing: -0.01em;
+      justify-content: center;
+      font-size: 1.45rem;
+      color: #fff;
+      transition: transform 0.28s var(--ios-spring);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      background: linear-gradient(135deg, var(--icon-color-a), var(--icon-color-b));
     }
-    .internal-tab-btn i { font-size: .8rem; opacity: .7; }
-    .internal-tab-btn:hover  { color: var(--ios-blue); background: rgba(0, 122, 255, 0.06); }
-    .internal-tab-btn.active {
-      color: var(--ios-blue);
-      border-bottom: 2px solid var(--ios-blue);
-      margin-bottom: -1px;
-      background: rgba(0, 122, 255, 0.06);
-    }
-    .internal-tab-btn.active i { opacity: 1; }
+    .tab-card:hover .tab-card-icon { transform: scale(1.06); }
 
+    .tab-card-label {
+      font-family: var(--ios-font);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--ios-label);
+      letter-spacing: -0.01em;
+      line-height: 1.25;
+    }
+
+    /* Active card (selected tab) */
+    .tab-card.active {
+      background: linear-gradient(145deg, var(--ios-blue), var(--ios-indigo));
+      box-shadow: 0 8px 24px rgba(0, 122, 255, 0.32);
+    }
+    .tab-card.active .tab-card-label { color: #fff; }
+    .tab-card.active .tab-card-icon {
+      background: rgba(255, 255, 255, 0.20);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    }
+
+    /* Icon gradient palettes — one per card, iOS system feel */
+    .tab-icon-about        { --icon-color-a: #AF52DE; --icon-color-b: #5856D6; }
+    .tab-icon-attendance   { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
+    .tab-icon-assignments  { --icon-color-a: #34C759; --icon-color-b: #00B8A9; }
+    .tab-icon-achievements { --icon-color-a: #FFCC00; --icon-color-b: #FF9500; }
+    .tab-icon-library      { --icon-color-a: #5AC8FA; --icon-color-b: #5856D6; }
+    .tab-icon-video        { --icon-color-a: #FF2D55; --icon-color-b: #AF52DE; }
+
+    /* Staggered entrance animation */
+    .tab-card:nth-child(1) { animation-delay: 0.04s; }
+    .tab-card:nth-child(2) { animation-delay: 0.08s; }
+    .tab-card:nth-child(3) { animation-delay: 0.12s; }
+    .tab-card:nth-child(4) { animation-delay: 0.16s; }
+    .tab-card:nth-child(5) { animation-delay: 0.20s; }
+    .tab-card:nth-child(6) { animation-delay: 0.24s; }
+
+    /* =========================================================
+       TAB PANES (unchanged mechanics, new fade)
+       ========================================================= */
     .tab-pane { display: none; animation: fadeTabIn .25s var(--ios-smooth); }
     .tab-pane.active-pane { display: block; }
     @keyframes fadeTabIn {
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* =========================================================
+       COMING SOON PANE (Achievements / Library / Video Tutorials)
+       ========================================================= */
+    .coming-soon-card {
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 3rem 2rem;
+      box-shadow: var(--ios-shadow);
+      text-align: center;
+      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
+    }
+    .coming-soon-card i {
+      font-size: 3rem;
+      color: var(--ios-blue);
+      opacity: 0.55;
+      margin-bottom: 1.25rem;
+      display: block;
+    }
+    .coming-soon-card h3 {
+      font-family: var(--ios-font-display);
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--ios-label);
+      margin: 0 0 0.5rem 0;
+      letter-spacing: -0.02em;
+    }
+    .coming-soon-card p {
+      color: var(--ios-label-secondary);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin: 0 auto;
+      max-width: 380px;
+      letter-spacing: -0.005em;
     }
 
     /* =========================================================
@@ -435,6 +522,56 @@
     }
 
     /* =========================================================
+       ABOUT ME — SUBJECTS SUB-SECTION
+       ========================================================= */
+    .about-subjects-section {
+      margin-top: 1.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--ios-separator);
+    }
+    .about-subjects-heading {
+      font-family: var(--ios-font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--ios-label);
+      margin: 0 0 0.9rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .about-subjects-heading i {
+      color: var(--ios-blue);
+      font-size: 0.9rem;
+    }
+    .about-subjects-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .subject-chip {
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      border: 1px solid rgba(0, 122, 255, 0.12);
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
+    }
+    .subject-chip:hover {
+      background: rgba(0, 122, 255, 0.16);
+      transform: translateY(-1px);
+    }
+    .about-subjects-empty {
+      color: var(--ios-label-secondary);
+      font-size: 0.88rem;
+      margin: 0;
+      letter-spacing: -0.005em;
+    }
+
+    /* =========================================================
        SUMMARY STATS (attendance)
        ========================================================= */
     .summary-stats {
@@ -519,7 +656,7 @@
 
     /* =========================================================
        RESULTS — Percentage column + See-more button
-       (NEW — scoped only to the Results section)
+       (scoped only to the Results section)
        ========================================================= */
     .percentage-cell {
       font-weight: 700;
@@ -738,8 +875,28 @@
       .hero-meta  { justify-content: center; }
       .student-photo { margin: 0 auto; }
 
-      /* Tabs wrap */
-      .internal-tabs { justify-content: center; }
+      /* ---- Tab cards: 2 columns on mobile ---- */
+      .tab-card-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .tab-card {
+        padding: 16px 10px 12px;
+        border-radius: 18px;
+        gap: 10px;
+      }
+      .tab-card-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 1.2rem;
+        border-radius: 14px;
+      }
+      .tab-card-label { font-size: 0.75rem; }
+
+      /* Coming-soon card: tighter padding */
+      .coming-soon-card { padding: 2.25rem 1.25rem; }
+      .coming-soon-card i { font-size: 2.5rem; }
+      .coming-soon-card h3 { font-size: 1.15rem; }
 
       /* Notification dropdown */
       .notification-dropdown { width: 280px; right: -10px; }
@@ -787,6 +944,30 @@
 
       /* Slightly smaller academic badge */
       .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
+    }
+
+    /* Very small phones: single-column tab grid */
+    @media (max-width: 400px) {
+      .tab-card-grid {
+        grid-template-columns: 1fr;
+      }
+      .tab-card {
+        flex-direction: row;
+        justify-content: flex-start;
+        padding: 14px 16px;
+        gap: 14px;
+        text-align: left;
+      }
+      .tab-card-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 1.1rem;
+        border-radius: 12px;
+        flex-shrink: 0;
+      }
+      .tab-card-label {
+        font-size: 0.9rem;
+      }
     }
 
     /* Hide hamburger on desktop */
@@ -940,18 +1121,70 @@
           </div>
         </div>
 
-        <!-- INTERNAL TABS -->
-        <div class="internal-tabs">
-          <button class="internal-tab-btn active" data-tab="profile"><i class="fa-solid fa-user"></i> Profile</button>
-          <button class="internal-tab-btn" data-tab="attendance"><i class="fa-solid fa-clipboard-list"></i> Attendance</button>
-          <button class="internal-tab-btn" data-tab="subjects"><i class="fa-solid fa-book-open"></i> Subjects</button>
-          <button class="internal-tab-btn" data-tab="assignments"><i class="fa-solid fa-pen-to-square"></i> Assignments</button>
+        <!-- TAB CARDS (iOS home-screen style) -->
+        <div class="tab-card-grid" role="tablist" aria-label="Dashboard sections">
+          <button type="button" class="tab-card active" data-tab="profile" role="tab" aria-selected="true">
+            <div class="tab-card-icon tab-icon-about"><i class="fa-solid fa-user"></i></div>
+            <span class="tab-card-label">About Me</span>
+          </button>
+
+          <button type="button" class="tab-card" data-tab="attendance" role="tab" aria-selected="false">
+            <div class="tab-card-icon tab-icon-attendance"><i class="fa-solid fa-clipboard-list"></i></div>
+            <span class="tab-card-label">Attendance</span>
+          </button>
+
+          <button type="button" class="tab-card" data-tab="assignments" role="tab" aria-selected="false">
+            <div class="tab-card-icon tab-icon-assignments"><i class="fa-solid fa-pen-to-square"></i></div>
+            <span class="tab-card-label">Assignments</span>
+          </button>
+
+          <button type="button" class="tab-card" data-tab="achievements" data-future-page="" role="tab" aria-selected="false">
+            <div class="tab-card-icon tab-icon-achievements"><i class="fa-solid fa-trophy"></i></div>
+            <span class="tab-card-label">Achievements</span>
+          </button>
+
+          <button type="button" class="tab-card" data-tab="library" data-future-page="../student/library.html" role="tab" aria-selected="false">
+            <div class="tab-card-icon tab-icon-library"><i class="fa-solid fa-book-open"></i></div>
+            <span class="tab-card-label">Library</span>
+          </button>
+
+          <button type="button" class="tab-card" data-tab="video-tutorials" data-future-page="../student/video-tutorials.html" role="tab" aria-selected="false">
+            <div class="tab-card-icon tab-icon-video"><i class="fa-solid fa-circle-play"></i></div>
+            <span class="tab-card-label">Video Tutorials</span>
+          </button>
         </div>
 
-        <div id="profileTab"     class="tab-pane active-pane">Loading profile&hellip;</div>
-        <div id="attendanceTab"  class="tab-pane">Loading attendance&hellip;</div>
-        <div id="subjectsTab"    class="tab-pane">Loading subjects&hellip;</div>
-        <div id="assignmentsTab" class="tab-pane">Loading assignments&hellip;</div>
+        <!-- TAB PANES -->
+        <div id="profileTab"     class="tab-pane active-pane" role="tabpanel">Loading profile&hellip;</div>
+        <div id="attendanceTab"  class="tab-pane" role="tabpanel">Loading attendance&hellip;</div>
+        <div id="assignmentsTab" class="tab-pane" role="tabpanel">Loading assignments&hellip;</div>
+
+        <!-- Coming Soon: Achievements -->
+        <div id="achievementsTab" class="tab-pane" role="tabpanel">
+          <div class="coming-soon-card">
+            <i class="fa-solid fa-trophy"></i>
+            <h3>Coming Soon</h3>
+            <p>Your badges, milestones and learning achievements will live here. Keep learning — every step counts.</p>
+          </div>
+        </div>
+
+        <!-- Coming Soon: Library -->
+        <div id="libraryTab" class="tab-pane" role="tabpanel">
+          <div class="coming-soon-card">
+            <i class="fa-solid fa-book-open"></i>
+            <h3>Coming Soon</h3>
+            <p>The Acadex Library will open here — class notes, past questions and study materials, all in one place.</p>
+          </div>
+        </div>
+
+        <!-- Coming Soon: Video Tutorials -->
+        <div id="videoTutorialsTab" class="tab-pane" role="tabpanel">
+          <div class="coming-soon-card">
+            <i class="fa-solid fa-circle-play"></i>
+            <h3>Coming Soon</h3>
+            <p>Video tutorials for every subject will be available here. Learn at your own pace, from anywhere.</p>
+          </div>
+        </div>
       </div>
 
       <!-- RESULTS SECTION -->
