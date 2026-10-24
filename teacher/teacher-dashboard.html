@@ -524,8 +524,7 @@
     setupLogout,
     setupLogoUpload,
     checkClassTeacherStatus,
-    displayTeacherName,
-    getHostClassId
+    displayTeacherName
   } from '../js/teacher-dashboard.js';
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
@@ -548,7 +547,6 @@
     initMobileMenu();
 
     const isClassTeacher = await checkClassTeacherStatus();
-    const hostClassId    = getHostClassId();
 
     // ── Class card gating ────────────────────────────────
     // If the teacher is not a class teacher, the Class card and the two
@@ -560,8 +558,6 @@
         classCard.classList.add('disabled-card');
         classCard.setAttribute('aria-disabled', 'true');
         classCard.setAttribute('tabindex', '-1');
-        // Note: .disabled-card sets pointer-events: none, so this alert
-        // will not fire — matches existing behaviour (silent, greyed card).
         classCard.addEventListener('click', e => {
           e.preventDefault();
           alert('You are not assigned as a class teacher. You cannot access this page.');
@@ -578,8 +574,15 @@
     }
 
     // ── Attendance card gating ───────────────────────────
-    // Requires BOTH class-teacher status AND a host class.
-    const canAccessAttendance = isClassTeacher && !!hostClassId;
+    // FIX: Gate attendance on class-teacher status ALONE (matching the
+    // Class card). The previous extra `&& !!hostClassId` check used the
+    // singular hostClassId field via getHostClassId(); teachers whose
+    // record uses the plural `hostClassIds` array returned null from that
+    // helper and had their attendance card disabled even though they ARE
+    // class teachers — making the card dead. The attendance page itself
+    // already gracefully shows a "No Class Assigned" warning if a host
+    // class is truly missing, so gating on isClassTeacher alone is safe.
+    const canAccessAttendance = isClassTeacher;
 
     if (!canAccessAttendance) {
       const attendanceCard = document.getElementById('attendanceCard');
@@ -589,7 +592,7 @@
         attendanceCard.setAttribute('tabindex', '-1');
         attendanceCard.addEventListener('click', e => {
           e.preventDefault();
-          alert('You must be assigned as a class teacher (with a host class) to access attendance.');
+          alert('You must be assigned as a class teacher to access attendance.');
         });
       }
       document.querySelectorAll('.sidebar-nav a[href="attendance.html"]').forEach(link => {
