@@ -163,10 +163,11 @@
     .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
 
     /* =========================================================
-       HEADER LOGOUT BUTTON — sits at the former hamburger position
-       (first child of .header-right). Beautiful iOS pill on desktop,
-       compact icon-only button on mobile — matching the notification
-       bell dimensions for a balanced mobile header.
+       HEADER LOGOUT BUTTON
+       Sits at the former hamburger position (first child of
+       .header-right). Beautiful iOS pill with clear "Logout"
+       text on EVERY screen size — so students always know
+       what it does. Compact on mobile but text remains visible.
        ========================================================= */
     .logout-btn-header {
       display: inline-flex;
@@ -199,6 +200,10 @@
     }
     .logout-btn-header i {
       font-size: 0.8rem;
+    }
+    .logout-btn-header .logout-btn-text {
+      /* Text always visible on every breakpoint — students must understand. */
+      display: inline;
     }
 
     /* =========================================================
@@ -357,7 +362,6 @@
 
     /* =========================================================
        TAB CARD GRID — accordion layout
-       All cards styled identically (only the icon gradient differs).
        ========================================================= */
     .tab-card-grid {
       display: grid;
@@ -463,7 +467,7 @@
     }
 
     /* =========================================================
-       COMING SOON PANE (Achievements / Library / Video Tutorials)
+       COMING SOON PANE
        ========================================================= */
     .coming-soon-card {
       background: var(--ios-bg-elevated);
@@ -498,7 +502,7 @@
     }
 
     /* =========================================================
-       HERO CARD (iOS-elevated white)
+       HERO CARD
        ========================================================= */
     .hero-card {
       background: var(--ios-bg-elevated);
@@ -638,7 +642,7 @@
     }
 
     /* =========================================================
-       SUMMARY STATS (attendance / results)
+       SUMMARY STATS
        ========================================================= */
     .summary-stats {
       display: grid;
@@ -712,7 +716,7 @@
     }
 
     /* =========================================================
-       GRADE BADGES (iOS pastel)
+       GRADE BADGES
        ========================================================= */
     .grade-A { background: rgba(52, 199, 89, 0.15); color: #1B7F3A; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-B { background: rgba(0, 122, 255, 0.15); color: #0055AA; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
@@ -873,25 +877,21 @@
 
       .notification-dropdown { width: 280px; right: -10px; }
 
-      /* ── Logout: compact icon-only button on mobile ──
-         Matches the notification bell's 38×38 dimensions so the
-         mobile header looks balanced. Text label hidden. */
+      /* ── Logout on mobile: compact pill with "Logout" text KEPT visible ──
+         Students must always understand what the button does.
+         Padding and font shrink, but the label stays. */
       .logout-btn-header {
-        padding: 0;
-        width: 38px;
-        height: 38px;
-        gap: 0;
-        border-radius: 12px;
-      }
-      .logout-btn-header .logout-btn-text {
-        display: none;
+        padding: 7px 11px;
+        gap: 5px;
+        font-size: 0.72rem;
       }
       .logout-btn-header i {
-        font-size: 0.95rem;
+        font-size: 0.72rem;
       }
+      /* .logout-btn-text stays visible — no display:none override here. */
 
       .header { flex-wrap: nowrap; gap: 8px; }
-      .header-right { flex-shrink: 0; margin-left: auto; gap: 8px; display: flex; align-items: center; }
+      .header-right { flex-shrink: 0; margin-left: auto; gap: 6px; display: flex; align-items: center; }
       .school-header-left {
         flex: 1 1 auto;
         min-width: 0;
@@ -928,6 +928,22 @@
       .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
     }
 
+    /* Very small phones: shrink logout label further so it fits */
+    @media (max-width: 360px) {
+      .logout-btn-header {
+        padding: 6px 9px;
+        gap: 4px;
+        font-size: 0.68rem;
+      }
+      .logout-btn-header i {
+        font-size: 0.68rem;
+      }
+      .school-logo-readonly {
+        width: 40px !important;
+        height: 40px !important;
+      }
+    }
+
     /* =========================================================
        ANIMATIONS
        ========================================================= */
@@ -960,9 +976,8 @@
       </div>
 
       <div class="header-right">
-        <!-- Beautiful iOS pill logout button — sits at the former
-             hamburger position (first child of .header-right).
-             Icon-only on mobile; icon + "Logout" text on desktop. -->
+        <!-- Logout pill — "Logout" text is ALWAYS visible (desktop + mobile)
+             so students clearly understand the action. -->
         <button id="logoutBtn" class="logout-btn-header" aria-label="Logout">
           <i class="fa-solid fa-right-from-bracket"></i>
           <span class="logout-btn-text">Logout</span>
@@ -1005,13 +1020,11 @@
     <!-- ===================== PAGE CONTENT ===================== -->
     <div class="content" id="mainContentArea">
 
-      <!-- DASHBOARD SECTION — single view, tab cards + accordion panes -->
+      <!-- DASHBOARD SECTION -->
       <div id="dashboardSection" class="dynamic-section">
         <div id="heroContainer"></div>
 
-        <!-- TAB CARD GRID — 8 cards + 7 accordion panes.
-             Cards: About Me · Attendance · Assignments · Achievements · Library · Video Tutorials · CBT · Results
-             Panes (hidden until clicked): all except CBT (which navigates). -->
+        <!-- TAB CARD GRID -->
         <div class="tab-card-grid" id="tabCardGrid" role="list">
 
           <button type="button" class="tab-card" data-tab="profile" role="listitem" aria-expanded="false" aria-controls="profileTab">
@@ -1054,7 +1067,7 @@
             <span class="tab-card-label">Results</span>
           </button>
 
-          <!-- ─────────── TAB PANES (hidden by default) ─────────── -->
+          <!-- ─────────── TAB PANES ─────────── -->
           <div id="profileTab" class="tab-pane" data-pane="profile" role="region" aria-label="About Me">
             Loading profile&hellip;
           </div>
