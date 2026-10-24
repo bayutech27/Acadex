@@ -163,6 +163,45 @@
     .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
 
     /* =========================================================
+       HEADER LOGOUT BUTTON — sits at the former hamburger position
+       (first child of .header-right). Beautiful iOS pill on desktop,
+       compact icon-only button on mobile — matching the notification
+       bell dimensions for a balanced mobile header.
+       ========================================================= */
+    .logout-btn-header {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(255, 59, 48, 0.10);
+      color: var(--ios-red);
+      border: 1px solid rgba(255, 59, 48, 0.18);
+      font-family: var(--ios-font);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      line-height: 1;
+      cursor: pointer;
+      transition: transform 0.15s var(--ios-smooth),
+                  background 0.2s ease,
+                  box-shadow 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+      white-space: nowrap;
+    }
+    .logout-btn-header:hover {
+      background: rgba(255, 59, 48, 0.16);
+      box-shadow: 0 4px 14px rgba(255, 59, 48, 0.15);
+    }
+    .logout-btn-header:active {
+      transform: scale(0.96);
+    }
+    .logout-btn-header i {
+      font-size: 0.8rem;
+    }
+
+    /* =========================================================
        SCHOOL LOGO (read-only, iOS circular)
        ========================================================= */
     .school-logo-readonly {
@@ -353,7 +392,6 @@
     }
     .tab-card:active { transform: scale(0.97); }
 
-    /* Subtle ring on the open card — every card is otherwise identical */
     .tab-card.open {
       box-shadow: 0 0 0 2px var(--ios-blue), 0 8px 28px rgba(0, 122, 255, 0.18);
     }
@@ -835,8 +873,25 @@
 
       .notification-dropdown { width: 280px; right: -10px; }
 
+      /* ── Logout: compact icon-only button on mobile ──
+         Matches the notification bell's 38×38 dimensions so the
+         mobile header looks balanced. Text label hidden. */
+      .logout-btn-header {
+        padding: 0;
+        width: 38px;
+        height: 38px;
+        gap: 0;
+        border-radius: 12px;
+      }
+      .logout-btn-header .logout-btn-text {
+        display: none;
+      }
+      .logout-btn-header i {
+        font-size: 0.95rem;
+      }
+
       .header { flex-wrap: nowrap; gap: 8px; }
-      .header-right { flex-shrink: 0; margin-left: auto; }
+      .header-right { flex-shrink: 0; margin-left: auto; gap: 8px; display: flex; align-items: center; }
       .school-header-left {
         flex: 1 1 auto;
         min-width: 0;
@@ -905,9 +960,18 @@
       </div>
 
       <div class="header-right">
+        <!-- Beautiful iOS pill logout button — sits at the former
+             hamburger position (first child of .header-right).
+             Icon-only on mobile; icon + "Logout" text on desktop. -->
+        <button id="logoutBtn" class="logout-btn-header" aria-label="Logout">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span class="logout-btn-text">Logout</span>
+        </button>
+
         <div id="subscriptionBadge" class="subscription-badge">
           <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
         </div>
+
         <div style="position:relative;">
           <button id="notificationBell" class="notification-bell" aria-label="Notifications">
             <i class="fa-solid fa-bell"></i>
@@ -925,9 +989,6 @@
             </div>
           </div>
         </div>
-        <button id="logoutBtn" class="logout-btn">
-          <i class="fa-solid fa-right-from-bracket"></i> Logout
-        </button>
       </div>
     </header>
 
