@@ -20,7 +20,8 @@
   <style>
     /* =========================================================
        iOS-STYLE TEACHER DASHBOARD
-       Visual refactor only — IDs, classes and structure untouched.
+       Visual refactor only — sidebar, hamburger and all sidebar
+       navigation preserved. Only the card grid is unified.
        ========================================================= */
 
     :root {
@@ -159,72 +160,82 @@
     }
 
     /* =========================================================
-       DESKTOP / TABLET TEACHER NAV CARDS
+       TEACHER NAVIGATION CARDS — unified iOS-style grid.
+       All 4 cards visually identical (only icon gradient differs).
+       Each card is a link that navigates to its target page.
        ========================================================= */
-    .stats-grid {
+    .teacher-nav-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-bottom: 26px;
     }
 
-    .clickable-card {
+    .tab-card {
       background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      padding: 22px 20px 20px;
-      box-shadow: var(--ios-shadow);
+      border-radius: var(--ios-radius-xl);
+      padding: 20px 12px 16px;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
       text-align: center;
+      box-shadow: var(--ios-shadow);
       border: none;
+      cursor: pointer;
+      transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-smooth);
+      animation: fadeSlideUp 0.45s var(--ios-smooth) both;
       position: relative;
       overflow: hidden;
-      transition: transform 0.3s var(--ios-spring), box-shadow 0.3s var(--ios-smooth);
-      cursor: pointer;
-      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
+      -webkit-tap-highlight-color: transparent;
+      font-family: inherit;
+      color: inherit;
     }
-    .clickable-card:hover {
-      transform: translateY(-3px) scale(1.01);
+    .tab-card:hover {
+      transform: translateY(-3px) scale(1.015);
       box-shadow: var(--ios-shadow-lg);
     }
+    .tab-card:active { transform: scale(0.97); }
 
-    .card-icon-wrap {
+    .tab-card-icon {
       width: 56px;
       height: 56px;
       border-radius: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 0 auto 12px;
-      font-size: 1.5rem;
-      transition: transform 0.3s var(--ios-spring);
+      font-size: 1.45rem;
+      color: #fff;
+      transition: transform 0.28s var(--ios-spring);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      background: linear-gradient(135deg, var(--icon-color-a), var(--icon-color-b));
     }
-    .clickable-card:hover .card-icon-wrap { transform: scale(1.06); }
+    .tab-card:hover .tab-card-icon { transform: scale(1.06); }
 
-    /* iOS system color tint per card */
-    #classCard      .card-icon-wrap { background: rgba(0, 122, 255, 0.12);  color: var(--ios-blue);   }
-    #scoresCard     .card-icon-wrap { background: rgba(52, 199, 89, 0.12);  color: var(--ios-green);  }
-    #attendanceCard .card-icon-wrap { background: rgba(255, 149, 0, 0.14);  color: var(--ios-orange); }
-    #cbtCard        .card-icon-wrap { background: rgba(88, 86, 214, 0.12);  color: var(--ios-indigo); }
-
-    .card-title {
-      font-family: var(--ios-font-display);
-      font-size: 1.1rem;
-      font-weight: 700;
-      margin-bottom: 6px;
+    .tab-card-label {
+      font-family: var(--ios-font);
+      font-size: 0.82rem;
+      font-weight: 600;
       color: var(--ios-label);
-      letter-spacing: -0.02em;
-    }
-    .card-desc {
-      font-size: 0.8rem;
-      color: var(--ios-label-secondary);
-      line-height: 1.5;
-      font-weight: 500;
+      letter-spacing: -0.01em;
+      line-height: 1.25;
     }
 
-    .clickable-card:nth-child(1) { animation-delay: .05s; }
-    .clickable-card:nth-child(2) { animation-delay: .11s; }
-    .clickable-card:nth-child(3) { animation-delay: .17s; }
-    .clickable-card:nth-child(4) { animation-delay: .23s; }
+    /* Icon gradient palettes — one per card, iOS system feel */
+    .tab-icon-class      { --icon-color-a: #34C759; --icon-color-b: #30B0C7; }
+    .tab-icon-scores     { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
+    .tab-icon-attendance { --icon-color-a: #5856D6; --icon-color-b: #AF52DE; }
+    .tab-icon-cbt        { --icon-color-a: #007AFF; --icon-color-b: #5856D6; }
 
+    /* Staggered entrance */
+    .tab-card:nth-child(1) { animation-delay: 0.05s; }
+    .tab-card:nth-child(2) { animation-delay: 0.11s; }
+    .tab-card:nth-child(3) { animation-delay: 0.17s; }
+    .tab-card:nth-child(4) { animation-delay: 0.23s; }
+
+    /* Disabled state — visually greyed, click-inert (matches current behaviour) */
     .disabled-card {
       opacity: 0.52;
       cursor: not-allowed !important;
@@ -242,105 +253,26 @@
     }
 
     /* =========================================================
-       MOBILE MENU CARDS (≤ 768px)
+       MOBILE RESPONSIVE
        ========================================================= */
-    .mobile-menu-section { display: none; }
-
     @media (max-width: 768px) {
-      .mobile-menu-section {
-        display: block;
-        margin-bottom: 22px;
-        animation: fadeSlideUp 0.45s var(--ios-smooth) both;
-      }
-      .mobile-menu-title {
-        font-family: var(--ios-font-display);
-        font-size: 0.94rem;
-        font-weight: 700;
-        color: var(--ios-label);
-        margin-bottom: 14px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        letter-spacing: -0.02em;
-      }
-      .mobile-menu-title i { color: var(--ios-blue); font-size: 0.9rem; }
-
-      .mobile-nav-grid {
-        display: grid;
+      /* Cards: 2 columns on mobile */
+      .teacher-nav-grid {
         grid-template-columns: repeat(2, 1fr);
-        gap: 14px;
-      }
-
-      .mobile-nav-card {
-        background: var(--ios-bg-elevated);
-        border-radius: var(--ios-radius-xl);
-        padding: 20px 14px 16px;
-        text-decoration: none;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
         gap: 12px;
-        border: none;
-        box-shadow: var(--ios-shadow);
-        transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-smooth);
-        position: relative;
-        overflow: hidden;
-        text-align: center;
-        cursor: pointer;
-        animation: fadeSlideUp 0.45s var(--ios-smooth) both;
       }
-      .mobile-nav-card:hover {
-        transform: translateY(-3px) scale(1.015);
-        box-shadow: var(--ios-shadow-lg);
-      }
-      .mobile-nav-card:active { transform: scale(0.97); }
-
-      .mobile-nav-card.active {
-        background: linear-gradient(145deg, var(--ios-blue), var(--ios-indigo));
-        box-shadow: 0 8px 24px rgba(0, 122, 255, 0.32);
-      }
-      .mobile-nav-card.active .mobile-nav-icon,
-      .mobile-nav-card.active .mobile-nav-label { color: #fff !important; }
-      .mobile-nav-card.active .mobile-nav-icon { background: rgba(255, 255, 255, 0.18) !important; }
-
-      .mobile-nav-icon {
-        width: 60px;
-        height: 60px;
+      .tab-card {
+        padding: 18px 10px 14px;
         border-radius: 18px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.6rem;
-        color: #fff;
-        transition: transform 0.28s var(--ios-spring);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-        background: linear-gradient(135deg, var(--icon-color-a), var(--icon-color-b));
+        gap: 10px;
       }
-      .mobile-nav-card:hover .mobile-nav-icon { transform: scale(1.06); }
-
-      .mobile-nav-label {
-        font-family: var(--ios-font);
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--ios-label);
-        letter-spacing: -0.01em;
-        line-height: 1.25;
+      .tab-card-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 1.25rem;
+        border-radius: 14px;
       }
-
-      /* iOS system gradients per card */
-      .mnc-class      { --icon-color-a: #34C759; --icon-color-b: #30B0C7; }
-      .mnc-scores     { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
-      .mnc-attendance { --icon-color-a: #5856D6; --icon-color-b: #AF52DE; }
-      .mnc-cbt        { --icon-color-a: #007AFF; --icon-color-b: #5856D6; }
-
-      .mobile-nav-card:nth-child(1) { animation-delay: 0.05s; }
-      .mobile-nav-card:nth-child(2) { animation-delay: 0.11s; }
-      .mobile-nav-card:nth-child(3) { animation-delay: 0.17s; }
-      .mobile-nav-card:nth-child(4) { animation-delay: 0.23s; }
-
-      /* Desktop cards hidden on mobile */
-      .stats-grid { display: none; }
+      .tab-card-label { font-size: 0.76rem; }
 
       /* ---- Mobile header ---- */
       .header { flex-wrap: nowrap; gap: 8px; }
@@ -409,10 +341,6 @@
       from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    @keyframes fadeSlideDown {
-      from { opacity: 0; transform: translateY(-18px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
   </style>
 </head>
 <body>
@@ -425,13 +353,13 @@
       <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
+      <a href="teacher-dashboard.html" class="active">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
-       <a href="scores.html">
+      <a href="scores.html">
         <i class="fa-solid fa-chart-bar"></i> Scores
       </a>
       <a href="class.html">
@@ -459,10 +387,10 @@
       </button>
     </div>
     <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
+      <a href="teacher-dashboard.html" class="active">
         <i class="fa-solid fa-gauge-high"></i> Dashboard
       </a>
-      <a href="onboard-student.html" class="active">
+      <a href="onboard-student.html">
         <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
       </a>
       <a href="scores.html">
@@ -488,6 +416,7 @@
     </div>
   </div>
   <div id="overlay" class="overlay"></div>
+
   <!-- ===================== MAIN CONTENT ===================== -->
   <main class="main-content">
 
@@ -542,66 +471,34 @@
         <p>Manage your students, class, scores, and attendance.</p>
       </div>
 
-      <!-- MOBILE NAVIGATION CARDS -->
-      <div class="mobile-menu-section">
-        <div class="mobile-menu-title">
-          <i class="fa-solid fa-grip"></i> Quick Navigation
-        </div>
-        <div class="mobile-nav-grid">
+      <!-- UNIFIED TEACHER NAVIGATION CARDS.
+           Each card is an <a href> that navigates to its target page.
+           Class &amp; Attendance cards are disabled via JS for non-class-teachers. -->
+      <div class="teacher-nav-grid" role="list">
 
-          <a href="class.html" class="mobile-nav-card mnc-class">
-            <div class="mobile-nav-icon"><i class="fa-solid fa-school"></i></div>
-            <span class="mobile-nav-label">Class</span>
-          </a>
+        <!-- Class Card — gated -->
+        <a href="class.html" class="tab-card" id="classCard" role="listitem">
+          <div class="tab-card-icon tab-icon-class"><i class="fa-solid fa-school"></i></div>
+          <span class="tab-card-label">Class</span>
+        </a>
 
-          <a href="scores.html" class="mobile-nav-card mnc-scores">
-            <div class="mobile-nav-icon"><i class="fa-solid fa-chart-bar"></i></div>
-            <span class="mobile-nav-label">Scores</span>
-          </a>
+        <!-- Scores Card — always available -->
+        <a href="scores.html" class="tab-card" id="scoresCard" role="listitem">
+          <div class="tab-card-icon tab-icon-scores"><i class="fa-solid fa-chart-bar"></i></div>
+          <span class="tab-card-label">Scores</span>
+        </a>
 
-          <a href="attendance.html" class="mobile-nav-card mnc-attendance">
-            <div class="mobile-nav-icon"><i class="fa-solid fa-clipboard-list"></i></div>
-            <span class="mobile-nav-label">Class Attendance</span>
-          </a>
+        <!-- Attendance Card — gated -->
+        <a href="attendance.html" class="tab-card" id="attendanceCard" role="listitem">
+          <div class="tab-card-icon tab-icon-attendance"><i class="fa-solid fa-clipboard-list"></i></div>
+          <span class="tab-card-label">Class Attendance</span>
+        </a>
 
-          <a href="teacher-cbt.html" class="mobile-nav-card mnc-cbt">
-            <div class="mobile-nav-icon"><i class="fa-solid fa-laptop-code"></i></div>
-            <span class="mobile-nav-label">CBT</span>
-          </a>
-
-        </div>
-      </div>
-
-      <!-- DESKTOP / TABLET DASHBOARD CARDS -->
-      <div class="stats-grid">
-
-        <!-- Class Card -->
-        <div class="clickable-card" id="classCard">
-          <div class="card-icon-wrap"><i class="fa-solid fa-school"></i></div>
-          <div class="card-title">Class</div>
-          <div class="card-desc">Manage your homeroom class (if assigned)</div>
-        </div>
-
-        <!-- Scores Card -->
-        <div class="clickable-card" id="scoresCard">
-          <div class="card-icon-wrap"><i class="fa-solid fa-chart-bar"></i></div>
-          <div class="card-title">Scores</div>
-          <div class="card-desc">Enter and manage exam scores</div>
-        </div>
-
-        <!-- Attendance Card -->
-        <div class="clickable-card" id="attendanceCard">
-          <div class="card-icon-wrap"><i class="fa-solid fa-clipboard-list"></i></div>
-          <div class="card-title">Class Attendance</div>
-          <div class="card-desc">Track daily morning &amp; afternoon attendance for your class</div>
-        </div>
-
-        <!-- CBT Card -->
-        <div class="clickable-card" id="cbtCard">
-          <div class="card-icon-wrap"><i class="fa-solid fa-laptop-code"></i></div>
-          <div class="card-title">CBT</div>
-          <div class="card-desc">Computer-Based Testing — set &amp; manage online assessments</div>
-        </div>
+        <!-- CBT Card — always available -->
+        <a href="teacher-cbt.html" class="tab-card" id="cbtCard" role="listitem">
+          <div class="tab-card-icon tab-icon-cbt"><i class="fa-solid fa-laptop-code"></i></div>
+          <span class="tab-card-label">CBT</span>
+        </a>
 
       </div>
 
@@ -632,7 +529,6 @@
   } from '../js/teacher-dashboard.js';
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
-  // NEW: daily educational quote imports
   import { auth }               from '../js/firebase-config.js';
   import { initEducationalQuote } from '../js/educational-quotes.js';
 
@@ -654,59 +550,59 @@
     const isClassTeacher = await checkClassTeacherStatus();
     const hostClassId    = getHostClassId();
 
-    // ── Class card ───────────────────────────────────────
-    const classCard = document.getElementById('classCard');
+    // ── Class card gating ────────────────────────────────
+    // If the teacher is not a class teacher, the Class card and the two
+    // sidebar links to class.html are visually greyed and click-inert.
+    // Navigation for the ENABLED case is handled natively by <a href>.
     if (!isClassTeacher) {
-      classCard.classList.add('disabled-card');
-      classCard.addEventListener('click', e => {
-        e.preventDefault();
-        alert('You are not assigned as a class teacher. You cannot access this page.');
-      });
-      const classLink = document.querySelector('.sidebar-nav a[href="class.html"]');
-      if (classLink) {
-        classLink.addEventListener('click', e => {
+      const classCard = document.getElementById('classCard');
+      if (classCard) {
+        classCard.classList.add('disabled-card');
+        classCard.setAttribute('aria-disabled', 'true');
+        classCard.setAttribute('tabindex', '-1');
+        // Note: .disabled-card sets pointer-events: none, so this alert
+        // will not fire — matches existing behaviour (silent, greyed card).
+        classCard.addEventListener('click', e => {
+          e.preventDefault();
+          alert('You are not assigned as a class teacher. You cannot access this page.');
+        });
+      }
+      document.querySelectorAll('.sidebar-nav a[href="class.html"]').forEach(link => {
+        link.classList.add('disabled-nav-link');
+        link.setAttribute('aria-disabled', 'true');
+        link.addEventListener('click', e => {
           e.preventDefault();
           alert('You are not assigned as a class teacher.');
         });
-      }
-    } else {
-      classCard.addEventListener('click', () => { window.location.href = 'class.html'; });
+      });
     }
 
-    // ── Scores card ─────────────────────────────────────
-    document.getElementById('scoresCard')
-      .addEventListener('click', () => { window.location.href = 'scores.html'; });
-
-    // ── CBT card ────────────────────────────────────────
-    const cbtCard = document.getElementById('cbtCard');
-    if (cbtCard) {
-      cbtCard.addEventListener('click', () => { window.location.href = 'teacher-cbt.html'; });
-    }
-
-    // ── Attendance card & nav links ──────────────────────
-    const attendanceCard       = document.getElementById('attendanceCard');
-    const attendanceLink       = document.getElementById('attendanceLink');
-    const mobileAttendanceLink = document.getElementById('mobileAttendanceLink');
-
+    // ── Attendance card gating ───────────────────────────
+    // Requires BOTH class-teacher status AND a host class.
     const canAccessAttendance = isClassTeacher && !!hostClassId;
 
     if (!canAccessAttendance) {
-      attendanceCard.classList.add('disabled-card');
-      attendanceCard.addEventListener('click', e => {
-        e.preventDefault();
-        alert('You must be assigned as a class teacher (with a host class) to access attendance.');
-      });
-      [attendanceLink, mobileAttendanceLink].forEach(link => {
-        if (!link) return;
+      const attendanceCard = document.getElementById('attendanceCard');
+      if (attendanceCard) {
+        attendanceCard.classList.add('disabled-card');
+        attendanceCard.setAttribute('aria-disabled', 'true');
+        attendanceCard.setAttribute('tabindex', '-1');
+        attendanceCard.addEventListener('click', e => {
+          e.preventDefault();
+          alert('You must be assigned as a class teacher (with a host class) to access attendance.');
+        });
+      }
+      document.querySelectorAll('.sidebar-nav a[href="attendance.html"]').forEach(link => {
         link.classList.add('disabled-nav-link');
+        link.setAttribute('aria-disabled', 'true');
         link.addEventListener('click', e => {
           e.preventDefault();
           alert('Attendance requires a class teacher assignment.');
         });
       });
-    } else {
-      attendanceCard.addEventListener('click', () => { window.location.href = 'attendance.html'; });
     }
+
+    // Scores and CBT cards: no gating, <a href> handles navigation.
 
     // Mobile logout mirrors header logout
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
@@ -715,8 +611,7 @@
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
 
-    // ── NEW: Daily educational quote ─────────────────────────
-    // Fires once per calendar day per teacher per device.
+    // ── Daily educational quote ──────────────────────────
     try {
       if (auth.currentUser && auth.currentUser.uid) {
         initEducationalQuote({ role: 'teacher', userId: auth.currentUser.uid });
@@ -746,7 +641,6 @@
       console.log('Service Worker unregistration failed: ', err);
     });
 
-    // Also delete all caches just in case.
     if (window.caches) {
       caches.keys().then(function(cacheNames) {
         cacheNames.forEach(function(cacheName) {
