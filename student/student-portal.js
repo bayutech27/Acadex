@@ -1,6 +1,6 @@
 // student-portal.js (inside student folder)
 // Attendance tab: aggregates morning/afternoon sessions from Firestore attendance collection.
-// Subjects tab: shows only subject names (scores removed, but remain in Results tab).
+// Subjects: merged into "About Me" as a chip list (previously a standalone tab).
 // Calendar integration: uses academic-calendar.js subscription to get current term/session.
 // ADDED: Subscription check for CBT – disables access if school subscription is inactive.
 // NOTIFICATIONS: real‑time from Firestore 'cbt' and 'scores' collections.
@@ -9,15 +9,23 @@
 //   * Badge shows unread count based on a localStorage lastSeen timestamp.
 //   * Dropdown holds the 10 latest items, styled beautifully.
 //
-// MODIFIED (Results tab):
+// RESULTS TAB:
 //   * Columns: Subject | Score | Percentage (%) | Term/Session | Date.
 //   * Score displays as "{score}/{total}" (e.g. 6/10).
 //   * Percentage displays as "{score/total*100}%" rounded to 1 dp (e.g. 60%, 70.5%).
 //   * Table is paginated: 10 rows initially, "See more" reveals 5 more per click.
-//   * Pagination is CLIENT-SIDE — the Firestore query is unchanged (fetches all).
-//     This gives instant expansion with no spinner and no extra reads.
-//   * `visibleCbtCount` resets to 10 on every entry into the Results section
-//     (matches the "10 max" requirement on each visit).
+//   * Pagination is CLIENT-SIDE — the Firestore query is unchanged.
+//
+// TAB CARDS (NEW):
+//   * The old pill tabs (.internal-tabs / .internal-tab-btn) have been replaced by
+//     iOS home-screen-style cards (.tab-card) inside .tab-card-grid.
+//   * Six cards: About Me, Attendance, Assignments, Achievements, Library, Video Tutorials.
+//   * About Me absorbs the old Profile + Subjects content.
+//   * Achievements, Library, Video Tutorials are placeholders:
+//       - All three show a "Coming Soon" pane by default.
+//       - Library and Video Tutorials carry `data-future-page` attributes pointing
+//         to their future URLs. When those pages are built, flip
+//         `ENABLE_EXTERNAL_TABS` to `true` below and clicking will navigate.
 //
 // All Firestore operations go through service.js where possible.
 // TODO: service.js does not yet support test_results queries, real-time scores/cbt listeners,
@@ -48,6 +56,12 @@ import * as service from '../js/service.js';
 import { toast } from '../js/error-handler.js';
 import { enforcePasswordChange } from '../js/security.js';   // NEW
 
+// ── Feature flag for future tab navigation ──────────────────────────────────
+// When the Library and Video Tutorials pages are built, set this to `true`.
+// Any .tab-card with a non-empty `data-future-page` will then navigate
+// instead of showing its "Coming Soon" pane.
+const ENABLE_EXTERNAL_TABS = false;
+
 // ─────────────────────────────────── Global state ────────────────────────────
 let currentStudentData = null;
 let currentSchoolId    = null;
@@ -73,7 +87,7 @@ let globalCurrentSession = '';
 let isSchoolSubscriptionActive = true;
 let unsubscribeSubscription = null;
 
-// ── Results pagination state (NEW) ──────────────────────────────────────────
+// ── Results pagination state ────────────────────────────────────────────────
 const RESULTS_PAGE_SIZE = 10;    // initial visible rows
 const RESULTS_LOAD_STEP = 5;     // rows added per "See more" click
 
@@ -107,7 +121,9 @@ function initCalendar() {
     const sessEl = document.getElementById('currentSessionDisplay');
     if (termEl) termEl.innerText = globalCurrentTerm || '—';
     if (sessEl) sessEl.innerText = globalCurrentSession || '—';
-    if (currentStudentData) renderProfile(currentStudentData);
+    // Re-render About Me with the latest subjects list (subjects are already
+    // loaded after the first dashboard render, so this is instant).
+    if (currentStudentData) renderProfile(currentStudentData, subjectsList);
   });
 }
 
@@ -127,20 +143,40 @@ function showSection(sectionId) {
   });
 }
 
-// ─────────────────────────────────── Internal tabs ───────────────────────────
+// ─────────────────────────────────── Tab cards ───────────────────────────────
+// Wires up the .tab-card grid. Each card maps to a .tab-pane via data-tab.
+// For future pages (Library, Video Tutorials) — if ENABLE_EXTERNAL_TABS is
+// true and the card has a non-empty `data-future-page`, we navigate instead
+// of switching panes.
 function initInternalTabs() {
-  const tabs  = document.querySelectorAll('.internal-tab-btn');
+  const cards = document.querySelectorAll('.tab-card');
   const panes = {
-    profile:     document.getElementById('profileTab'),
-    attendance:  document.getElementById('attendanceTab'),
-    subjects:    document.getElementById('subjectsTab'),
-    assignments: document.getElementById('assignmentsTab')
+    profile:           document.getElementById('profileTab'),
+    attendance:        document.getElementById('attendanceTab'),
+    assignments:       document.getElementById('assignmentsTab'),
+    achievements:      document.getElementById('achievementsTab'),
+    library:           document.getElementById('libraryTab'),
+    'video-tutorials': document.getElementById('videoTutorialsTab')
   };
-  tabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const target = btn.getAttribute('data-tab');
-      tabs.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+
+  cards.forEach(card => {
+    card.addEventListener('click', () => {
+      const target     = card.getAttribute('data-tab');
+      const futurePage = card.getAttribute('data-future-page');
+
+      // Future hook: navigate to a dedicated page when enabled.
+      if (ENABLE_EXTERNAL_TABS && futurePage && futurePage.trim() !== '') {
+        window.location.href = futurePage;
+        return;
+      }
+
+      cards.forEach(c => {
+        c.classList.remove('active');
+        c.setAttribute('aria-selected', 'false');
+      });
+      card.classList.add('active');
+      card.setAttribute('aria-selected', 'true');
+
       Object.values(panes).forEach(p => p && p.classList.remove('active-pane'));
       if (panes[target]) panes[target].classList.add('active-pane');
     });
@@ -312,8 +348,11 @@ function renderHero(student) {
   }
 }
 
-// ─────────────────────────────────── Profile tab ─────────────────────────────
-function renderProfile(student) {
+// ─────────────────────────────────── About Me tab ────────────────────────────
+// Renders the profile details grid AND the Subjects sub-section (chips).
+// The Subjects list previously lived in its own tab; it is now a sub-heading
+// inside this pane, directly under the profile grid.
+function renderProfile(student, subjects) {
   const container = document.getElementById('profileTab');
   if (!container) return;
   if (!student) {
@@ -327,6 +366,20 @@ function renderProfile(student) {
     </div>`;
   const cls = resolvedClassName || safeVal(student.classId);
   const calLabel = getCalendarDisplay();
+
+  const safeSubjects = Array.isArray(subjects) ? subjects : [];
+  const subjectsHtml = safeSubjects.length
+    ? `<div class="about-subjects-section">
+         <h3 class="about-subjects-heading"><i class="fa-solid fa-book-open"></i> Subjects</h3>
+         <div class="about-subjects-list">
+           ${safeSubjects.map(s => `<span class="subject-chip">${escapeHtml(safeVal(s.name || s.subjectName) || '—')}</span>`).join('')}
+         </div>
+       </div>`
+    : `<div class="about-subjects-section">
+         <h3 class="about-subjects-heading"><i class="fa-solid fa-book-open"></i> Subjects</h3>
+         <p class="about-subjects-empty">No subjects assigned for this term.</p>
+       </div>`;
+
   container.innerHTML = `
     <div class="info-grid">
       ${item('Full Name',           student.name)}
@@ -343,7 +396,9 @@ function renderProfile(student) {
       ${item('Nationality',         student.nationality)}
       ${item('Religion',            student.religion)}
       ${item('House',               student.house)}
-    </div>`;
+    </div>
+    ${subjectsHtml}
+  `;
 }
 
 // ─────────────────────────────────── Attendance tab (using service) ──────────
@@ -387,18 +442,6 @@ function renderAttendance(records) {
     </div>`;
 }
 
-// ─────────────────────────────────── Subjects tab (using service) ────────────
-function renderSubjects(subjects) {
-  const container = document.getElementById('subjectsTab');
-  if (!container) return;
-  if (!subjects.length) {
-    container.innerHTML = '<div class="card" style="padding:1.2rem">No subjects assigned for this term.</div>';
-    return;
-  }
-  const names = subjects.map(s => safeVal(s.name || s.subjectName) || '—');
-  container.innerHTML = `<div class="card" style="padding:1.2rem"><h3>📚 Subjects</h3><ul style="margin-top:0.75rem; list-style-type: disc; padding-left: 1.5rem;">${names.map(n => `<li>${n}</li>`).join('')}</ul></div>`;
-}
-
 // ─────────────────────────────────── Assignments tab (using service) ─────────
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
@@ -418,10 +461,6 @@ function renderAssignments(assignments) {
 }
 
 // ======================= CBT SCORES FOR RESULTS TAB (direct Firestore) =======================
-// MODIFIED: now also captures `total` (total questions) so the Score column can
-// render as "{score}/{total}" and the Percentage column can be computed.
-// The Firestore query itself is unchanged — still fetches all CBT results for
-// the student. Pagination is purely client-side in renderResultsSection().
 async function fetchCbtScores() {
   if (!currentStudentId || !currentSchoolId) return [];
   try {
@@ -453,20 +492,15 @@ async function fetchCbtScores() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Build a single results row for the CBT table.
 //   • Score column:     "{score}/{total}"  (falls back to "{score}" if total <= 0)
 //   • Percentage column: "{pct}%"          (rounded to 1 dp; '—' if total <= 0)
-// ─────────────────────────────────────────────────────────────────────────────
 function buildResultsRow(item) {
   const scoreNum  = Number(item.score) || 0;
   const totalNum  = Number(item.total) || 0;
 
-  // Score cell — "{score}/{total}" when we have a valid denominator.
   const scoreDisplay = totalNum > 0 ? `${scoreNum}/${totalNum}` : `${scoreNum}`;
 
-  // Percentage cell — compute with 1-decimal precision. `Math.round(x*10)/10`
-  // naturally drops trailing zeros, so 50 stays "50%" and 70.5 stays "70.5%".
   let pctDisplay = '—';
   if (totalNum > 0) {
     const pct = (scoreNum / totalNum) * 100;
@@ -490,10 +524,7 @@ function buildResultsRow(item) {
   `;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Render the CBT results table body (paginated) into #resultsTableContainer.
-// Uses module-level `allCbtScores` and `visibleCbtCount`.
-// ─────────────────────────────────────────────────────────────────────────────
 function renderResultsTableBody() {
   const tableEl = document.getElementById('resultsTableContainer');
   if (!tableEl) return;
@@ -551,12 +582,7 @@ function renderResultsTableBody() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Full results-section renderer.
-// Resets pagination to page-1 (10 rows) on each entry into the Results view,
-// then fetches and renders. Subsequent "See more" clicks only re-render the
-// body via renderResultsTableBody() — no re-fetch, no spinner.
-// ─────────────────────────────────────────────────────────────────────────────
+// Full results-section renderer. Resets pagination to 10 on each entry.
 async function renderResultsSection() {
   const summaryEl = document.getElementById('resultsSummaryContainer');
   const tableEl   = document.getElementById('resultsTableContainer');
@@ -565,7 +591,6 @@ async function renderResultsSection() {
   summaryEl.innerHTML = '';
   tableEl.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Loading CBT results...</div>';
 
-  // Reset pagination each time the section is shown (per requirement: "10 max").
   visibleCbtCount = RESULTS_PAGE_SIZE;
 
   try {
@@ -994,9 +1019,8 @@ async function loadStudentDashboard() {
   setupNotificationListeners(safeVal(currentStudentData?.classId), currentStudentId);
 
   renderHero(currentStudentData);
-  renderProfile(currentStudentData);
+  renderProfile(currentStudentData, subjectsList);   // About Me — now includes subjects
   renderAttendance(attendanceRecords);
-  renderSubjects(subjectsList);
   renderAssignments(assignmentsList);
   await renderResultsSection();
 }
