@@ -518,6 +518,63 @@
     .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
 
     /* =========================================================
+       RESULTS — Percentage column + See-more button
+       (NEW — scoped only to the Results section)
+       ========================================================= */
+    .percentage-cell {
+      font-weight: 700;
+      color: var(--ios-indigo);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.005em;
+    }
+    .see-more-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      margin: 1.25rem auto 0;
+      padding: 0.72rem 1.55rem;
+      background: rgba(0, 122, 255, 0.10);
+      color: var(--ios-blue);
+      border: 1px solid rgba(0, 122, 255, 0.18);
+      border-radius: 999px;
+      font-family: var(--ios-font);
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      transition: transform 0.15s var(--ios-smooth),
+                  background 0.2s ease,
+                  box-shadow 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 122, 255, 0.08);
+    }
+    .see-more-btn:hover {
+      background: rgba(0, 122, 255, 0.16);
+      box-shadow: 0 4px 14px rgba(0, 122, 255, 0.15);
+    }
+    .see-more-btn:active {
+      transform: scale(0.97);
+    }
+    .see-more-btn i {
+      font-size: 0.78rem;
+      opacity: 0.9;
+    }
+    .see-more-btn .remaining-count {
+      background: var(--ios-blue);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.12rem 0.5rem;
+      border-radius: 999px;
+      margin-left: 0.35rem;
+      min-width: 22px;
+      text-align: center;
+      letter-spacing: 0;
+      line-height: 1.4;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* =========================================================
        WELCOME CARD (results section header)
        ========================================================= */
     .welcome-card {
