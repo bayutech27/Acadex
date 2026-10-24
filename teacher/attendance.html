@@ -10,18 +10,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="../css/styles.css"><!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Acadex - Class Attendance</title>
-
-  <!-- Google Fonts: Inter (SF Pro alternative) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="../css/styles.css">
   <style>
     /* =========================================================
@@ -34,7 +22,9 @@
       --ios-blue:      #007AFF;
       --ios-blue-600:  #0062CC;
       --ios-green:     #34C759;
+      --ios-green-600: #248A3D;
       --ios-indigo:    #5856D6;
+      --ios-indigo-600:#4A48BC;
       --ios-orange:    #FF9500;
       --ios-purple:    #AF52DE;
       --ios-red:       #FF3B30;
@@ -93,13 +83,22 @@
       font-size: 0.9rem;
       color: var(--ios-label-secondary);
     }
+
+    /* ── iOS-STYLE ACTION BUTTONS ────────────────────
+       Save · Print · Download CSV
+       Moderate pill size, consistent across all screens. */
     .action-buttons {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.55rem;
       flex-wrap: wrap;
+      align-items: center;
     }
     .btn-save, .btn-print, .btn-download {
-      padding: 0.6rem 1.1rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0.62rem 1.15rem;
       border: none;
       border-radius: 999px;
       font-size: 0.85rem;
@@ -107,15 +106,35 @@
       font-family: inherit;
       cursor: pointer;
       letter-spacing: -0.005em;
-      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
+      line-height: 1.2;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.15s var(--ios-smooth),
+                  background 0.2s ease,
+                  box-shadow 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     }
     .btn-save     { background: var(--ios-blue);   color: #fff; }
     .btn-print    { background: var(--ios-green);  color: #fff; }
     .btn-download { background: var(--ios-indigo); color: #fff; }
-    .btn-save:hover  { background: var(--ios-blue-600); }
-    .btn-print:hover { background: #248A3D; }
-    .btn-download:hover { background: #4A48BC; }
-    .btn-save:active, .btn-print:active, .btn-download:active { transform: scale(0.96); }
+
+    .btn-save:hover {
+      background: var(--ios-blue-600);
+      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.28);
+    }
+    .btn-print:hover {
+      background: var(--ios-green-600);
+      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.28);
+    }
+    .btn-download:hover {
+      background: var(--ios-indigo-600);
+      box-shadow: 0 4px 12px rgba(88, 86, 214, 0.28);
+    }
+
+    .btn-save:active, .btn-print:active, .btn-download:active {
+      transform: scale(0.96);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
 
     /* ── Class selector row ── */
     .class-selector-row {
@@ -419,8 +438,12 @@
 
     @media (max-width: 640px) {
       .attendance-page-header { flex-direction: column; }
-      .action-buttons { width: 100%; }
-      .btn-save, .btn-print, .btn-download { flex: 1; text-align: center; }
+      .action-buttons {
+        width: 100%;
+        justify-content: center;
+        /* Buttons keep their natural size — no flex: 1 stretch.
+           This preserves "normal" button size on all screens. */
+      }
       .term-summary-grid { grid-template-columns: 1fr; }
 
       .sticky-name {
@@ -702,687 +725,6 @@
     }
     initAttendancePage();
   });
-</script>
-<script>
-  // Unregister any existing service worker, then clear all its caches.
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      for (let registration of registrations) {
-        registration.unregister();
-      }
-    }).catch(function(err) {
-      console.log('Service Worker unregistration failed: ', err);
-    });
-
-    // Also delete all caches just in case.
-    if (window.caches) {
-      caches.keys().then(function(cacheNames) {
-        cacheNames.forEach(function(cacheName) {
-          caches.delete(cacheName);
-        });
-      });
-    }
-  }
-</script>
-</body>
-</html>
-  <style>
-    /* =========================================================
-       iOS-STYLE CLASS ATTENDANCE PAGE
-       Visual refactor only — IDs, classes and structure untouched.
-       PRINT STYLES ARE PRESERVED VERBATIM.
-       ========================================================= */
-
-    :root {
-      --ios-blue:      #007AFF;
-      --ios-blue-600:  #0062CC;
-      --ios-green:     #34C759;
-      --ios-indigo:    #5856D6;
-      --ios-orange:    #FF9500;
-      --ios-purple:    #AF52DE;
-      --ios-red:       #FF3B30;
-      --ios-teal:      #5AC8FA;
-
-      --ios-bg:            #F2F2F7;
-      --ios-bg-elevated:   #FFFFFF;
-      --ios-bg-secondary:  #E5E5EA;
-
-      --ios-label:            #000000;
-      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
-
-      --ios-separator: rgba(60, 60, 67, 0.12);
-      --ios-fill:      rgba(120, 120, 128, 0.12);
-
-      --ios-radius-sm: 10px;
-      --ios-radius:    14px;
-      --ios-radius-lg: 18px;
-      --ios-radius-xl: 22px;
-
-      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
-
-      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
-      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
-      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
-    }
-
-    body {
-      font-family: var(--ios-font) !important;
-      background: var(--ios-bg) !important;
-      color: var(--ios-label);
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      letter-spacing: -0.011em;
-    }
-
-    /* ── Page header / action row ─────────────────── */
-    .attendance-page-header {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-bottom: 1.25rem;
-    }
-    .attendance-page-header h2 {
-      margin: 0 0 0.25rem;
-      font-family: var(--ios-font-display);
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      letter-spacing: -0.02em;
-    }
-    #classNameDisplay {
-      font-size: 0.9rem;
-      color: var(--ios-label-secondary);
-    }
-    .action-buttons {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-    .btn-save, .btn-print, .btn-download {
-      padding: 0.6rem 1.1rem;
-      border: none;
-      border-radius: 999px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      letter-spacing: -0.005em;
-      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
-    }
-    .btn-save     { background: var(--ios-blue);   color: #fff; }
-    .btn-print    { background: var(--ios-green);  color: #fff; }
-    .btn-download { background: var(--ios-indigo); color: #fff; }
-    .btn-save:hover  { background: var(--ios-blue-600); }
-    .btn-print:hover { background: #248A3D; }
-    .btn-download:hover { background: #4A48BC; }
-    .btn-save:active, .btn-print:active, .btn-download:active { transform: scale(0.96); }
-
-    /* ── Class selector row ── */
-    .class-selector-row {
-      background: var(--ios-bg-elevated);
-      padding: 12px 16px;
-      border-radius: var(--ios-radius-lg);
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      flex-wrap: wrap;
-      box-shadow: var(--ios-shadow-sm);
-      border: none;
-    }
-    .class-selector-row label {
-      font-weight: 600;
-      color: var(--ios-label);
-      margin-bottom: 0;
-      font-size: 0.9rem;
-    }
-    #classSelect {
-      padding: 0.6rem 0.85rem;
-      border-radius: var(--ios-radius-sm);
-      border: 1px solid var(--ios-separator);
-      background: var(--ios-bg-elevated);
-      font-size: 0.9rem;
-      min-width: 200px;
-      font-family: inherit;
-      color: var(--ios-label);
-    }
-    #classSelect:focus {
-      outline: none;
-      border-color: var(--ios-blue);
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
-    }
-
-    /* ── Class stats cards ────────────────────────── */
-    .class-stats-row {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      margin-bottom: 1.5rem;
-    }
-    .stat-chip {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      padding: 0.75rem 1.3rem;
-      text-align: center;
-      min-width: 90px;
-      box-shadow: var(--ios-shadow-sm);
-      border: none;
-      border-left: 4px solid var(--ios-blue);
-    }
-    .stat-chip .chip-val {
-      font-family: var(--ios-font-display);
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      font-variant-numeric: tabular-nums;
-    }
-    .stat-chip .chip-lbl {
-      font-size: 0.72rem;
-      color: var(--ios-label-secondary);
-      margin-top: 2px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
-    }
-    .stat-chip.boys  { border-left-color: var(--ios-blue); }
-    .stat-chip.girls { border-left-color: var(--ios-purple); }
-    .stat-chip.total { border-left-color: var(--ios-green); }
-
-    /* ── Attendance table wrapper ─────────────────── */
-    .table-scroll-wrapper {
-      overflow-x: auto;
-      overflow-y: auto;
-      max-height: 72vh;
-      border: 1px solid var(--ios-separator);
-      border-radius: var(--ios-radius-lg);
-      margin-bottom: 2rem;
-      -webkit-overflow-scrolling: touch;
-      background: var(--ios-bg-elevated);
-      box-shadow: var(--ios-shadow-sm);
-    }
-
-    /* ── Attendance table ─────────────────────────── */
-    .attendance-table {
-      border-collapse: collapse;
-      white-space: nowrap;
-      font-size: 0.72rem;
-      width: max-content;
-      min-width: 100%;
-    }
-    .attendance-table th,
-    .attendance-table td {
-      border: 1px solid var(--ios-separator);
-      padding: 3px 4px;
-      text-align: center;
-      vertical-align: middle;
-    }
-
-    /* Week header row */
-    .attendance-table .th-week {
-      background: var(--ios-blue);
-      color: #fff;
-      font-size: 0.7rem;
-      font-weight: 700;
-      border-right: 2px solid var(--ios-blue-600);
-      min-width: 22px;
-    }
-    .attendance-table .th-week.even { background: var(--ios-blue-600); }
-
-    /* Day header row */
-    .attendance-table .th-day {
-      background: rgba(0, 122, 255, 0.7);
-      color: #fff;
-      font-size: 0.68rem;
-      font-weight: 600;
-    }
-
-    /* Period header row */
-    .attendance-table .th-period {
-      background: rgba(0, 122, 255, 0.12);
-      color: var(--ios-blue);
-      font-size: 0.65rem;
-      font-weight: 700;
-      width: 20px;
-      min-width: 20px;
-    }
-
-    /* Sticky columns */
-    .sticky-col { position: sticky; background: var(--ios-bg-elevated); z-index: 2; }
-    .sticky-sn  { left: 0;   min-width: 36px; width: 36px; }
-    .sticky-name{ left: 36px; min-width: 140px; width: 140px; text-align: left !important; padding: 3px 6px !important; }
-    .sticky-total{ right: 0; min-width: 44px; width: 44px; font-weight: 700; background: rgba(52, 199, 89, 0.08) !important; color: var(--ios-green); }
-
-    /* Sticky headers get elevated z-index */
-    .attendance-table thead .sticky-col { z-index: 4; }
-    .attendance-table thead th          { position: sticky; top: 0; z-index: 3; }
-    .attendance-table thead tr:nth-child(1) th { top: 0; }
-    .attendance-table thead tr:nth-child(2) th { top: 30px; }
-    .attendance-table thead tr:nth-child(3) th { top: 58px; }
-
-    /* Checkbox cells */
-    .td-check {
-      width: 20px; max-width: 20px;
-      padding: 2px 1px;
-    }
-    .att-checkbox {
-      width: 13px; height: 13px;
-      cursor: pointer;
-      margin: 0;
-      accent-color: var(--ios-blue);
-    }
-
-    /* S/N and Name body cells */
-    .td-sn   { color: var(--ios-label-secondary); font-size: 0.68rem; }
-    .td-name { text-align: left !important; padding: 3px 6px !important; font-weight: 500; color: var(--ios-label); }
-    .td-total{ font-weight: 700; color: var(--ios-green); }
-
-    /* Holiday columns — visual dimming */
-    .att-checkbox:disabled { accent-color: #94a3b8; opacity: 0.4; cursor: default; }
-
-    /* ── Weekly summary table ─────────────────────── */
-    .section-title {
-      font-family: var(--ios-font-display);
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      margin: 2rem 0 0.75rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 2px solid var(--ios-separator);
-      letter-spacing: -0.02em;
-    }
-    .summary-table {
-      border-collapse: collapse;
-      font-size: 0.82rem;
-      min-width: 600px;
-      width: 100%;
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      overflow: hidden;
-      box-shadow: var(--ios-shadow-sm);
-    }
-    .summary-table th {
-      background: var(--ios-bg);
-      border: 1px solid var(--ios-separator);
-      padding: 10px;
-      font-weight: 600;
-      color: var(--ios-label-secondary);
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      white-space: nowrap;
-    }
-    .summary-table td {
-      border: 1px solid var(--ios-separator);
-      padding: 8px 10px;
-      text-align: center;
-      color: var(--ios-label);
-    }
-    .summary-table .week-label { font-weight: 600; color: var(--ios-blue); }
-    .holiday-cell { background: rgba(255, 149, 0, 0.14); color: #8A4A00; font-size: 0.72rem; }
-    .open-day-cell { background: rgba(52, 199, 89, 0.08); }
-    .day-detail { color: var(--ios-label-secondary); font-size: 0.68rem; }
-    .stat-cell  { color: var(--ios-label); }
-    .stat-cell.combined   { font-weight: 700; }
-    .stat-cell.percentage { font-weight: 700; color: var(--ios-green); }
-
-    /* ── Term summary ─────────────────────────────── */
-    .term-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
-      margin-top: 0.75rem;
-      margin-bottom: 2rem;
-    }
-    .term-stat {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      border: none;
-      padding: 1.1rem 1.3rem;
-      box-shadow: var(--ios-shadow-sm);
-    }
-    .term-stat-label {
-      font-size: 0.72rem;
-      color: var(--ios-label-secondary);
-      margin-bottom: 0.35rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
-    }
-    .term-stat-value {
-      font-family: var(--ios-font-display);
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      font-variant-numeric: tabular-nums;
-    }
-    .term-stat-value.good { color: var(--ios-green); }
-    .term-stat-value.fair { color: var(--ios-orange); }
-    .term-stat-value.poor { color: var(--ios-red); }
-
-    /* ── No class / empty states ──────────────────── */
-    .no-class-warning {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      background: rgba(255, 149, 0, 0.10);
-      border: 1px solid rgba(255, 149, 0, 0.25);
-      border-radius: var(--ios-radius-xl);
-      margin: 2rem 0;
-    }
-    .no-class-warning .warning-icon { font-size: 3rem; margin-bottom: 1rem; }
-    .no-class-warning h2  { font-size: 1.3rem; margin-bottom: 0.5rem; color: #8A4A00; }
-    .no-class-warning p   { color: #8A4A00; font-size: 0.9rem; max-width: 400px; margin: 0 auto 1.25rem; }
-    .btn-back {
-      display: inline-block;
-      padding: 0.6rem 1.3rem;
-      background: var(--ios-blue);
-      color: #fff;
-      border-radius: 999px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 0.875rem;
-    }
-    .no-data-msg { color: var(--ios-label-secondary); font-style: italic; font-size: 0.875rem; padding: 0.5rem 0; }
-    .empty-state { padding: 2rem; text-align: center; color: var(--ios-label-secondary); }
-
-    /* ── Hide hamburger on desktop ────────────────── */
-    @media (min-width: 769px) { .hamburger-menu { display: none !important; } }
-
-    /* ── Mobile adjustments ───────────────────────── */
-    @media (max-width: 768px) {
-      .header { flex-wrap: nowrap; gap: 8px; }
-      .header-right { flex-shrink: 0; margin-left: auto; }
-      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 10px; }
-      .school-name { flex: 1 1 auto; min-width: 0; }
-      .school-name h1#schoolName {
-        font-size: 1rem; line-height: 1.3; font-weight: 700;
-        letter-spacing: -0.02em; white-space: normal;
-        overflow-wrap: break-word; word-break: break-word; margin: 0;
-      }
-      .school-address {
-        font-size: 0.7rem; line-height: 1.25;
-        white-space: normal; overflow-wrap: break-word; word-break: break-word;
-      }
-      .school-header-left .school-logo .camera-icon { display: none !important; }
-      .school-header-left .school-logo {
-        width: 46px !important; height: 46px !important; flex-shrink: 0;
-        border-radius: 50%; overflow: hidden; background: var(--ios-fill);
-        cursor: pointer; display: flex !important;
-        align-items: center; justify-content: center; touch-action: manipulation;
-      }
-      .school-header-left .school-logo img {
-        width: 100% !important; height: 100% !important;
-        object-fit: cover; border-radius: 50%; display: block; pointer-events: none;
-      }
-      .header-right .subscription-badge { display: none !important; }
-      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
-    }
-
-    @media (max-width: 640px) {
-      .attendance-page-header { flex-direction: column; }
-      .action-buttons { width: 100%; }
-      .btn-save, .btn-print, .btn-download { flex: 1; text-align: center; }
-      .term-summary-grid { grid-template-columns: 1fr; }
-
-      .sticky-name {
-        left: 36px;
-        min-width: 70px !important;
-        width: 70px !important;
-        padding: 2px 4px !important;
-        font-size: 0.75rem !important;
-      }
-      .td-name {
-        padding: 2px 4px !important;
-        font-size: 0.75rem !important;
-        min-height: 40px !important;
-      }
-      .attendance-table {
-        font-size: 0.6rem !important;
-      }
-      .attendance-table th,
-      .attendance-table td {
-        padding: 2px 2px !important;
-      }
-      .att-checkbox {
-        width: 12px !important;
-        height: 12px !important;
-      }
-      .td-check {
-        width: 16px !important;
-        max-width: 16px !important;
-        padding: 1px 0 !important;
-      }
-      .sticky-sn {
-        min-width: 28px !important;
-        width: 28px !important;
-        font-size: 0.65rem !important;
-      }
-      .sticky-total {
-        min-width: 32px !important;
-        width: 32px !important;
-        font-size: 0.65rem !important;
-      }
-      .attendance-table thead tr:nth-child(2) th { top: 26px; }
-      .attendance-table thead tr:nth-child(3) th { top: 50px; }
-    }
-
-    /* ── Print header (hidden on screen) ── */
-    .print-header { display: none; }
-
-    /* ============================================================
-       PRINT STYLES — PRESERVED VERBATIM (DO NOT MODIFY)
-       ============================================================ */
-    @media print {
-      @page { size: A3 landscape; margin: 8mm; }
-
-      .sidebar,
-      .mobile-sidebar,
-      .overlay,
-      .hamburger-menu,
-      .action-buttons,
-      #logoutBtn,
-      .school-logo,
-      .academic-badge-row,
-      .app-footer,
-      .camera-icon,
-      #logoUploadInput { display: none !important; }
-
-      .print-header {
-        display: block !important;
-        margin-bottom: 8px;
-        border-bottom: 1px solid #000;
-        padding-bottom: 4px;
-      }
-      .print-header h2 { font-size: 11pt; margin: 0 0 2px; }
-      .print-header p  { font-size: 8pt;  margin: 0; }
-
-      .dashboard-container { display: block; }
-      .main-content        { margin: 0; padding: 0; }
-      .header              { padding: 0; box-shadow: none; }
-      #schoolName          { font-size: 11pt; }
-      #schoolAddress       { display: none; }
-
-      .table-scroll-wrapper {
-        overflow: visible;
-        max-height: none;
-        border: none;
-      }
-      .attendance-table         { font-size: 0.45rem; width: 100%; }
-      .attendance-table th,
-      .attendance-table td      { padding: 1px; }
-      .att-checkbox             { width: 8px; height: 8px; pointer-events: none; }
-      .sticky-col               { position: static; }
-      .sticky-name              { min-width: 80px; width: auto; }
-
-      .summary-table { font-size: 0.65rem; }
-      .term-summary-grid { grid-template-columns: repeat(3, 1fr); }
-
-      .section-title { break-before: avoid; }
-      #weeklySummaryContainer { break-before: page; }
-    }
-  </style>
-</head>
-<body>
-<div class="dashboard-container">
-
- <!-- DESKTOP SIDEBAR -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="brand-icon"><i class="fa-solid fa-graduation-cap"></i></div>
-      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-    </div>
-    <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="onboard-student.html">
-        <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
-      </a>
-       <a href="scores.html">
-        <i class="fa-solid fa-chart-bar"></i> Scores
-      </a>
-      <a href="class.html">
-        <i class="fa-solid fa-school"></i> Class
-      </a>
-      <a href="attendance.html" class="active">
-        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
-      </a>
-      <a href="teacher-cbt.html">
-        <i class="fa-solid fa-laptop-code"></i> CBT
-      </a>
-      <a href="teacher-clock.html">
-        <i class="fa-solid fa-clock"></i> Clock In & Out
-      </a>
-    </nav>
-    <div class="sidebar-footer">Acadex &copy; <span id="sidebarYear"></span></div>
-  </aside>
-
-  <!-- MOBILE SIDEBAR -->
-  <div id="mobileSidebar" class="mobile-sidebar">
-    <div class="mobile-sidebar-header">
-      <span class="acadex-brand"><span class="acadex-a">A</span>cadex</span>
-      <button class="close-sidebar" aria-label="Close menu">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-    <nav class="sidebar-nav">
-      <a href="teacher-dashboard.html">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
-      </a>
-      <a href="onboard-student.html">
-        <i class="fa-solid fa-user-plus"></i> Onboard Students/Pupils
-      </a>
-      <a href="scores.html">
-        <i class="fa-solid fa-chart-bar"></i> Scores
-      </a>
-      <a href="class.html">
-        <i class="fa-solid fa-school"></i> Class
-      </a>
-      <a href="attendance.html" class="active">
-        <i class="fa-solid fa-clipboard-list"></i> Class Attendance
-      </a>
-      <a href="teacher-cbt.html">
-        <i class="fa-solid fa-laptop-code"></i> CBT
-      </a>
-      <a href="teacher-clock.html">
-        <i class="fa-solid fa-clock"></i> Clock In & Out
-      </a>
-    </nav>
-    <div class="mobile-logout-wrapper">
-      <button class="mobile-logout-btn">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-      </button>
-    </div>
-  </div>
-  <div id="overlay" class="overlay"></div>
-
-  <!-- ═══════════════════ Main Content ═══════════════════ -->
-  <main class="main-content">
-
-    <!-- Header -->
-    <header class="header">
-      <div class="school-header-left">
-        <div class="school-logo">
-          <img id="schoolLogoImg" class="logo-circle" alt="School Logo">
-        </div>
-        <div class="school-name">
-          <h1 id="schoolName">Loading...</h1>
-          <div id="schoolAddress" class="school-address"></div>
-        </div>
-      </div>
-      <div class="header-right">
-        <button class="hamburger-menu" aria-label="Open menu">☰</button>
-        <button id="logoutBtn" class="logout-btn">Logout</button>
-      </div>
-    </header>
-
-    <!-- Academic Badge Row -->
-    <div class="academic-badge-row">
-      <div id="academicCalendarDisplay" class="academic-badge">
-        <span id="currentTermDisplay">Loading...</span> |
-        <span id="currentSessionDisplay"></span>
-      </div>
-    </div>
-
-    <!-- ══ Print Header (hidden on screen, visible on print) ══ -->
-    <div class="print-header">
-      <h2 id="printSchoolName"></h2>
-      <p>
-        Class: <strong id="printClass"></strong> &nbsp;|&nbsp;
-        Session: <strong id="printSession"></strong> &nbsp;|&nbsp;
-        Term: <strong id="printTerm"></strong> &nbsp;|&nbsp;
-        Teacher: <strong id="printTeacher"></strong>
-      </p>
-    </div>
-
-    <!-- ══ Main Content Area ══ -->
-    <div class="content">
-
-      <!-- MULTI‑CLASS SELECTOR (hidden if only one class) -->
-      <div id="classSelectorRow" class="class-selector-row" style="display: none;">
-        <label><i class="fa-solid fa-chalkboard"></i> Select Class:</label>
-        <select id="classSelect"></select>
-        <span id="classSelectorHint" style="font-size: 0.8rem; color: #64748b;"></span>
-      </div>
-
-      <!-- Page title + action buttons -->
-      <div class="attendance-page-header">
-        <div>
-          <h2>📋 Class Attendance</h2>
-          <div id="classNameDisplay">Loading class...</div>
-        </div>
-        <div class="action-buttons">
-          <button id="saveAttendanceBtn"     class="btn-save">💾 Save</button>
-          <button id="printAttendanceBtn"    class="btn-print">🖨️ Print</button>
-          <button id="downloadAttendanceBtn" class="btn-download">⬇️ Download CSV</button>
-        </div>
-      </div>
-
-      <!-- Class statistics -->
-      <div id="classStatsContainer" class="class-stats-row"></div>
-
-      <!-- Main attendance table -->
-      <div id="attendanceTableContainer"></div>
-
-      <!-- Weekly summary table -->
-      <div id="weeklySummaryContainer"></div>
-
-      <!-- Term summary section -->
-      <div id="termSummaryContainer"></div>
-
-    </div><!-- /.content -->
-
-    <footer class="app-footer">
-      <p>&copy; <span id="currentYear"></span> Acadex. All rights reserved.</p>
-    </footer>
-  </main>
-</div>
-
-<script type="module">
-  import { initAttendancePage } from '../js/attendance.js';
-  initAttendancePage();
 </script>
 <script>
   // Unregister any existing service worker, then clear all its caches.
