@@ -1,36 +1,33 @@
 // student-portal.js (inside student folder)
 // Attendance tab: aggregates morning/afternoon sessions from Firestore attendance collection.
-// Subjects: merged into "About Me" as a chip list (previously a standalone tab).
+// Subjects: merged into "About Me" as a chip list.
 // Calendar integration: uses academic-calendar.js subscription to get current term/session.
 // ADDED: Subscription check for CBT – disables access if school subscription is inactive.
 // NOTIFICATIONS: real‑time from Firestore 'cbt' and 'scores' collections.
-//   * Scores: subjectName, CA, Exam.
-//   * CBT: subjectName, type, teacher name (fetched), scheduled date, status (started/assigned).
-//   * Badge shows unread count based on a localStorage lastSeen timestamp.
-//   * Dropdown holds the 10 latest items, styled beautifully.
 //
-// RESULTS TAB:
-//   * Columns: Subject | Score | Percentage (%) | Term/Session | Date.
+// RESULTS (now a tab card):
+//   * The Results tab is a card in the main grid — its pane holds the summary
+//     + paginated table + "See more" button.
 //   * Score displays as "{score}/{total}" (e.g. 6/10).
-//   * Percentage displays as "{score/total*100}%" rounded to 1 dp (e.g. 60%, 70.5%).
+//   * Percentage displays as "{score/total*100}%" rounded to 1 dp.
 //   * Table is paginated: 10 rows initially, "See more" reveals 5 more per click.
-//   * Pagination is CLIENT-SIDE — the Firestore query is unchanged.
 //
-// TAB CARDS (NEW):
-//   * The old pill tabs (.internal-tabs / .internal-tab-btn) have been replaced by
-//     iOS home-screen-style cards (.tab-card) inside .tab-card-grid.
-//   * Six cards: About Me, Attendance, Assignments, Achievements, Library, Video Tutorials.
-//   * About Me absorbs the old Profile + Subjects content.
-//   * Achievements, Library, Video Tutorials are placeholders:
-//       - All three show a "Coming Soon" pane by default.
-//       - Library and Video Tutorials carry `data-future-page` attributes pointing
-//         to their future URLs. When those pages are built, flip
-//         `ENABLE_EXTERNAL_TABS` to `true` below and clicking will navigate.
+// TAB CARDS (8 total, accordion + one navigation):
+//   * About Me · Attendance · Assignments · Achievements · Library · Video Tutorials · CBT · Results
+//   * CBT card navigates to ../cbt/html/cbt.html (with subscription check).
+//   * All other cards open accordion panes below their row.
+//   * Achievements / Library / Video Tutorials show "Coming Soon" panes;
+//     Library and Video Tutorials will navigate to future pages when
+//     ENABLE_EXTERNAL_TABS is flipped to true.
+//
+// SIDEBAR REMOVED:
+//   * All sidebar + mobile-sidebar markup, hamburger button, and the
+//     corresponding JS (initMobileMenu, initDesktopNav, showSection,
+//     attachCbtClickHandlers) have been removed.
+//   * The dashboard is a single view — no section toggling between
+//     "Dashboard" and "Results". Results is now a pane inside the grid.
 //
 // All Firestore operations go through service.js where possible.
-// TODO: service.js does not yet support test_results queries, real-time scores/cbt listeners,
-// attachment of custom listeners for notifications – those remain as direct Firestore calls.
-// All user-facing errors now show clear, friendly messages without technical jargon.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -54,12 +51,9 @@ import { subscribeToCalendar } from '../js/academic-calendar.js';
 import { syncAcademicCalendar, startPeriodicSync } from '../js/calendar-sync.js';
 import * as service from '../js/service.js';
 import { toast } from '../js/error-handler.js';
-import { enforcePasswordChange } from '../js/security.js';   // NEW
+import { enforcePasswordChange } from '../js/security.js';
 
 // ── Feature flag for future tab navigation ──────────────────────────────────
-// When the Library and Video Tutorials pages are built, set this to `true`.
-// Any .tab-card with a non-empty `data-future-page` will then navigate
-// instead of showing its "Coming Soon" pane.
 const ENABLE_EXTERNAL_TABS = false;
 
 // ─────────────────────────────────── Global state ────────────────────────────
@@ -88,12 +82,17 @@ let isSchoolSubscriptionActive = true;
 let unsubscribeSubscription = null;
 
 // ── Results pagination state ────────────────────────────────────────────────
-const RESULTS_PAGE_SIZE = 10;    // initial visible rows
-const RESULTS_LOAD_STEP = 5;     // rows added per "See more" click
+const RESULTS_PAGE_SIZE = 10;
+const RESULTS_LOAD_STEP = 5;
 
-let allCbtScores        = [];    // full fetched dataset for current view
+let allCbtScores        = [];
 let visibleCbtCount     = RESULTS_PAGE_SIZE;
-let cbtScoresFetched    = false; // tracks whether we've loaded at least once
+let cbtScoresFetched    = false;
+
+// ── Accordion state ─────────────────────────────────────────────────────────
+const ACCORDION_ANIM_MS = 450;
+let activeAccordionCard = null;
+let activeAccordionPane = null;
 
 // ─────────────────────────────────── Utilities ───────────────────────────────
 function safeVal(v) {
@@ -121,8 +120,6 @@ function initCalendar() {
     const sessEl = document.getElementById('currentSessionDisplay');
     if (termEl) termEl.innerText = globalCurrentTerm || '—';
     if (sessEl) sessEl.innerText = globalCurrentSession || '—';
-    // Re-render About Me with the latest subjects list (subjects are already
-    // loaded after the first dashboard render, so this is instant).
     if (currentStudentData) renderProfile(currentStudentData, subjectsList);
   });
 }
@@ -134,56 +131,174 @@ function getCalendarDisplay() {
   return t ? (s ? `${t} — ${s}` : t) : s;
 }
 
-// ─────────────────────────────────── Section toggle ──────────────────────────
-function showSection(sectionId) {
-  document.getElementById('dashboardSection').style.display = sectionId === 'dashboard' ? 'block' : 'none';
-  document.getElementById('resultsSection').style.display  = sectionId === 'results'   ? 'block' : 'none';
-  document.querySelectorAll('#studentSidebarNav a, .mobile-sidebar .sidebar-nav a').forEach(link => {
-    link.classList.toggle('active', link.getAttribute('data-section') === sectionId);
-  });
+// ─────────────────────────────────── Accordion engine ────────────────────────
+function positionAccordionPane(card, pane) {
+  const grid  = document.getElementById('tabCardGrid');
+  if (!grid) return;
+  const cards = Array.from(grid.querySelectorAll('.tab-card'));
+  const cardTop = card.getBoundingClientRect().top;
+  const tolerance = 8;
+
+  let lastInRow = card;
+  for (const c of cards) {
+    if (c === card) continue;
+    if (Math.abs(c.getBoundingClientRect().top - cardTop) < tolerance) {
+      lastInRow = c;
+    }
+  }
+
+  if (lastInRow.nextElementSibling !== pane) {
+    lastInRow.after(pane);
+  }
 }
 
-// ─────────────────────────────────── Tab cards ───────────────────────────────
-// Wires up the .tab-card grid. Each card maps to a .tab-pane via data-tab.
-// For future pages (Library, Video Tutorials) — if ENABLE_EXTERNAL_TABS is
-// true and the card has a non-empty `data-future-page`, we navigate instead
-// of switching panes.
+function openAccordionPane(card, pane) {
+  positionAccordionPane(card, pane);
+
+  pane.style.display   = 'block';
+  pane.style.maxHeight = '0px';
+  pane.style.opacity   = '0';
+  pane.style.transform = 'translateY(-10px)';
+  void pane.offsetHeight;
+
+  const h = pane.scrollHeight;
+  pane.style.maxHeight = h + 'px';
+  pane.style.opacity   = '1';
+  pane.style.transform = 'translateY(0)';
+
+  setTimeout(() => {
+    if (activeAccordionPane === pane) {
+      pane.classList.add('open');
+      pane.style.maxHeight = '';
+    }
+  }, ACCORDION_ANIM_MS + 20);
+
+  setTimeout(() => {
+    if (activeAccordionPane === pane) {
+      try { pane.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {}
+    }
+  }, 120);
+}
+
+function closeAccordionPane(pane, { instant = false } = {}) {
+  if (!pane) return;
+  pane.classList.remove('open');
+
+  if (instant) {
+    pane.style.display   = 'none';
+    pane.style.maxHeight = '';
+    pane.style.opacity   = '';
+    pane.style.transform = '';
+    return;
+  }
+
+  const h = pane.scrollHeight;
+  pane.style.maxHeight = h + 'px';
+  void pane.offsetHeight;
+  pane.style.maxHeight = '0px';
+  pane.style.opacity   = '0';
+  pane.style.transform = 'translateY(-10px)';
+
+  setTimeout(() => {
+    if (!pane.classList.contains('open') && activeAccordionPane !== pane) {
+      pane.style.display   = 'none';
+      pane.style.maxHeight = '';
+      pane.style.opacity   = '';
+      pane.style.transform = '';
+    }
+  }, ACCORDION_ANIM_MS + 20);
+}
+
+function handleCardActivation(card) {
+  const tabId      = card.getAttribute('data-tab');
+  const navigateTo = card.getAttribute('data-navigate');
+  const futurePage = card.getAttribute('data-future-page');
+
+  // ── Navigation cards (e.g. CBT) ────────────────────────────────────────
+  if (navigateTo) {
+    if (!isSchoolSubscriptionActive) {
+      toast.error('School subscription is inactive. Please contact your administrator.');
+      return;
+    }
+    const schoolId  = localStorage.getItem('userSchoolId');
+    const studentId = localStorage.getItem('studentId');
+    if (!schoolId || !studentId) {
+      toast.error('Unable to access CBT. Please log out and log in again.');
+      return;
+    }
+    window.location.href = navigateTo;
+    return;
+  }
+
+  // ── Future page (Library / Video Tutorials when flag enabled) ──────────
+  if (ENABLE_EXTERNAL_TABS && futurePage && futurePage.trim() !== '') {
+    window.location.href = futurePage;
+    return;
+  }
+
+  // ── Accordion pane ─────────────────────────────────────────────────────
+  const grid = document.getElementById('tabCardGrid');
+  const pane = grid ? grid.querySelector(`.tab-pane[data-pane="${tabId}"]`) : null;
+  if (!pane) return;
+
+  // Same card clicked → close.
+  if (activeAccordionCard === card && activeAccordionPane === pane) {
+    const prevPane = pane;
+    const prevCard = card;
+    activeAccordionCard = null;
+    activeAccordionPane = null;
+    prevCard.setAttribute('aria-expanded', 'false');
+    prevCard.classList.remove('open');
+    closeAccordionPane(prevPane);
+    return;
+  }
+
+  // Different card → instantly hide previous, then animate new.
+  if (activeAccordionPane && activeAccordionPane !== pane) {
+    const prevPane = activeAccordionPane;
+    const prevCard = activeAccordionCard;
+    activeAccordionPane = null;
+    activeAccordionCard = null;
+    if (prevCard) {
+      prevCard.setAttribute('aria-expanded', 'false');
+      prevCard.classList.remove('open');
+    }
+    closeAccordionPane(prevPane, { instant: true });
+  }
+
+  // Open new.
+  activeAccordionCard = card;
+  activeAccordionPane = pane;
+  card.setAttribute('aria-expanded', 'true');
+  card.classList.add('open');
+
+  openAccordionPane(card, pane);
+}
+
 function initInternalTabs() {
-  const cards = document.querySelectorAll('.tab-card');
-  const panes = {
-    profile:           document.getElementById('profileTab'),
-    attendance:        document.getElementById('attendanceTab'),
-    assignments:       document.getElementById('assignmentsTab'),
-    achievements:      document.getElementById('achievementsTab'),
-    library:           document.getElementById('libraryTab'),
-    'video-tutorials': document.getElementById('videoTutorialsTab')
-  };
-
+  const grid = document.getElementById('tabCardGrid');
+  if (!grid) return;
+  const cards = grid.querySelectorAll('.tab-card');
   cards.forEach(card => {
-    card.addEventListener('click', () => {
-      const target     = card.getAttribute('data-tab');
-      const futurePage = card.getAttribute('data-future-page');
+    card.addEventListener('click', () => handleCardActivation(card));
+  });
 
-      // Future hook: navigate to a dedicated page when enabled.
-      if (ENABLE_EXTERNAL_TABS && futurePage && futurePage.trim() !== '') {
-        window.location.href = futurePage;
-        return;
-      }
-
-      cards.forEach(c => {
-        c.classList.remove('active');
-        c.setAttribute('aria-selected', 'false');
-      });
-      card.classList.add('active');
-      card.setAttribute('aria-selected', 'true');
-
-      Object.values(panes).forEach(p => p && p.classList.remove('active-pane'));
-      if (panes[target]) panes[target].classList.add('active-pane');
-    });
+  let resizeTimer = null;
+  const reposition = () => {
+    if (!activeAccordionCard || !activeAccordionPane) return;
+    positionAccordionPane(activeAccordionCard, activeAccordionPane);
+  };
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(reposition, 180);
+  });
+  window.addEventListener('orientationchange', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(reposition, 240);
   });
 }
 
-// ─────────────────────────────────── School header (using service) ───────────
+// ─────────────────────────────────── School header ───────────────────────────
 async function loadSchoolHeader(schoolId) {
   if (!schoolId) return;
   try {
@@ -204,7 +319,7 @@ async function loadSchoolHeader(schoolId) {
   }
 }
 
-// ─────────────────────────────────── Class name resolver (using service) ─────
+// ─────────────────────────────────── Class name resolver ─────────────────────
 async function resolveClassName(schoolId, classId) {
   if (!classId) return '';
   try {
@@ -217,7 +332,7 @@ async function resolveClassName(schoolId, classId) {
   return '';
 }
 
-// ───────────────────────────── Passport photo edit (using service.updateStudent) ──
+// ───────────────────────────── Passport photo edit ───────────────────────────
 function injectPassportStyles() {
   if (document.getElementById('passport-edit-styles')) return;
   const style = document.createElement('style');
@@ -349,9 +464,6 @@ function renderHero(student) {
 }
 
 // ─────────────────────────────────── About Me tab ────────────────────────────
-// Renders the profile details grid AND the Subjects sub-section (chips).
-// The Subjects list previously lived in its own tab; it is now a sub-heading
-// inside this pane, directly under the profile grid.
 function renderProfile(student, subjects) {
   const container = document.getElementById('profileTab');
   if (!container) return;
@@ -401,7 +513,7 @@ function renderProfile(student, subjects) {
   `;
 }
 
-// ─────────────────────────────────── Attendance tab (using service) ──────────
+// ─────────────────────────────────── Attendance tab ──────────────────────────
 function renderAttendance(records) {
   const container = document.getElementById('attendanceTab');
   if (!container) return;
@@ -442,7 +554,7 @@ function renderAttendance(records) {
     </div>`;
 }
 
-// ─────────────────────────────────── Assignments tab (using service) ─────────
+// ─────────────────────────────────── Assignments tab ─────────────────────────
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
   if (!container) return;
@@ -460,7 +572,7 @@ function renderAssignments(assignments) {
   container.innerHTML = `<div>${cards}</div>`;
 }
 
-// ======================= CBT SCORES FOR RESULTS TAB (direct Firestore) =======================
+// ======================= CBT SCORES FOR RESULTS PANE =======================
 async function fetchCbtScores() {
   if (!currentStudentId || !currentSchoolId) return [];
   try {
@@ -492,13 +604,9 @@ async function fetchCbtScores() {
   }
 }
 
-// Build a single results row for the CBT table.
-//   • Score column:     "{score}/{total}"  (falls back to "{score}" if total <= 0)
-//   • Percentage column: "{pct}%"          (rounded to 1 dp; '—' if total <= 0)
 function buildResultsRow(item) {
   const scoreNum  = Number(item.score) || 0;
   const totalNum  = Number(item.total) || 0;
-
   const scoreDisplay = totalNum > 0 ? `${scoreNum}/${totalNum}` : `${scoreNum}`;
 
   let pctDisplay = '—';
@@ -524,7 +632,6 @@ function buildResultsRow(item) {
   `;
 }
 
-// Render the CBT results table body (paginated) into #resultsTableContainer.
 function renderResultsTableBody() {
   const tableEl = document.getElementById('resultsTableContainer');
   if (!tableEl) return;
@@ -578,11 +685,16 @@ function renderResultsTableBody() {
     document.getElementById('seeMoreResultsBtn').addEventListener('click', () => {
       visibleCbtCount += RESULTS_LOAD_STEP;
       renderResultsTableBody();
+
+      // If the results pane is currently open, re-measure so the pane
+      // grows with the newly added rows without clipping.
+      if (activeAccordionPane && activeAccordionPane.getAttribute('data-pane') === 'results') {
+        activeAccordionPane.style.maxHeight = '';
+      }
     });
   }
 }
 
-// Full results-section renderer. Resets pagination to 10 on each entry.
 async function renderResultsSection() {
   const summaryEl = document.getElementById('resultsSummaryContainer');
   const tableEl   = document.getElementById('resultsTableContainer');
@@ -604,13 +716,12 @@ async function renderResultsSection() {
   }
 }
 
-// Helper escape (reused)
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 }
 
-// ─────────────────────────── NOTIFICATIONS (direct Firestore) ──────────────────
+// ─────────────────────────── NOTIFICATIONS ────────────────────────────────
 async function fetchTeacherName(teacherId) {
   if (!teacherId) return 'Teacher';
   if (teacherNameCache.has(teacherId)) return teacherNameCache.get(teacherId);
@@ -798,7 +909,6 @@ function setupNotificationListeners(classId, studentId) {
   });
 }
 
-// ─────────────────────────────────── Bell click handler ──────────────────────
 function initNotificationBell() {
   const bell     = document.getElementById('notificationBell');
   const dropdown = document.getElementById('notificationDropdown');
@@ -872,7 +982,7 @@ async function resolveSubjects(rawSubjects) {
   return resolved;
 }
 
-// ─────────────────────────────────── Subscription listener (using service) ───
+// ─────────────────────────────────── Subscription listener ───────────────────
 function initSubscriptionListener(schoolId) {
   if (!schoolId) return;
   if (unsubscribeSubscription) unsubscribeSubscription();
@@ -885,30 +995,7 @@ function initSubscriptionListener(schoolId) {
   });
 }
 
-// ─────────────────────────────────── CBT navigation with sub check ───────────
-function attachCbtClickHandlers() {
-  const cbtLinks = document.querySelectorAll('[data-section="cbt"]');
-  cbtLinks.forEach(link => {
-    const newLink = link.cloneNode(true);
-    link.parentNode.replaceChild(newLink, link);
-    newLink.addEventListener('click', e => {
-      e.preventDefault();
-      if (!isSchoolSubscriptionActive) {
-        toast.error('School subscription is inactive. Please contact your administrator.');
-        return;
-      }
-      const schoolId = localStorage.getItem('userSchoolId');
-      const studentId = localStorage.getItem('studentId');
-      if (!schoolId || !studentId) {
-        toast.error('Unable to access CBT. Please log out and log in again.');
-        return;
-      }
-      window.location.href = '../cbt/html/cbt.html';
-    });
-  });
-}
-
-// ─────────────────────────────────── Master data loader (using service) ──────
+// ─────────────────────────────────── Master data loader ──────────────────────
 async function loadStudentDashboard() {
   const user = auth.currentUser;
   if (!user) return;
@@ -930,12 +1017,8 @@ async function loadStudentDashboard() {
       throw new Error('No schoolId linked');
     }
 
-    // ---- NEW: enforce password change ----
-    try {
-      await enforcePasswordChange(window.location.href);
-    } catch (e) { /* redirecting */ }
+    try { await enforcePasswordChange(window.location.href); } catch (e) { /* redirecting */ }
 
-    // ---- NEW: disabled account check ----
     if (userData.disabled) {
       toast.error('Your account has been disabled. Contact the school.');
       await signOut(auth);
@@ -1019,47 +1102,13 @@ async function loadStudentDashboard() {
   setupNotificationListeners(safeVal(currentStudentData?.classId), currentStudentId);
 
   renderHero(currentStudentData);
-  renderProfile(currentStudentData, subjectsList);   // About Me — now includes subjects
+  renderProfile(currentStudentData, subjectsList);
   renderAttendance(attendanceRecords);
   renderAssignments(assignmentsList);
   await renderResultsSection();
 }
 
-// ─────────────────────────────────── Navigation ──────────────────────────────
-function initDesktopNav() {
-  document.querySelectorAll('#studentSidebarNav a').forEach(link => {
-    link.addEventListener('click', e => {
-      e.preventDefault();
-      const section = link.getAttribute('data-section');
-      if (section === 'cbt') return;
-      showSection(section === 'results' ? 'results' : 'dashboard');
-      if (section === 'results') renderResultsSection();
-    });
-  });
-}
-
-function initMobileMenu() {
-  const hamburger = document.querySelector('.hamburger-menu');
-  const mobileSidebar = document.getElementById('mobileSidebar');
-  const overlay = document.getElementById('overlay');
-  const closeBtn = document.querySelector('.close-sidebar');
-  const open = () => { mobileSidebar?.classList.add('open'); overlay?.classList.add('active'); document.body.style.overflow = 'hidden'; };
-  const close = () => { mobileSidebar?.classList.remove('open'); overlay?.classList.remove('active'); document.body.style.overflow = ''; };
-  hamburger?.addEventListener('click', open);
-  closeBtn?.addEventListener('click', close);
-  overlay?.addEventListener('click', close);
-  document.querySelectorAll('.mobile-sidebar .sidebar-nav a').forEach(link => {
-    link.addEventListener('click', () => {
-      const section = link.getAttribute('data-section');
-      if (section === 'cbt') return;
-      showSection(section === 'results' ? 'results' : 'dashboard');
-      if (section === 'results') renderResultsSection();
-      close();
-    });
-  });
-  document.getElementById('mobileLogoutBtn')?.addEventListener('click', logout);
-}
-
+// ─────────────────────────────────── Cleanup + Logout ────────────────────────
 function cleanupListeners() {
   if (unsubscribeCBT) { unsubscribeCBT(); unsubscribeCBT = null; }
   if (unsubscribeScores) { unsubscribeScores(); unsubscribeScores = null; }
@@ -1103,12 +1152,8 @@ onAuthStateChanged(auth, async user => {
     await loadStudentDashboard();
 
     initInternalTabs();
-    initDesktopNav();
-    initMobileMenu();
     initNotificationBell();
     initDownload();
-    showSection('dashboard');
-    attachCbtClickHandlers();
     document.getElementById('currentYear').innerText = new Date().getFullYear();
     document.getElementById('logoutBtn')?.addEventListener('click', logout);
   } catch (err) {
