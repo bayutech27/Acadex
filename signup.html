@@ -301,7 +301,7 @@
       font-weight: 600;
     }
 
-    /* ========== MODAL ========== */
+    /* ========== MODAL (Terms) ========== */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -433,6 +433,184 @@
       background: #dee5ed;
     }
 
+    /* =========================================================
+       NEW: INDIVIDUAL WARNING MODAL (school-only gate)
+       iOS-styled, mobile-responsive, brand-tinted.
+       ========================================================= */
+    .individual-warning-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      z-index: 9500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.28s ease, visibility 0.28s ease;
+    }
+    .individual-warning-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .individual-warning-modal {
+      background: #ffffff;
+      border-radius: 26px;
+      width: 100%;
+      max-width: 480px;
+      padding: 2rem 1.75rem 1.5rem;
+      text-align: center;
+      box-shadow:
+        0 30px 80px rgba(15, 23, 42, 0.35),
+        0 10px 30px rgba(15, 23, 42, 0.18);
+      transform: translateY(24px) scale(0.94);
+      animation: none;
+      transition: transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+      max-height: calc(100vh - 2.5rem);
+      overflow-y: auto;
+    }
+    .individual-warning-overlay.active .individual-warning-modal {
+      transform: translateY(0) scale(1);
+    }
+
+    .individual-warning-icon {
+      width: 68px;
+      height: 68px;
+      border-radius: 22px;
+      margin: 0 auto 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.9rem;
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--purple-mid), var(--magenta));
+      box-shadow: 0 10px 24px rgba(106, 17, 203, 0.32);
+    }
+
+    .individual-warning-title {
+      font-family: var(--font-heading);
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--purple-dark);
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+      margin: 0 0 0.5rem;
+    }
+
+    .individual-warning-intro {
+      font-size: 0.94rem;
+      line-height: 1.55;
+      color: var(--text-muted);
+      margin: 0 0 1.25rem;
+      letter-spacing: -0.005em;
+    }
+
+    .individual-warning-paths {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      margin-bottom: 1.4rem;
+      text-align: left;
+    }
+
+    .individual-warning-path {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.85rem 0.95rem;
+      border-radius: 14px;
+      line-height: 1.4;
+    }
+    .individual-warning-path-yes {
+      background: rgba(52, 199, 89, 0.10);
+      border: 1px solid rgba(52, 199, 89, 0.22);
+    }
+    .individual-warning-path-no {
+      background: rgba(255, 59, 48, 0.08);
+      border: 1px solid rgba(255, 59, 48, 0.18);
+    }
+    .individual-warning-path .iw-icon {
+      flex-shrink: 0;
+      font-size: 1.15rem;
+      line-height: 1.2;
+      margin-top: 1px;
+    }
+    .individual-warning-path-yes .iw-icon { color: #1B7F3A; }
+    .individual-warning-path-no  .iw-icon { color: #B3261E; }
+
+    .individual-warning-path .iw-text {
+      font-size: 0.86rem;
+      color: var(--text-dark);
+      font-weight: 500;
+    }
+    .individual-warning-path .iw-text strong {
+      display: block;
+      font-weight: 800;
+      color: var(--text-dark);
+      margin-bottom: 2px;
+      font-size: 0.88rem;
+    }
+
+    .individual-warning-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .individual-warning-btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0.85rem 1.2rem;
+      border: none;
+      border-radius: 999px;
+      font-family: var(--font-body);
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: #ffffff;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--purple-mid), var(--magenta));
+      box-shadow: 0 8px 20px rgba(106, 17, 203, 0.30);
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .individual-warning-btn-primary:hover {
+      box-shadow: 0 10px 26px rgba(106, 17, 203, 0.42);
+    }
+    .individual-warning-btn-primary:active {
+      transform: scale(0.97);
+    }
+
+    .individual-warning-btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0.75rem 1.2rem;
+      border: 1.5px solid rgba(106, 17, 203, 0.20);
+      border-radius: 999px;
+      font-family: var(--font-body);
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--purple-mid);
+      background: #ffffff;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .individual-warning-btn-secondary:hover {
+      background: rgba(106, 17, 203, 0.06);
+      border-color: rgba(106, 17, 203, 0.35);
+    }
+    .individual-warning-btn-secondary:active {
+      transform: scale(0.97);
+    }
+
     /* ========== MOBILE RESPONSIVE ========== */
     @media (max-width: 550px) {
       .card {
@@ -478,6 +656,43 @@
 
       .modal-body h1 {
         font-size: 1.4rem;
+      }
+    }
+
+    /* Warning modal — small-phone tuning */
+    @media (max-width: 480px) {
+      .individual-warning-modal {
+        padding: 1.6rem 1.15rem 1.15rem;
+        border-radius: 22px;
+      }
+      .individual-warning-icon {
+        width: 58px;
+        height: 58px;
+        font-size: 1.65rem;
+        border-radius: 18px;
+        margin-bottom: 0.85rem;
+      }
+      .individual-warning-title {
+        font-size: 1.18rem;
+      }
+      .individual-warning-intro {
+        font-size: 0.88rem;
+        margin-bottom: 1rem;
+      }
+      .individual-warning-path {
+        padding: 0.75rem 0.8rem;
+      }
+      .individual-warning-path .iw-text,
+      .individual-warning-path .iw-text strong {
+        font-size: 0.83rem;
+      }
+      .individual-warning-btn-primary {
+        padding: 0.8rem 1rem;
+        font-size: 0.88rem;
+      }
+      .individual-warning-btn-secondary {
+        padding: 0.7rem 1rem;
+        font-size: 0.84rem;
       }
     }
   </style>
@@ -550,6 +765,54 @@
     </div>
   </div>
 
+  <!-- ============ NEW: Individual warning modal (school-only gate) ============ -->
+  <div id="individualWarningModal"
+       class="individual-warning-overlay"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="individualWarningTitle"
+       aria-describedby="individualWarningIntro">
+    <div class="individual-warning-modal">
+      <div class="individual-warning-icon">
+        <i class="fa-solid fa-school"></i>
+      </div>
+
+      <h2 id="individualWarningTitle" class="individual-warning-title">
+        This page is for schools only
+      </h2>
+
+      <p id="individualWarningIntro" class="individual-warning-intro">
+        Acadex is built for schools — not individuals. One account is created per school, and the school then adds its own students, teachers, and parents.
+      </p>
+
+      <div class="individual-warning-paths">
+        <div class="individual-warning-path individual-warning-path-yes">
+          <i class="fa-solid fa-circle-check iw-icon"></i>
+          <div class="iw-text">
+            <strong>School Administrator?</strong>
+            Continue below to register your school.
+          </div>
+        </div>
+        <div class="individual-warning-path individual-warning-path-no">
+          <i class="fa-solid fa-circle-xmark iw-icon"></i>
+          <div class="iw-text">
+            <strong>Student, Teacher or Parent?</strong>
+            Your account is created by your school. Please contact your school admin for login details — don't continue here.
+          </div>
+        </div>
+      </div>
+
+      <div class="individual-warning-actions">
+        <button type="button" id="proceedAsSchoolBtn" class="individual-warning-btn-primary">
+          <i class="fa-solid fa-check"></i> I'm a School Admin — Continue
+        </button>
+        <button type="button" id="goBackHomeBtn" class="individual-warning-btn-secondary">
+          <i class="fa-solid fa-arrow-left"></i> I'm Not a School — Go Back
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="termsModal" class="modal-overlay">
     <div class="modal-container">
       <div class="modal-header">
@@ -567,6 +830,59 @@
   <script type="module">
     import { initSignupPage } from './js/auth.js';
     initSignupPage();
+  </script>
+
+  <!-- ============ NEW: Individual warning modal controller ============ -->
+  <script>
+    (function () {
+      const overlay    = document.getElementById('individualWarningModal');
+      const proceedBtn = document.getElementById('proceedAsSchoolBtn');
+      const backBtn    = document.getElementById('goBackHomeBtn');
+      const container  = document.querySelector('.container');
+      if (!overlay) return;
+
+      function openWarning() {
+        // Make the rest of the page inert so users can't tab into the form.
+        if ('inert' in HTMLElement.prototype && container) container.inert = true;
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        // Focus the primary action so keyboard users land on it directly.
+        setTimeout(() => { try { proceedBtn.focus(); } catch (_) {} }, 60);
+      }
+
+      function closeWarning() {
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+        if ('inert' in HTMLElement.prototype && container) container.inert = false;
+      }
+
+      // Open automatically on page load — every visit.
+      openWarning();
+
+      // Primary path: user is a school admin → unlock form.
+      proceedBtn.addEventListener('click', closeWarning);
+
+      // Secondary path: user is not a school → leave the page.
+      backBtn.addEventListener('click', function () {
+        window.location.href = 'index.html';
+      });
+
+      // Block Escape from closing — must choose one of the two paths.
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+
+      // Block backdrop clicks from closing — must choose one of the two paths.
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+    })();
   </script>
 
   <script>
