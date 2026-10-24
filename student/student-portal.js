@@ -20,12 +20,12 @@
 //     Library and Video Tutorials will navigate to future pages when
 //     ENABLE_EXTERNAL_TABS is flipped to true.
 //
-// SIDEBAR REMOVED:
+// SIDEBAR REMOVED — but logout is retained in the header (id="logoutBtn").
 //   * All sidebar + mobile-sidebar markup, hamburger button, and the
 //     corresponding JS (initMobileMenu, initDesktopNav, showSection,
 //     attachCbtClickHandlers) have been removed.
-//   * The dashboard is a single view — no section toggling between
-//     "Dashboard" and "Results". Results is now a pane inside the grid.
+//   * Logout is wired up via `document.getElementById('logoutBtn')` in the
+//     onAuthStateChanged handler at the bottom of this file.
 //
 // All Firestore operations go through service.js where possible.
 
@@ -686,8 +686,6 @@ function renderResultsTableBody() {
       visibleCbtCount += RESULTS_LOAD_STEP;
       renderResultsTableBody();
 
-      // If the results pane is currently open, re-measure so the pane
-      // grows with the newly added rows without clipping.
       if (activeAccordionPane && activeAccordionPane.getAttribute('data-pane') === 'results') {
         activeAccordionPane.style.maxHeight = '';
       }
