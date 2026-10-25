@@ -84,9 +84,7 @@
       color: var(--ios-label-secondary);
     }
 
-    /* ── iOS-STYLE ACTION BUTTONS ────────────────────
-       Save · Print · Download CSV
-       Moderate pill size, consistent across all screens. */
+    /* ── iOS-STYLE ACTION BUTTONS ──────────────────── */
     .action-buttons {
       display: flex;
       gap: 0.55rem;
@@ -441,8 +439,7 @@
       .action-buttons {
         width: 100%;
         justify-content: center;
-        /* Buttons keep their natural size — no flex: 1 stretch.
-           This preserves "normal" button size on all screens. */
+        /* Buttons keep their natural size — no flex: 1 stretch. */
       }
       .term-summary-grid { grid-template-columns: 1fr; }
 
@@ -646,7 +643,7 @@
       </div>
     </div>
 
-    <!-- ══ Print Header (hidden on screen, visible on print) ══ -->
+    <!-- ══ Print Header ══ -->
     <div class="print-header">
       <h2 id="printSchoolName"></h2>
       <p>
@@ -657,10 +654,10 @@
       </p>
     </div>
 
-    <!-- ══ Main Content Area ══ -->
+    <!-- ══ Main Content ══ -->
     <div class="content">
 
-      <!-- MULTI‑CLASS SELECTOR (hidden if only one class) -->
+      <!-- MULTI‑CLASS SELECTOR -->
       <div id="classSelectorRow" class="class-selector-row" style="display: none;">
         <label><i class="fa-solid fa-chalkboard"></i> Select Class:</label>
         <select id="classSelect"></select>
@@ -686,10 +683,10 @@
       <!-- Main attendance table -->
       <div id="attendanceTableContainer"></div>
 
-      <!-- Weekly summary table -->
+      <!-- Weekly summary -->
       <div id="weeklySummaryContainer"></div>
 
-      <!-- Term summary section -->
+      <!-- Term summary -->
       <div id="termSummaryContainer"></div>
 
     </div><!-- /.content -->
@@ -703,13 +700,14 @@
 <script type="module">
   import { protectTeacherPage, checkClassTeacherStatus } from '../js/teacher-dashboard.js';
   import { initAttendancePage } from '../js/attendance.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
+
+  showOverlayLoader({ label: 'Loading attendance…' });
 
   protectTeacherPage().then(async () => {
     // ─────────────────────────────────────────────────────────────────────
     // GATE: Non-class-teachers must never reach the attendance page.
-    // Mirrors the check in class.html and onboard-student.html so all
-    // class-teacher-only pages behave consistently.
-    // The attendance.js module also self-defends (see its catch block).
     // ─────────────────────────────────────────────────────────────────────
     let isClassTeacher = false;
     try {
@@ -723,7 +721,11 @@
       window.location.href = 'teacher-dashboard.html';
       return;
     }
-    initAttendancePage();
+    await initAttendancePage();
+  }).catch(err => {
+    console.error('[Attendance] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 </script>
 <script>
