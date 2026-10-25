@@ -1135,7 +1135,7 @@
   </main>
 </div>
 
-<!-- ===================== SCRIPTS (unchanged) ===================== -->
+<!-- ===================== SCRIPTS ===================== -->
 <script type="module">
   import {
     protectAdminPage,
@@ -1147,6 +1147,8 @@
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
   import { initTeacherAttendancePage } from '../js/teacher-attendance.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   const yr = new Date().getFullYear();
   document.getElementById('currentYear').innerText = yr;
@@ -1158,8 +1160,10 @@
   document.getElementById('attendanceDateFilter').value = today;
   document.getElementById('overrideDateInput').value    = today;
 
+  showOverlayLoader({ label: 'Loading attendance…' });
+
   protectAdminPage().then(async () => {
-    loadSchoolInfo();
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
@@ -1171,6 +1175,10 @@
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
+  }).catch(err => {
+    console.error('[TeacherAttendance] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
