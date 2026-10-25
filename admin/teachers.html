@@ -835,9 +835,13 @@
   import { initTeachersPage } from '../js/teachers.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
   document.getElementById('sidebarYear').innerText = new Date().getFullYear();
+
+  showOverlayLoader({ label: 'Loading teachers…' });
 
   protectAdminPage().then(async () => {
     await loadSchoolInfo();
@@ -852,6 +856,10 @@
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
+  }).catch(err => {
+    console.error('[Teachers] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar(state => {
