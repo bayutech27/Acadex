@@ -471,9 +471,7 @@
         <p>Manage your students, class, scores, and attendance.</p>
       </div>
 
-      <!-- UNIFIED TEACHER NAVIGATION CARDS.
-           Each card is an <a href> that navigates to its target page.
-           Class &amp; Attendance cards are disabled via JS for non-class-teachers. -->
+      <!-- UNIFIED TEACHER NAVIGATION CARDS. -->
       <div class="teacher-nav-grid" role="list">
 
         <!-- Class Card — gated -->
@@ -530,6 +528,8 @@
   import { subscribeToCalendar } from '../js/academic-calendar.js';
   import { auth }               from '../js/firebase-config.js';
   import { initEducationalQuote } from '../js/educational-quotes.js';
+  // NEW: fullscreen loader (dashboards use the opaque student-style variant)
+  import { showFullscreenLoader, hideFullscreenLoader } from '../js/loading.js';
 
   /* Year stamps */
   const yr = new Date().getFullYear();
@@ -537,10 +537,13 @@
   const sidebarYr = document.getElementById('sidebarYear');
   if (sidebarYr) sidebarYr.innerText = yr;
 
+  /* Show loader immediately — before any async work */
+  showFullscreenLoader({ label: 'Preparing your dashboard…' });
+
   // ── Auth & init ──────────────────────────────────────────
   protectTeacherPage().then(async ({ teacherName }) => {
     displayTeacherName(teacherName);
-    loadSchoolInfo();
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
@@ -549,9 +552,6 @@
     const isClassTeacher = await checkClassTeacherStatus();
 
     // ── Class card gating ────────────────────────────────
-    // If the teacher is not a class teacher, the Class card and the two
-    // sidebar links to class.html are visually greyed and click-inert.
-    // Navigation for the ENABLED case is handled natively by <a href>.
     if (!isClassTeacher) {
       const classCard = document.getElementById('classCard');
       if (classCard) {
@@ -574,14 +574,7 @@
     }
 
     // ── Attendance card gating ───────────────────────────
-    // FIX: Gate attendance on class-teacher status ALONE (matching the
-    // Class card). The previous extra `&& !!hostClassId` check used the
-    // singular hostClassId field via getHostClassId(); teachers whose
-    // record uses the plural `hostClassIds` array returned null from that
-    // helper and had their attendance card disabled even though they ARE
-    // class teachers — making the card dead. The attendance page itself
-    // already gracefully shows a "No Class Assigned" warning if a host
-    // class is truly missing, so gating on isClassTeacher alone is safe.
+    // Gate attendance on class-teacher status ALONE (matching the Class card).
     const canAccessAttendance = isClassTeacher;
 
     if (!canAccessAttendance) {
@@ -622,6 +615,10 @@
     } catch (err) {
       console.warn('[Teacher] Quote init skipped:', err);
     }
+  }).catch(err => {
+    console.error('[TeacherDashboard] Boot error:', err);
+  }).finally(() => {
+    hideFullscreenLoader({ minDisplayMs: 600 });
   });
 
   // ── Real-time calendar display ───────────────────────────
