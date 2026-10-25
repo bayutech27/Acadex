@@ -633,31 +633,40 @@
   </div>
 </div>
 
-<!-- ===================== SCRIPTS (unchanged) ===================== -->
+<!-- ===================== SCRIPTS ===================== -->
 <script src="../js/card-3d-effects.js"></script>
 <script type="module">
 import { initParentsPage } from '../js/parent-account-creator.js';
 import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
 import { initMobileMenu } from '../js/menu.js';
 import { subscribeToCalendar } from '../js/academic-calendar.js';
+// NEW: overlay loader (sub-pages use the faint transparent variant)
+import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
 document.getElementById('currentYear').innerText = new Date().getFullYear();
 const sidebarYr = document.getElementById('sidebarYear');
 if (sidebarYr) sidebarYr.innerText = new Date().getFullYear();
 
+showOverlayLoader({ label: 'Loading parents…' });
+
 protectAdminPage().then(async () => {
-  loadSchoolInfo();
+  await loadSchoolInfo();
   setupSidebar();
   setupLogout();
   setupLogoUpload();
   initMobileMenu();
-  initParentsPage();
+
+  await initParentsPage();
 
   const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
   const headerLogoutBtn = document.getElementById('logoutBtn');
   if (mobileLogoutBtn && headerLogoutBtn) {
     mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
   }
+}).catch(err => {
+  console.error('[Parents] Boot error:', err);
+}).finally(() => {
+  hideOverlayLoader({ minDisplayMs: 400 });
 });
 
 subscribeToCalendar((state) => {
