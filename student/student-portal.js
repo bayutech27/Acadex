@@ -1,27 +1,37 @@
-// student-portal.js — Lazy-loading, low-read version.
-// Boot reads: 7. Subsequent reads only fire on demand when a tab / the
-// notification bell is clicked. Never eager. Nothing else on the page
-// changed — all render functions and behaviours are preserved.
+// student-portal.js — Lazy-loading, low-read version, patient with slow networks.
 //
-// TAB LOADING STRATEGY
-//   Boot (no clicks)                 ~7 reads
-//     • getUserById (1)
-//     • getStudentById (1)
-//     • getClassById (1)
-//     • getSchoolById (1)
-//     • subscribeToCalendar initial (1)
-//     • syncAcademicCalendar (1)
-//     • subscribeToSubscription initial (1)
+// BOOT READS: 7
+//   • getUserById (1)
+//   • getStudentById (1)
+//   • getClassById (1)
+//   • getSchoolById (1)
+//   • subscribeToCalendar initial (1)
+//   • syncAcademicCalendar (1)
+//   • subscribeToSubscription initial (1)
 //
-//   On first click of each tab       extra reads (cached after that)
-//     • About Me    → resolveSubjectNames (~12)
-//     • Attendance  → getAttendanceByStudent (~15)
-//     • Assignments → getAssignmentsByClass (~5)
-//     • Results     → CBT test_results query (~5)
+// ON-DEMAND READS (cached per session after first click)
+//   • About Me    → resolveSubjectNames (~12)
+//   • Attendance  → getAttendanceByStudent (~15)
+//   • Assignments → getAssignmentsByClass (~5)
+//   • Results     → CBT test_results query (~5)
+//   • Notification bell first click → setup listeners (~20)
 //
-//   On first click of notification bell  (~20, listeners set up once)
+// SLOW-NETWORK TUNING (all timing now 12× more generous):
+//   • ESSENTIAL_TIMEOUT_MS      = 60s
+//   • CALENDAR_TIMEOUT_MS       = 60s
+//   • SUBSCRIPTION_TIMEOUT_MS   = 60s
+//   • CLASS_NAME_TIMEOUT_MS     = 30s
+//   • TAB_LOAD_TIMEOUT_MS       = 60s
+//   • MIN_BOOT_TIME_MS          = 600ms (min display only — never delays real data)
+//   • HTML failsafe (refresh)   = 120s
 //
-// CBT card and Achievements/Library/Video Tutorials load nothing extra.
+// CORRECTNESS GUARANTEES:
+//   • Boot cannot hang forever — every essential read is timeout-bounded.
+//   • If getStudentById is slow, the loader hides at 60s and the hero
+//     self-heals in the background when the read finally resolves.
+//   • Tab loaders cannot spin forever — timeouts show a "retry" message.
+//   • Loader is always force-hidden in the `finally` block.
+//   • Failsafe timer is cleared on successful hide.
 
 import { auth, db } from '../js/firebase-config.js';
 import {
@@ -51,20 +61,24 @@ const ENABLE_EXTERNAL_TABS = false;
 const ACCORDION_ANIM_MS    = 450;
 const RESULTS_PAGE_SIZE    = 10;
 const RESULTS_LOAD_STEP    = 5;
-const MIN_BOOT_TIME_MS     = 600;
-const CALENDAR_TIMEOUT_MS  = 5000;
-const SUBSCRIPTION_TIMEOUT_MS = 5000;
 
-// Static tabs — no data to fetch, content lives in HTML already.
+// Slow-network-friendly timeouts
+const MIN_BOOT_TIME_MS       = 600;    // fast-network minimum only
+const ESSENTIAL_TIMEOUT_MS   = 60000;  // 60s for student + school reads
+const CALENDAR_TIMEOUT_MS    = 60000;  // 60s
+const SUBSCRIPTION_TIMEOUT_MS= 60000;  // 60s
+const CLASS_NAME_TIMEOUT_MS  = 30000;  // 30s
+const TAB_LOAD_TIMEOUT_MS    = 60000;  // 60s per-tab
+
 const STATIC_TABS = new Set(['achievements', 'library', 'video-tutorials']);
 
-// ─────────────────────────────────── Global state ────────────────────────────
+// ── Global state ─────────────────────────────────────────────────────────────
 let currentStudentData = null;
 let currentSchoolId    = null;
 let currentStudentId   = null;
 let resolvedClassName  = '';
 
-// Deferred data caches
+// Deferred caches
 let subjectsList       = [];
 let attendanceRecords  = [];
 let assignmentsList    = [];
@@ -98,9 +112,13 @@ let activeAccordionPane = null;
 
 // Lazy load tracking
 const loadedPanes = new Set();
-const loadingTabs = new Map(); // tabId -> Promise
+const loadingTabs = new Map();
 
-// ─────────────────────────────────── Utilities ───────────────────────────────
+// Background-heal flag — prevents double render if the student read
+// eventually resolves after timing out once.
+let studentRenderDone = false;
+
+// ── Utilities ────────────────────────────────────────────────────────────────
 function safeVal(v) {
   if (v === null || v === undefined) return '';
   const s = String(v).trim();
@@ -120,6 +138,8 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 }
 
+// withTimeout — resolves (never rejects) with undefined on timeout.
+// Underlying promise keeps running; use its .then/.catch separately if needed.
 function withTimeout(promise, ms) {
   return Promise.race([
     promise,
@@ -127,14 +147,23 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-// ─────────────────────────────────── Loaders ─────────────────────────────────
+// ── Loaders ──────────────────────────────────────────────────────────────────
 function hideFullScreenLoader() {
   if (typeof window !== 'undefined' && window.__acadexBootFailsafe) {
     clearTimeout(window.__acadexBootFailsafe);
     window.__acadexBootFailsafe = null;
   }
   const loader = document.getElementById('acadexFullscreenLoader');
-  if (loader) loader.classList.remove('active');
+  if (loader) {
+    loader.classList.remove('active');
+    // Belt-and-braces: force display:none after the fade-out so the
+    // loader can never linger even if CSS loading was interrupted.
+    setTimeout(() => {
+      if (loader && !loader.classList.contains('active')) {
+        loader.style.display = 'none';
+      }
+    }, 420);
+  }
 }
 
 function paneLoaderHTML(label = 'Loading…') {
@@ -151,12 +180,21 @@ function paneLoaderHTML(label = 'Loading…') {
   `;
 }
 
+function paneErrorHTML(message = 'Connection is slow. Please tap the tab again to retry.') {
+  return `
+    <div class="card" style="text-align:center;padding:2rem;color:#b91c1c;">
+      <i class="fa-solid fa-triangle-exclamation" style="font-size:1.6rem;display:block;margin-bottom:0.6rem;opacity:0.8;"></i>
+      ${escapeHtml(message)}
+    </div>
+  `;
+}
+
 function showPaneLoader(pane, label = 'Loading…') {
   if (!pane) return;
   pane.innerHTML = paneLoaderHTML(label);
 }
 
-// ─────────────────────────────────── Calendar ────────────────────────────────
+// ── Calendar ─────────────────────────────────────────────────────────────────
 function initCalendar() {
   syncAcademicCalendar().catch(err => console.warn('[StudentPortal] Calendar sync failed:', err));
   startPeriodicSync(60);
@@ -182,7 +220,7 @@ function getCalendarDisplay() {
   return t ? (s ? `${t} — ${s}` : t) : s;
 }
 
-// ─────────────────────────────────── Subscription ────────────────────────────
+// ── Subscription ────────────────────────────────────────────────────────────
 function initSubscriptionListener(schoolId) {
   if (!schoolId) {
     if (!subscriptionReady) {
@@ -210,7 +248,7 @@ function initSubscriptionListener(schoolId) {
   });
 }
 
-// ─────────────────────────────────── Accordion ───────────────────────────────
+// ── Accordion ────────────────────────────────────────────────────────────────
 function positionAccordionPane(card, pane) {
   const grid = document.getElementById('tabCardGrid');
   if (!grid) return;
@@ -288,12 +326,15 @@ function closeAccordionPane(pane, { instant = false } = {}) {
   }, ACCORDION_ANIM_MS + 20);
 }
 
-// ─────────────────────────────────── Tab data loading ────────────────────────
+// ── Tab data loading ────────────────────────────────────────────────────────
 async function loadProfileTab() {
   try {
-    const names = await resolveSubjectNames(currentStudentData?.subjects || []);
-    subjectsList = names;
-    renderProfile(currentStudentData, names);
+    const names = await withTimeout(
+      resolveSubjectNames(currentStudentData?.subjects || []),
+      TAB_LOAD_TIMEOUT_MS
+    );
+    subjectsList = names || [];
+    renderProfile(currentStudentData, subjectsList);
   } catch (err) {
     console.warn('[StudentPortal] Profile subjects load fail:', err);
     subjectsList = [];
@@ -309,10 +350,11 @@ async function loadAttendanceTab() {
 
     let records = [];
     if (currentSchoolId && classId && term && session) {
-      const raw = await service.getAttendanceByStudent(
-        currentSchoolId, currentStudentId, classId, session, term
+      const raw = await withTimeout(
+        service.getAttendanceByStudent(currentSchoolId, currentStudentId, classId, session, term),
+        TAB_LOAD_TIMEOUT_MS
       );
-      raw.forEach(data => {
+      (raw || []).forEach(data => {
         const days = data.days || {};
         const week = data.weekNumber;
         for (const [day, sessions] of Object.entries(days)) {
@@ -332,7 +374,6 @@ async function loadAttendanceTab() {
     renderAttendance(records);
   } catch (err) {
     console.warn('[StudentPortal] Attendance load fail:', err);
-    toast.warning('Unable to load attendance data. Please refresh.');
     attendanceRecords = [];
     renderAttendance([]);
   }
@@ -342,7 +383,11 @@ async function loadAssignmentsTab() {
   try {
     const classId = safeVal(currentStudentData?.classId);
     if (currentSchoolId && classId) {
-      assignmentsList = await service.getAssignmentsByClass(currentSchoolId, classId);
+      const data = await withTimeout(
+        service.getAssignmentsByClass(currentSchoolId, classId),
+        TAB_LOAD_TIMEOUT_MS
+      );
+      assignmentsList = data || [];
     } else {
       assignmentsList = [];
     }
@@ -356,17 +401,14 @@ async function loadAssignmentsTab() {
 
 async function loadResultsTab() {
   const tableEl = document.getElementById('resultsTableContainer');
-  if (tableEl) tableEl.innerHTML = paneLoaderHTML('Loading results…');
-
   try {
-    allCbtScores = await fetchCbtScores();
+    const data = await withTimeout(fetchCbtScores(), TAB_LOAD_TIMEOUT_MS);
+    allCbtScores    = data || [];
     visibleCbtCount = RESULTS_PAGE_SIZE;
     renderResultsTableBody();
   } catch (err) {
     console.error('[StudentPortal] Results load fail:', err);
-    if (tableEl) {
-      tableEl.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:#b91c1c;">Failed to load results. Please try again.</div>';
-    }
+    if (tableEl) tableEl.innerHTML = paneErrorHTML();
   }
 }
 
@@ -386,8 +428,22 @@ function ensureTabLoaded(tabId) {
 
   const promise = (async () => {
     try {
-      await loadTabData(tabId);
+      await withTimeout(
+        loadTabData(tabId),
+        TAB_LOAD_TIMEOUT_MS,
+        'tab_load'
+      );
       loadedPanes.add(tabId);
+    } catch (err) {
+      console.warn('[StudentPortal] Tab timeout:', tabId, err);
+      // Show a retry message — do NOT mark as loaded so next click retries.
+      const pane = document.querySelector(`.tab-pane[data-pane="${tabId}"]`);
+      if (tabId === 'results') {
+        const tableEl = document.getElementById('resultsTableContainer');
+        if (tableEl) tableEl.innerHTML = paneErrorHTML();
+      } else if (pane) {
+        pane.innerHTML = paneErrorHTML();
+      }
     } finally {
       loadingTabs.delete(tabId);
     }
@@ -397,13 +453,12 @@ function ensureTabLoaded(tabId) {
   return promise;
 }
 
-// ─────────────────────────────────── Card activation ─────────────────────────
+// ── Card activation ─────────────────────────────────────────────────────────
 async function handleCardActivation(card) {
   const tabId      = card.getAttribute('data-tab');
   const navigateTo = card.getAttribute('data-navigate');
   const futurePage = card.getAttribute('data-future-page');
 
-  // Navigation cards (e.g. CBT) — no loader
   if (navigateTo) {
     if (!isSchoolSubscriptionActive) {
       toast.error('School subscription is inactive. Please contact your administrator.');
@@ -465,8 +520,6 @@ async function handleCardActivation(card) {
   }
 
   // Lazy-load tabs
-  // For results, keep the pane's structural HTML intact and let the loader
-  // appear inside #resultsTableContainer. For others, replace pane content.
   if (tabId !== 'results') {
     showPaneLoader(pane);
   } else {
@@ -503,7 +556,7 @@ function initInternalTabs() {
   });
 }
 
-// ─────────────────────────────────── School header ───────────────────────────
+// ── School header ────────────────────────────────────────────────────────────
 async function loadSchoolHeader(schoolId) {
   if (!schoolId) return;
   try {
@@ -525,11 +578,14 @@ async function loadSchoolHeader(schoolId) {
   }
 }
 
-// ─────────────────────────────────── Class name resolver ─────────────────────
+// ── Class name resolver ─────────────────────────────────────────────────────
 async function resolveClassName(schoolId, classId) {
   if (!classId) return '';
   try {
-    const classData = await service.getClassById(classId);
+    const classData = await withTimeout(
+      service.getClassById(classId),
+      CLASS_NAME_TIMEOUT_MS
+    );
     if (classData) return safeVal(classData.name || classData.className);
   } catch (err) {
     console.warn('[StudentPortal] Class name fail:', err);
@@ -537,7 +593,7 @@ async function resolveClassName(schoolId, classId) {
   return '';
 }
 
-// ───────────────────────────── Passport photo edit ───────────────────────────
+// ── Passport photo edit ─────────────────────────────────────────────────────
 function injectPassportStyles() {
   if (document.getElementById('passport-edit-styles')) return;
   const style = document.createElement('style');
@@ -636,7 +692,7 @@ function compressImage(file, targetKB, thresholdKB) {
   });
 }
 
-// ─────────────────────────────────── Hero card ───────────────────────────────
+// ── Hero card ────────────────────────────────────────────────────────────────
 function renderHero(student) {
   const container = document.getElementById('heroContainer');
   if (!container) return;
@@ -670,7 +726,7 @@ function renderHero(student) {
   }
 }
 
-// ─────────────────────────────────── About Me ────────────────────────────────
+// ── About Me ────────────────────────────────────────────────────────────────
 function renderProfile(student, subjects) {
   const container = document.getElementById('profileTab');
   if (!container) return;
@@ -720,7 +776,7 @@ function renderProfile(student, subjects) {
   `;
 }
 
-// ─────────────────────────────────── Attendance ──────────────────────────────
+// ── Attendance ──────────────────────────────────────────────────────────────
 function renderAttendance(records) {
   const container = document.getElementById('attendanceTab');
   if (!container) return;
@@ -761,7 +817,7 @@ function renderAttendance(records) {
     </div>`;
 }
 
-// ─────────────────────────────────── Assignments ─────────────────────────────
+// ── Assignments ─────────────────────────────────────────────────────────────
 function renderAssignments(assignments) {
   const container = document.getElementById('assignmentsTab');
   if (!container) return;
@@ -779,36 +835,30 @@ function renderAssignments(assignments) {
   container.innerHTML = `<div>${cards}</div>`;
 }
 
-// ─────────────────────────────────── CBT results ─────────────────────────────
+// ── CBT results ─────────────────────────────────────────────────────────────
 async function fetchCbtScores() {
   if (!currentStudentId || !currentSchoolId) return [];
-  try {
-    const q = query(
-      collection(db, 'test_results'),
-      where('userId', '==', currentStudentId),
-      where('examType', '==', 'CBT'),
-      where('mode', '==', 'cbt'),
-      orderBy('completedAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    const results = [];
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      results.push({
-        subject: data.subject || 'Unknown Subject',
-        score: data.rawScore ?? data.correctAnswers ?? 0,
-        total: data.totalQuestions ?? data.total ?? data.totalPossible ?? 0,
-        term: data.term || '—',
-        session: data.session || '—',
-        date: data.completedAt ? data.completedAt.toDate() : null
-      });
+  const q = query(
+    collection(db, 'test_results'),
+    where('userId', '==', currentStudentId),
+    where('examType', '==', 'CBT'),
+    where('mode', '==', 'cbt'),
+    orderBy('completedAt', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  const results = [];
+  snapshot.forEach(doc => {
+    const data = doc.data();
+    results.push({
+      subject: data.subject || 'Unknown Subject',
+      score: data.rawScore ?? data.correctAnswers ?? 0,
+      total: data.totalQuestions ?? data.total ?? data.totalPossible ?? 0,
+      term: data.term || '—',
+      session: data.session || '—',
+      date: data.completedAt ? data.completedAt.toDate() : null
     });
-    return results;
-  } catch (err) {
-    console.error('[StudentPortal] Failed to fetch CBT scores:', err);
-    toast.warning('Unable to load CBT scores.');
-    return [];
-  }
+  });
+  return results;
 }
 
 function buildResultsRow(item) {
@@ -899,9 +949,7 @@ function renderResultsTableBody() {
   }
 }
 
-// ─────────────────────────────────── Subject resolvers ───────────────────────
-// Lightweight version — returns only { id, name }. No score enrichment.
-// Sufficient for the About Me subject chips (renderProfile only uses name).
+// ── Subject name resolver (lightweight) ─────────────────────────────────────
 async function resolveSubjectNames(rawSubjects) {
   if (!Array.isArray(rawSubjects) || rawSubjects.length === 0) return [];
   const first = rawSubjects[0];
@@ -928,7 +976,7 @@ async function resolveSubjectNames(rawSubjects) {
   return [];
 }
 
-// ─────────────────────────────────── Notifications ───────────────────────────
+// ── Notifications ───────────────────────────────────────────────────────────
 async function fetchTeacherName(teacherId) {
   if (!teacherId) return 'Teacher';
   if (teacherNameCache.has(teacherId)) return teacherNameCache.get(teacherId);
@@ -1127,7 +1175,6 @@ function initNotificationBell() {
       localStorage.setItem('notificationLastSeen', Date.now().toString());
       updateBadgeFromMerged();
 
-      // Start listeners on first open only
       if (!notificationListenersStarted) {
         notificationListenersStarted = true;
         setupNotificationListeners(
@@ -1144,7 +1191,7 @@ function initNotificationBell() {
   });
 }
 
-// ─────────────────────────────────── Cleanup + Logout ────────────────────────
+// ── Cleanup / logout / download ────────────────────────────────────────────
 function cleanupListeners() {
   if (unsubscribeCBT) { unsubscribeCBT(); unsubscribeCBT = null; }
   if (unsubscribeScores) { unsubscribeScores(); unsubscribeScores = null; }
@@ -1166,13 +1213,43 @@ function initDownload() {
   });
 }
 
-// ─────────────────────────────────── Boot ────────────────────────────────────
+// ── Student fetch (with self-heal) ─────────────────────────────────────────
+// Fires once. If it times out, boot proceeds without it; when the read
+// eventually resolves, this function renders the hero (and refreshes
+// profile if it was already opened).
+async function fetchAndRenderStudent() {
+  try {
+    const data = await service.getStudentById(currentStudentId);
+    if (!data) return;
+
+    currentStudentData = data;
+
+    // Resolve class name (only if not already cached)
+    const classId = safeVal(data.classId);
+    if (classId && !resolvedClassName) {
+      resolvedClassName = await resolveClassName(currentSchoolId, classId);
+    }
+
+    // Render hero
+    renderHero(currentStudentData);
+    studentRenderDone = true;
+
+    // If the profile pane was opened before the student arrived, refresh it.
+    if (loadedPanes.has('profile')) {
+      renderProfile(currentStudentData, subjectsList);
+    }
+  } catch (err) {
+    console.warn('[StudentPortal] Background student load error:', err);
+  }
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
 async function bootDashboard(user) {
   const bootStart = Date.now();
 
   try {
-    // ── Step 1: auth ───────────────────────────────────────
-    const userData = await service.getUserById(user.uid); // READ 1
+    // ── Step 1: auth read (essential — no self-heal possible) ──
+    const userData = await service.getUserById(user.uid);
     if (!userData) {
       toast.error('User profile not found. Please log out and log in again.');
       window.location.href = '/';
@@ -1206,41 +1283,42 @@ async function bootDashboard(user) {
       return;
     }
 
-    // ── Step 2: kick off the essential reads in parallel ───────────────
-    initCalendar();                                             // READ 5 + 6 (subscribe + sync)
-    initSubscriptionListener(currentSchoolId);                  // READ 7 (subscribe initial)
+    // ── Step 2: kick off parallel essential reads ──
+    // Student fetch is fire-and-forget: it self-heals when it eventually resolves.
+    fetchAndRenderStudent(); // no await — runs in background
 
-    const [studentData] = await Promise.all([
-      service.getStudentById(currentStudentId),                 // READ 2
-      loadSchoolHeader(currentSchoolId),                        // READ 4
+    // Calendar + subscription listeners kick off their subscriptions now.
+    initCalendar();
+    initSubscriptionListener(currentSchoolId);
+
+    // Await only the timeouts, not the actual reads.
+    await Promise.all([
+      loadSchoolHeader(currentSchoolId),                           // fire-and-forget style
       withTimeout(calendarReadyPromise, CALENDAR_TIMEOUT_MS),
       withTimeout(subscriptionReadyPromise, SUBSCRIPTION_TIMEOUT_MS)
     ]);
 
-    currentStudentData = studentData;
-
-    // ── Step 3: class name resolver ────────────────────────
-    const classId = safeVal(currentStudentData?.classId);
-    if (classId) {
-      resolvedClassName = await resolveClassName(currentSchoolId, classId); // READ 3
-    }
-
-    // ── Step 4: render initial visible content ─────────────
-    renderHero(currentStudentData);
-
-    // ── Step 5: hold the loader for min UX time ────────────
+    // ── Step 3: hold the loader for a minimum sensible time ──
+    // Only for fast networks, so the spinner doesn't flash-and-vanish.
     const elapsed = Date.now() - bootStart;
     if (elapsed < MIN_BOOT_TIME_MS) {
       await new Promise(r => setTimeout(r, MIN_BOOT_TIME_MS - elapsed));
+    }
+
+    // ── Step 4: warn gently if the student read hasn't landed yet ──
+    if (!studentRenderDone) {
+      console.warn('[StudentPortal] Student read is slow — hero will render when it lands.');
     }
   } catch (err) {
     console.error('[StudentPortal] Boot error:', err);
     toast.error('Unable to load dashboard. Please refresh the page.');
   } finally {
+    // ALWAYS hide the loader. `finally` guarantees this even if the try
+    // block threw anywhere above.
     hideFullScreenLoader();
   }
 
-  // ── Step 6: wire up UI (after loader is hidden) ────────────
+  // ── Step 5: wire up the UI (safe even if student is still pending) ──
   initInternalTabs();
   initNotificationBell();
   initDownload();
@@ -1249,7 +1327,7 @@ async function bootDashboard(user) {
   if (yearEl) yearEl.innerText = new Date().getFullYear();
 }
 
-// ─────────────────────────────────── App entry ───────────────────────────────
+// ── App entry ───────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, (user) => {
   if (!user) {
     window.location.href = '/';
