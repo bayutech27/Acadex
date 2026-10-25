@@ -838,22 +838,30 @@
   import { initStudentsPage } from '../js/students.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
 
-  protectAdminPage().then(() => {
-    loadSchoolInfo();
+  showOverlayLoader({ label: 'Loading students…' });
+
+  protectAdminPage().then(async () => {
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
     initMobileMenu();
-    initStudentsPage();
+    await initStudentsPage();
 
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
+  }).catch(err => {
+    console.error('[Students] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
