@@ -343,6 +343,30 @@
       height: 20px;
     }
 
+    /* ============================================================
+       NEW: Suppress any pre-existing page-load loader from
+       auth.js / error-handler.js so only the polished submit-
+       triggered loader appears. loading.js's own loader IDs are
+       excluded via :not() so the submit loader still works.
+       ============================================================ */
+    body > [class*="loader"]:not(#acadexFullscreenLoaderGlobal):not(#acadexOverlayLoaderGlobal):not(.back-home),
+    body > [id*="loader"]:not(#acadexFullscreenLoaderGlobal):not(#acadexOverlayLoaderGlobal),
+    body > [id*="Loader"]:not(#acadexFullscreenLoaderGlobal):not(#acadexOverlayLoaderGlobal),
+    body > #loadingOverlay,
+    body > #loading-overlay,
+    body > .loading-overlay,
+    body > .page-loading,
+    body > #pageLoading,
+    body > .app-loader,
+    body > #appLoader,
+    body > .spinner-overlay,
+    body > #spinnerOverlay {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
     /* ========== MOBILE RESPONSIVE ========== */
     @media (max-width: 480px) {
       body {
@@ -440,6 +464,72 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       NEW: Suppress any pre-existing loader that auth.js or
+       error-handler.js tries to create on page load. Stops the
+       moment the form is submitted, so the polished submit loader
+       works without interference.
+       ============================================================ -->
+  <script>
+    (function () {
+      let submitted = false;
+
+      // Capture-phase listener on the form — fires BEFORE the main
+      // submit handler below, so suppression stops just in time.
+      const form = document.getElementById('loginForm');
+      if (form) {
+        form.addEventListener('submit', () => { submitted = true; }, true);
+      }
+
+      // Loading.js's own loader IDs — never suppress these.
+      const OWN_IDS = ['acadexFullscreenLoaderGlobal', 'acadexOverlayLoaderGlobal'];
+
+      function killPreLoaders() {
+        if (submitted || !document.body) return;
+
+        // Only target direct children of <body> that look like page overlays.
+        document.body.querySelectorAll(
+          ':scope > [class*="loader"], ' +
+          ':scope > [id*="loader"], ' +
+          ':scope > [id*="Loader"], ' +
+          ':scope > .loading-overlay, ' +
+          ':scope > #loadingOverlay, ' +
+          ':scope > #loading-overlay, ' +
+          ':scope > .page-loading, ' +
+          ':scope > #pageLoading, ' +
+          ':scope > .app-loader, ' +
+          ':scope > #appLoader, ' +
+          ':scope > .spinner-overlay, ' +
+          ':scope > #spinnerOverlay'
+        ).forEach(el => {
+          if (OWN_IDS.includes(el.id)) return;
+          if (el.classList.contains('back-home')) return;
+          el.style.setProperty('display', 'none', 'important');
+          el.style.setProperty('visibility', 'hidden', 'important');
+          el.style.setProperty('opacity', '0', 'important');
+          el.style.setProperty('pointer-events', 'none', 'important');
+        });
+      }
+
+      // Fire at multiple points to catch sync and slightly delayed loaders.
+      [0, 60, 150, 300, 600, 1200, 2500].forEach(ms => setTimeout(killPreLoaders, ms));
+
+      // MutationObserver catches any loader created async.
+      const start = Date.now();
+      const stopAt = start + 5000;
+      const tryObserve = () => {
+        if (!document.body) { setTimeout(tryObserve, 50); return; }
+        const observer = new MutationObserver(() => {
+          if (Date.now() > stopAt) { observer.disconnect(); return; }
+          killPreLoaders();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        setTimeout(() => observer.disconnect(), 5000);
+      };
+      tryObserve();
+    })();
+  </script>
+
   <script type="module">
     import { initLoginPage } from './js/auth.js';
     import { showFullscreenLoader, hideFullscreenLoader } from './js/loading.js';
@@ -483,7 +573,6 @@
             childList: true, subtree: true, characterData: true
           });
 
-          // Poll for the first ~2 s in case auth.js responded synchronously
           pollTimer = setInterval(() => {
             pollCount++;
             if (loginMessageEl.textContent.trim() !== '') {
@@ -494,7 +583,6 @@
           }, 250);
         }
 
-        // Failsafe — guarantees the loader always hides
         failsafeTimer = setTimeout(cleanup, 30000);
       });
     }
@@ -511,7 +599,7 @@
       });
 
       if (window.caches) {
-        caches.keys().then(function(cacheNames) {
+        caches.keyizes?.().then(function(cacheNames) {
           cacheNames.forEach(function(cacheName) {
             caches.delete(cacheName);
           });
