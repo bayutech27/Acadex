@@ -765,15 +765,17 @@
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
   import { initOnboardStudentPage } from '../js/onboard-student.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
   document.getElementById('sidebarYear').innerText = new Date().getFullYear();
 
+  showOverlayLoader({ label: 'Loading onboarding…' });
+
   protectTeacherPage().then(async ({ teacherName }) => {
     // ─────────────────────────────────────────────────────────────────────
     // GATE: Non-class-teachers must never reach the onboarding page.
-    // Mirrors the check in class.html so both pages behave consistently.
-    // The onboard-student.js module also self-defends (see its catch block).
     // ─────────────────────────────────────────────────────────────────────
     let isClassTeacher = false;
     try {
@@ -801,6 +803,10 @@
     }
 
     await initOnboardStudentPage();
+  }).catch(err => {
+    console.error('[OnboardStudent] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar(state => {
