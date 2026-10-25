@@ -4,100 +4,127 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Parent Portal - Acadex</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="../css/card-3d.css" />
   <link rel="stylesheet" href="../css/styles.css" />
+
   <style>
-    /* parent portal specific */
-    .child-card { cursor: pointer; transition: all 0.2s; }
-    .child-card.active { border-color: var(--primary); background: var(--primary-glow); }
-    .detail-section { margin-top: 2rem; }
-    .detail-card { background: white; border-radius: var(--r-lg); padding: 1.5rem; box-shadow: var(--shadow-sm); margin-bottom: 1.5rem; }
-    .fee-status { font-weight: 700; }
-    .fee-status.paid { color: var(--success); }
-    .fee-status.partial { color: var(--warning); }
-    .fee-status.unpaid { color: var(--danger); }
-    .fee-status.not-set { color: var(--text-500); }
-    .table-responsive-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; }
-    .table-responsive-wrapper table { min-width: 300px; }
-    .student-photo-wrapper {
-      position: relative;
-      width: 80px;
-      height: 80px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      border: 2px solid var(--primary);
-      overflow: hidden;
-      background: #e0e7ff;
-    }
-    .student-photo-wrapper img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .student-photo-wrapper .initials {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Outfit', sans-serif;
-      font-size: 2rem;
-      font-weight: 700;
-      color: white;
-      background: #4361ee;
-      text-transform: uppercase;
-      line-height: 1;
-    }
-    .load-more-btn {
-      margin-top: 0.5rem;
-      background: transparent;
-      border: 1px solid var(--primary);
-      color: var(--primary);
-      padding: 0.3rem 1rem;
-      border-radius: 20px;
-      cursor: pointer;
-      font-size: 0.8rem;
-      transition: all 0.2s;
-    }
-    .load-more-btn:hover {
-      background: var(--primary);
-      color: white;
+    /* =========================================================
+       iOS DESIGN TOKENS — shared with admin, teacher, student
+       ========================================================= */
+    :root {
+      --ios-blue:      #007AFF;
+      --ios-blue-600:  #0062CC;
+      --ios-green:     #34C759;
+      --ios-indigo:    #5856D6;
+      --ios-orange:    #FF9500;
+      --ios-pink:      #FF2D55;
+      --ios-purple:    #AF52DE;
+      --ios-red:       #FF3B30;
+      --ios-teal:      #5AC8FA;
+      --ios-yellow:    #FFCC00;
+
+      --ios-bg:            #F2F2F7;
+      --ios-bg-elevated:   #FFFFFF;
+      --ios-bg-secondary:  #E5E5EA;
+
+      --ios-label:            #000000;
+      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
+      --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
+
+      --ios-separator: rgba(60, 60, 67, 0.12);
+      --ios-fill:      rgba(120, 120, 128, 0.12);
+      --ios-fill-2:    rgba(120, 120, 128, 0.08);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
+      --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Nunito', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Outfit', 'Helvetica Neue', Arial, sans-serif;
+
+      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+      --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+      /* ── Map legacy parent-page vars to iOS for backward-compat ── */
+      --primary:       var(--ios-blue);
+      --primary-glow:  rgba(0, 122, 255, 0.08);
+      --success:       var(--ios-green);
+      --warning:       var(--ios-orange);
+      --danger:        var(--ios-red);
+      --text-500:      var(--ios-label-secondary);
+      --r-lg:          var(--ios-radius-xl);
+      --shadow-sm:     var(--ios-shadow);
     }
 
-    /* ========== HEADER STYLES TO MATCH ADMIN DASHBOARD ========== */
-    .academic-badge {
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      color: white;
-      padding: 5px 14px;
-      border-radius: 999px;
-      font-size: 0.78rem;
+    /* ========== Base typography — vivid & clean ========== */
+    body {
+      font-family: var(--ios-font) !important;
+      background: var(--ios-bg) !important;
+      color: var(--ios-label);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: var(--ios-font-display);
       font-weight: 700;
-      display: inline-flex;
+      letter-spacing: -0.02em;
+      color: var(--ios-label);
+      margin-top: 0;
+    }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.35rem; }
+    h3 { font-size: 1.1rem; margin: 0 0 0.9rem; }
+    p  { color: var(--ios-label-secondary); }
+
+    /* ========== Academic badge (iOS pill) ========== */
+    .academic-badge {
+      background: rgba(0, 122, 255, 0.10) !important;
+      color: var(--ios-blue) !important;
+      padding: 6px 14px !important;
+      border-radius: 999px !important;
+      font-size: 0.78rem !important;
+      font-weight: 600 !important;
+      display: inline-flex !important;
       align-items: center;
       gap: 7px;
-      box-shadow: 0 2px 10px rgba(79,70,229,.25);
-      letter-spacing: .02em;
+      letter-spacing: -0.01em;
+      border: 1px solid rgba(0, 122, 255, 0.12) !important;
+      box-shadow: none !important;
+      white-space: nowrap;
     }
+    .academic-badge i { color: var(--ios-blue); }
     .academic-badge .override-badge {
-      background: #f59e0b;
-      color: #000;
-      padding: 2px 7px;
+      background: var(--ios-orange);
+      color: #fff;
+      padding: 2px 8px;
       border-radius: 999px;
       font-size: 0.68rem;
-      font-weight: 800;
-    }
-    .school-address {
-      font-size: .74rem;
-      color: #64748b;
-      margin-top: 3px;
+      font-weight: 700;
     }
 
-    /* Header layout */
+    .school-address {
+      font-size: 0.74rem;
+      color: var(--ios-label-secondary);
+      margin-top: 3px;
+      letter-spacing: -0.005em;
+    }
+
+    /* ========== Header layout ========== */
     .header {
       display: flex;
       align-items: center;
@@ -112,40 +139,308 @@
       flex: 1;
     }
     .parent-logo-readonly {
-      width: 52px; height: 52px;
+      width: 54px;
+      height: 54px;
       border-radius: 50%;
       overflow: hidden;
-      border: 2.5px solid #4361ee;
-      background: #e0e7ff;
+      background: var(--ios-fill);
       flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 0 4px rgba(67,97,238,.12);
+      box-shadow: var(--ios-shadow-sm);
+      border: none !important;
       cursor: default !important;
     }
     .parent-logo-readonly img {
-      width: 100%; height: 100%;
+      width: 100%;
+      height: 100%;
       object-fit: cover;
       border-radius: 50%;
       pointer-events: none;
     }
 
-    /* Hide hamburger on desktop */
+    /* ========== Welcome card (iOS elevated) ========== */
+    .welcome-card {
+      background: var(--ios-bg-elevated) !important;
+      border-radius: var(--ios-radius-xl) !important;
+      padding: 26px 28px !important;
+      margin-bottom: 22px !important;
+      box-shadow: var(--ios-shadow) !important;
+      border: none !important;
+    }
+    .welcome-card h1 {
+      font-family: var(--ios-font-display) !important;
+      font-size: 1.6rem !important;
+      font-weight: 700 !important;
+      letter-spacing: -0.03em !important;
+      margin: 0 0 6px !important;
+      color: var(--ios-label) !important;
+    }
+    .welcome-card p {
+      color: var(--ios-label-secondary) !important;
+      margin: 0 !important;
+      font-size: 0.92rem !important;
+      line-height: 1.5 !important;
+      letter-spacing: -0.005em !important;
+    }
+
+    /* ========== Child chips (iOS card style) ========== */
+    .child-card {
+      cursor: pointer;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-lg);
+      padding: 1rem 1.15rem;
+      border: 1.5px solid var(--ios-separator);
+      transition: transform 0.22s var(--ios-spring),
+                  box-shadow 0.22s var(--ios-smooth),
+                  border-color 0.2s ease,
+                  background 0.2s ease;
+      box-shadow: var(--ios-shadow-sm);
+      font-family: inherit;
+    }
+    .child-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--ios-shadow);
+      border-color: rgba(0, 122, 255, 0.25);
+    }
+    .child-card:active { transform: scale(0.98); }
+    .child-card.active {
+      border-color: var(--ios-blue);
+      background: rgba(0, 122, 255, 0.06);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12), var(--ios-shadow);
+    }
+
+    /* ========== Detail section + cards ========== */
+    .detail-section { margin-top: 2rem; }
+
+    .detail-card {
+      background: var(--ios-bg-elevated) !important;
+      border-radius: var(--ios-radius-xl) !important;
+      padding: 1.5rem 1.6rem !important;
+      box-shadow: var(--ios-shadow) !important;
+      margin-bottom: 1.5rem !important;
+      border: none !important;
+      animation: fadeSlideUp 0.45s var(--ios-smooth) both;
+    }
+    .detail-card h3 {
+      font-family: var(--ios-font-display) !important;
+      font-size: 1.05rem !important;
+      font-weight: 700 !important;
+      color: var(--ios-label) !important;
+      margin: 0 0 1rem !important;
+      letter-spacing: -0.02em !important;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ========== Fee status ========== */
+    .fee-status { font-weight: 700; }
+    .fee-status.paid     { color: var(--ios-green); }
+    .fee-status.partial  { color: var(--ios-orange); }
+    .fee-status.unpaid   { color: var(--ios-red); }
+    .fee-status.not-set  { color: var(--ios-label-secondary); }
+
+    /* ========== Tables ========== */
+    .table-responsive-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin-bottom: 1rem;
+      border-radius: var(--ios-radius-lg);
+      border: 1px solid var(--ios-separator);
+    }
+    .table-responsive-wrapper table {
+      min-width: 300px;
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--ios-bg-elevated);
+    }
+    .table-responsive-wrapper th {
+      background: var(--ios-bg);
+      color: var(--ios-label-secondary);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--ios-separator);
+      white-space: nowrap;
+    }
+    .table-responsive-wrapper td {
+      padding: 10px 14px;
+      font-size: 0.88rem;
+      color: var(--ios-label);
+      border-bottom: 1px solid var(--ios-separator);
+      vertical-align: middle;
+      letter-spacing: -0.005em;
+    }
+    .table-responsive-wrapper tr:last-child td { border-bottom: none; }
+
+    /* ========== Photo wrapper (child profile) ========== */
+    .student-photo-wrapper {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 2px solid var(--ios-blue);
+      overflow: hidden;
+      background: var(--ios-fill);
+      box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.10);
+    }
+    .student-photo-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .student-photo-wrapper .initials {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--ios-font-display);
+      font-size: 2rem;
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo));
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    /* ========== Buttons (iOS pill) ========== */
+    .btn-primary {
+      background: var(--ios-blue) !important;
+      color: #fff !important;
+      padding: 0.7rem 1.4rem !important;
+      border: none !important;
+      border-radius: 999px !important;
+      cursor: pointer !important;
+      font-weight: 600 !important;
+      font-family: inherit !important;
+      font-size: 0.9rem !important;
+      letter-spacing: -0.005em !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center;
+      gap: 8px !important;
+      transition: transform 0.15s var(--ios-smooth), background 0.2s ease, box-shadow 0.2s ease !important;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.18);
+    }
+    .btn-primary:hover {
+      background: var(--ios-blue-600) !important;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 122, 255, 0.25);
+    }
+    .btn-primary:active { transform: scale(0.97) !important; }
+    .btn-primary i { color: #fff; }
+
+    .btn-secondary {
+      background: var(--ios-bg) !important;
+      color: var(--ios-blue) !important;
+      padding: 0.7rem 1.4rem !important;
+      border: 1px solid var(--ios-separator) !important;
+      border-radius: 999px !important;
+      cursor: pointer !important;
+      font-weight: 600 !important;
+      font-family: inherit !important;
+      font-size: 0.9rem !important;
+      letter-spacing: -0.005em !important;
+      transition: background 0.2s ease !important;
+    }
+    .btn-secondary:hover { background: var(--ios-bg-secondary) !important; }
+
+    /* ========== Load-more button ========== */
+    .load-more-btn {
+      margin-top: 0.5rem;
+      background: transparent;
+      border: 1px solid var(--ios-blue);
+      color: var(--ios-blue);
+      padding: 0.35rem 1.1rem;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: inherit;
+      letter-spacing: -0.005em;
+      transition: all 0.2s var(--ios-smooth);
+    }
+    .load-more-btn:hover {
+      background: var(--ios-blue);
+      color: white;
+      transform: translateY(-1px);
+    }
+    .load-more-btn:active { transform: scale(0.97); }
+
+    /* ========== Empty state ========== */
+    .no-data-msg {
+      color: var(--ios-label-secondary);
+      font-style: italic;
+      font-size: 0.88rem;
+      padding: 0.5rem 0;
+    }
+
+    /* ========== Staggered entrance for detail cards ========== */
+    .detail-section .detail-card:nth-child(1) { animation-delay: 0.04s; }
+    .detail-section .detail-card:nth-child(2) { animation-delay: 0.10s; }
+    .detail-section .detail-card:nth-child(3) { animation-delay: 0.16s; }
+    .detail-section .detail-card:nth-child(4) { animation-delay: 0.22s; }
+    .detail-section .detail-card:nth-child(5) { animation-delay: 0.28s; }
+    .detail-section .detail-card:nth-child(6) { animation-delay: 0.34s; }
+
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ========== Hide hamburger on desktop ========== */
     @media (min-width: 769px) {
       .hamburger-menu { display: none !important; }
     }
 
-    /* Mobile adjustments */
+    /* ========== Mobile adjustments ========== */
     @media (max-width: 768px) {
-      .parent-logo-readonly {
-        width: 44px !important;
-        height: 44px !important;
+      body { font-size: 14px; }
+
+      .header { flex-wrap: nowrap; gap: 8px; }
+      .header-right { flex-shrink: 0; margin-left: auto; }
+      .school-header-left { flex: 1 1 auto; min-width: 0; gap: 10px; }
+      .school-name { flex: 1 1 auto; min-width: 0; }
+      .school-name h1#schoolName {
+        font-size: 1rem;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        margin: 0;
       }
-      .school-name h1 { font-size: 1.1rem !important; max-width: 46vw; }
-      .detail-card { padding: 1rem; }
+      .school-address {
+        font-size: 0.7rem;
+        line-height: 1.25;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      .parent-logo-readonly {
+        width: 46px !important;
+        height: 46px !important;
+      }
+
+      .welcome-card { padding: 22px 20px !important; border-radius: 20px !important; }
+      .welcome-card h1 { font-size: 1.35rem !important; }
+
+      .detail-card { padding: 1.15rem 1.2rem !important; border-radius: 20px !important; }
+      .detail-card h3 { font-size: 1rem !important; }
+
       .student-photo-wrapper { width: 60px; height: 60px; }
       .student-photo-wrapper .initials { font-size: 1.5rem; }
+
+      .academic-badge { font-size: 0.72rem !important; padding: 5px 12px !important; }
     }
   </style>
 </head>
@@ -218,7 +513,7 @@
       </div>
 
       <!-- selected child details -->
-      <div id="selectedChildDetail" style="display:none;">
+      <div id="selectedChildDetail" style="display:none;" class="detail-section">
         <div class="detail-card" id="childProfileCard">
           <div style="display:flex; align-items:center; gap:1rem;">
             <div class="student-photo-wrapper" id="childPhotoWrapper">
@@ -267,7 +562,7 @@
             <button id="downloadReportBtn" class="btn-primary" style="align-self:flex-start;">
               <i class="fa-solid fa-file-pdf"></i> Download Report Card (PDF)
             </button>
-            <p style="font-size:0.85rem; color:var(--text-500);">Generates a printable report for the current term/session.</p>
+            <p style="font-size:0.85rem; color:var(--ios-label-secondary); margin:0;">Generates a printable report for the current term/session.</p>
           </div>
         </div>
       </div>
@@ -282,8 +577,66 @@
 <!-- scripts -->
 <script src="../js/card-3d-effects.js"></script>
 <script type="module">
-import { initParentPortal } from '../js/parent-portal.js';
-initParentPortal();
+  import { initParentPortal } from '../js/parent-portal.js';
+  import { showFullscreenLoader, hideFullscreenLoader } from '../js/loading.js';
+
+  showFullscreenLoader({ label: 'Preparing your dashboard…' });
+
+  let loaderDone = false;
+  const hideNow = () => {
+    if (loaderDone) return;
+    loaderDone = true;
+    hideFullscreenLoader({ minDisplayMs: 600 });
+  };
+
+  const failsafe = setTimeout(hideNow, 20000);
+
+  // initParentPortal() may or may not return a Promise. Handle both.
+  let initResult;
+  try {
+    initResult = initParentPortal();
+  } catch (err) {
+    console.error('[ParentPortal] Init threw synchronously:', err);
+    clearTimeout(failsafe);
+    hideNow();
+  }
+
+  if (initResult && typeof initResult.then === 'function') {
+    // Async init — await it
+    initResult
+      .then(() => { clearTimeout(failsafe); hideNow(); })
+      .catch(err => {
+        console.error('[ParentPortal] Init rejected:', err);
+        clearTimeout(failsafe);
+        hideNow();
+      });
+  } else {
+    // Fire-and-forget init — observe DOM completion markers
+    const checkReady = () => {
+      const schoolName       = document.getElementById('schoolName');
+      const selectedChild    = document.getElementById('selectedChildDetail');
+      const childrenContainer = document.getElementById('childrenContainer');
+
+      const schoolReady      = schoolName && schoolName.textContent.trim() && schoolName.textContent.trim() !== 'Loading...';
+      const childrenRendered = childrenContainer && childrenContainer.children.length > 0;
+      const childSelected    = selectedChild && selectedChild.style.display !== 'none';
+
+      if (schoolReady || childrenRendered || childSelected) {
+        clearTimeout(failsafe);
+        hideNow();
+        return true;
+      }
+      return false;
+    };
+
+    setTimeout(() => {
+      if (checkReady()) return;
+      const obs = new MutationObserver(() => {
+        if (checkReady()) obs.disconnect();
+      });
+      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }, 150);
+  }
 </script>
 <script>
   // Unregister any existing service worker, then clear all its caches.
