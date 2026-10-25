@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>Acadex - Class Report Card</title>
 
-  <!-- Google Fonts: Inter (SF Pro alternative) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -60,7 +59,6 @@
 
     /* ============================================================
        REPORT CARD — kept as a physical-paper document look.
-       (Only the chrome around it becomes iOS; the card itself stays A4-ish.)
        ============================================================ */
     .report-card {
       position: relative; background: white; padding: 0; border-radius: var(--ios-radius-sm);
@@ -742,24 +740,32 @@
   import { initClassReportPage } from '../js/class.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
+
+  showOverlayLoader({ label: 'Loading class…' });
 
   protectTeacherPage().then(async () => {
     const isClassTeacher = await checkClassTeacherStatus();
     if (!isClassTeacher) { alert('Not a class teacher.'); window.location.href = 'teacher-dashboard.html'; return; }
-    loadSchoolInfo(); 
-    setupSidebar(); 
-    setupLogout(); 
+    await loadSchoolInfo();
+    setupSidebar();
+    setupLogout();
     setupLogoUpload();
     initMobileMenu();
-    initClassReportPage();
+    await initClassReportPage();
 
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
+  }).catch(err => {
+    console.error('[ClassReport] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
