@@ -5,26 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>Acadex - Student Dashboard</title>
 
-  <!-- Google Fonts: Inter (iOS-safe SF Pro alternative for non-Apple devices) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- Font Awesome 6 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
-  <!-- Global Styles -->
   <link rel="stylesheet" href="../css/styles.css">
   <link rel="stylesheet" href="../css/card-3d.css">
 
   <style>
-    /* =========================================================
-       iOS-STYLE STUDENT DASHBOARD
-       Visual refactor only — IDs, classes and structure untouched.
-       ========================================================= */
-
     :root {
-      /* iOS system colors */
       --ios-blue:      #007AFF;
       --ios-blue-600:  #0062CC;
       --ios-green:     #34C759;
@@ -36,43 +27,34 @@
       --ios-teal:      #5AC8FA;
       --ios-yellow:    #FFCC00;
 
-      /* Surfaces */
       --ios-bg:            #F2F2F7;
       --ios-bg-elevated:   #FFFFFF;
       --ios-bg-secondary:  #E5E5EA;
 
-      /* Text */
       --ios-label:            #000000;
       --ios-label-secondary:  rgba(60, 60, 67, 0.60);
       --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
 
-      /* Fills / separators */
       --ios-separator: rgba(60, 60, 67, 0.12);
       --ios-fill:      rgba(120, 120, 128, 0.12);
-      --ios-fill-2:    rgba(120, 120, 128, 0.08);
 
-      /* Radii */
       --ios-radius-sm: 10px;
       --ios-radius:    14px;
       --ios-radius-lg: 18px;
       --ios-radius-xl: 22px;
 
-      /* Shadows */
       --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
       --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
       --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
       --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
 
-      /* Fonts */
       --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
       --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
 
-      /* Motion */
       --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
       --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
     }
 
-    /* Apply iOS font & smoothing */
     body {
       font-family: var(--ios-font) !important;
       background: var(--ios-bg) !important;
@@ -82,11 +64,6 @@
       letter-spacing: -0.011em;
     }
 
-    /* ── Sidebar removal: this page only. ────────────────────────────
-       The global styles.css may position the main content alongside a
-       fixed sidebar. With the sidebar removed on this page, we neutralise
-       both the flex context and any left offset so main-content fills
-       the whole viewport width. Scoped here, does NOT affect other pages. */
     .dashboard-container {
       display: block !important;
       min-height: 100vh;
@@ -95,6 +72,92 @@
       margin-left: 0 !important;
       width: 100% !important;
       max-width: 100% !important;
+    }
+
+    /* =========================================================
+       FULL-SCREEN iOS LOADER
+       ========================================================= */
+    .acadex-fullscreen-loader {
+      position: fixed;
+      inset: 0;
+      background: rgba(242, 242, 247, 0.94);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+      z-index: 9998;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.15rem;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+    .acadex-fullscreen-loader.active {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    /* Spinner — iOS-style partial-arc rotating ring */
+    .acadex-spinner svg {
+      display: block;
+    }
+    .acadex-spinner-track {
+      stroke: rgba(0, 122, 255, 0.16);
+    }
+    .acadex-spinner-ring {
+      stroke: var(--ios-blue);
+      animation: acadex-spin 0.9s linear infinite;
+      transform-origin: center;
+    }
+    @keyframes acadex-spin {
+      to { transform: rotate(360deg); }
+    }
+    .acadex-spinner-lg svg { width: 60px; height: 60px; }
+    .acadex-spinner-sm svg { width: 32px; height: 32px; }
+
+    .acadex-loader-label {
+      font-family: var(--ios-font);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--ios-label-secondary);
+      letter-spacing: -0.005em;
+    }
+    .acadex-loader-failsafe {
+      text-align: center;
+      padding: 1rem;
+    }
+    .acadex-loader-failsafe .icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .acadex-loader-failsafe p {
+      color: var(--ios-label-secondary);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .acadex-loader-failsafe a {
+      color: var(--ios-blue);
+      text-decoration: underline;
+    }
+
+    /* Pane loader (inside .tab-pane when clicked) */
+    .pane-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 3rem 1rem;
+      min-height: 160px;
+      background: var(--ios-bg-elevated);
+      border-radius: var(--ios-radius-xl);
+    }
+    .pane-loader .acadex-loader-label {
+      font-size: 0.82rem;
     }
 
     /* =========================================================
@@ -164,10 +227,6 @@
 
     /* =========================================================
        HEADER LOGOUT BUTTON
-       Sits at the former hamburger position (first child of
-       .header-right). Beautiful iOS pill with clear "Logout"
-       text on EVERY screen size — so students always know
-       what it does. Compact on mobile but text remains visible.
        ========================================================= */
     .logout-btn-header {
       display: inline-flex;
@@ -185,1003 +244,4 @@
       letter-spacing: -0.005em;
       line-height: 1;
       cursor: pointer;
-      transition: transform 0.15s var(--ios-smooth),
-                  background 0.2s ease,
-                  box-shadow 0.2s ease;
-      -webkit-tap-highlight-color: transparent;
-      white-space: nowrap;
-    }
-    .logout-btn-header:hover {
-      background: rgba(255, 59, 48, 0.16);
-      box-shadow: 0 4px 14px rgba(255, 59, 48, 0.15);
-    }
-    .logout-btn-header:active {
-      transform: scale(0.96);
-    }
-    .logout-btn-header i {
-      font-size: 0.8rem;
-    }
-    .logout-btn-header .logout-btn-text {
-      /* Text always visible on every breakpoint — students must understand. */
-      display: inline;
-    }
-
-    /* =========================================================
-       SCHOOL LOGO (read-only, iOS circular)
-       ========================================================= */
-    .school-logo-readonly {
-      width: 54px; height: 54px;
-      border-radius: 50%;
-      overflow: hidden;
-      background: var(--ios-fill);
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: var(--ios-shadow-sm);
-      cursor: default;
-      border: none;
-    }
-    .school-logo-readonly img {
-      width: 100%; height: 100%;
-      object-fit: cover;
-      border-radius: 50%;
-      pointer-events: none;
-    }
-
-    /* =========================================================
-       NOTIFICATION BELL (iOS-friendly rounded button)
-       ========================================================= */
-    .notification-bell {
-      position: relative;
-      background: var(--ios-bg-secondary);
-      border: none;
-      border-radius: 12px;
-      font-size: 1rem;
-      cursor: pointer;
-      padding: .42rem .55rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--ios-label);
-      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
-      width: 38px; height: 38px;
-    }
-    .notification-bell:hover {
-      background: var(--ios-fill);
-      transform: translateY(-1px);
-    }
-    .notification-bell:active { transform: scale(0.96); }
-
-    .notification-badge-counter {
-      position: absolute;
-      top: -6px;
-      right: -6px;
-      background: var(--ios-red);
-      color: #fff;
-      border-radius: 50%;
-      min-width: 18px;
-      height: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 0 4px;
-      box-sizing: border-box;
-      border: 2px solid #fff;
-    }
-
-    .notification-dropdown {
-      position: absolute;
-      top: 48px; right: 0;
-      width: 340px;
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      box-shadow: var(--ios-shadow-xl);
-      z-index: 1000;
-      display: none;
-      flex-direction: column;
-      max-height: 500px;
-      overflow-y: auto;
-      border: 1px solid var(--ios-separator);
-      animation: modalIn 0.2s var(--ios-smooth) both;
-    }
-    .notification-dropdown.show { display: flex; }
-    @keyframes modalIn {
-      from { transform: scale(.96) translateY(8px); opacity: 0; }
-      to   { transform: scale(1)   translateY(0);   opacity: 1; }
-    }
-
-    .notification-header {
-      padding: .75rem 1rem;
-      font-family: var(--ios-font-display);
-      font-weight: 700;
-      font-size: .9rem;
-      border-bottom: 1px solid var(--ios-separator);
-      background: var(--ios-bg);
-      border-radius: var(--ios-radius-lg) var(--ios-radius-lg) 0 0;
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      color: var(--ios-label);
-      letter-spacing: -0.02em;
-    }
-    .notification-header i { color: var(--ios-blue); }
-
-    .notification-item {
-      padding: .75rem 1rem;
-      border-bottom: 1px solid var(--ios-separator);
-      font-size: .85rem;
-      color: var(--ios-label);
-      font-weight: 500;
-      line-height: 1.5;
-      transition: background .15s ease;
-      display: flex;
-      align-items: flex-start;
-      gap: .5rem;
-      border-left: 3px solid transparent;
-      background: var(--ios-bg-elevated);
-    }
-    .notification-item:hover {
-      background: var(--ios-bg);
-      border-left-color: var(--ios-blue);
-    }
-    .notification-item[data-type="cbt"]:hover    { border-left-color: var(--ios-green); }
-    .notification-item[data-type="score"]:hover  { border-left-color: var(--ios-orange); }
-
-    .notification-item .notif-icon {
-      width: 22px;
-      text-align: center;
-      flex-shrink: 0;
-      font-size: .95rem;
-      margin-top: 1px;
-    }
-    .notification-item .notif-body { flex: 1; }
-    .notification-item .notif-body .notif-text {
-      font-weight: 600;
-      color: var(--ios-label);
-      margin-bottom: .15rem;
-      font-family: var(--ios-font);
-      letter-spacing: -0.01em;
-    }
-    .notification-item .notif-body .notif-meta {
-      font-size: .73rem;
-      color: var(--ios-label-secondary);
-      font-weight: 400;
-    }
-    .notification-item:last-child { border-bottom: none; }
-
-    .empty-notification {
-      padding: 1.5rem;
-      text-align: center;
-      color: var(--ios-label-secondary);
-      font-size: .85rem;
-    }
-    .empty-notification i { display: block; font-size: 1.6rem; margin-bottom: .5rem; opacity: .5; }
-
-    /* =========================================================
-       TAB CARD GRID — accordion layout
-       ========================================================= */
-    .tab-card-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-      margin-bottom: 1.5rem;
-    }
-
-    .tab-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-xl);
-      padding: 20px 12px 16px;
-      border: none;
-      box-shadow: var(--ios-shadow);
-      cursor: pointer;
-      transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-smooth);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      text-align: center;
-      font-family: inherit;
-      animation: fadeSlideUp 0.45s var(--ios-smooth) both;
-      position: relative;
-      overflow: hidden;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .tab-card:hover {
-      transform: translateY(-3px) scale(1.015);
-      box-shadow: var(--ios-shadow-lg);
-    }
-    .tab-card:active { transform: scale(0.97); }
-
-    .tab-card.open {
-      box-shadow: 0 0 0 2px var(--ios-blue), 0 8px 28px rgba(0, 122, 255, 0.18);
-    }
-
-    .tab-card-icon {
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.45rem;
-      color: #fff;
-      transition: transform 0.28s var(--ios-spring);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-      background: linear-gradient(135deg, var(--icon-color-a), var(--icon-color-b));
-    }
-    .tab-card:hover .tab-card-icon { transform: scale(1.06); }
-
-    .tab-card-label {
-      font-family: var(--ios-font);
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--ios-label);
-      letter-spacing: -0.01em;
-      line-height: 1.25;
-    }
-
-    /* Icon gradient palettes — one per card, iOS system feel */
-    .tab-icon-about        { --icon-color-a: #AF52DE; --icon-color-b: #5856D6; }
-    .tab-icon-attendance   { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
-    .tab-icon-assignments  { --icon-color-a: #34C759; --icon-color-b: #00B8A9; }
-    .tab-icon-achievements { --icon-color-a: #FFCC00; --icon-color-b: #FF9500; }
-    .tab-icon-library      { --icon-color-a: #5AC8FA; --icon-color-b: #5856D6; }
-    .tab-icon-video        { --icon-color-a: #FF2D55; --icon-color-b: #AF52DE; }
-    .tab-icon-cbt          { --icon-color-a: #34C759; --icon-color-b: #00B8A9; }
-    .tab-icon-results      { --icon-color-a: #FF9500; --icon-color-b: #FF3B30; }
-
-    /* Staggered entrance */
-    .tab-card:nth-child(1) { animation-delay: 0.04s; }
-    .tab-card:nth-child(2) { animation-delay: 0.08s; }
-    .tab-card:nth-child(3) { animation-delay: 0.12s; }
-    .tab-card:nth-child(4) { animation-delay: 0.16s; }
-    .tab-card:nth-child(5) { animation-delay: 0.20s; }
-    .tab-card:nth-child(6) { animation-delay: 0.24s; }
-    .tab-card:nth-child(7) { animation-delay: 0.28s; }
-    .tab-card:nth-child(8) { animation-delay: 0.32s; }
-
-    /* =========================================================
-       TAB PANES — accordion content, initially hidden.
-       ========================================================= */
-    .tab-pane {
-      grid-column: 1 / -1;
-      display: none;
-      max-height: 0;
-      opacity: 0;
-      transform: translateY(-10px);
-      overflow: hidden;
-      transition: max-height 450ms cubic-bezier(0.25, 0.1, 0.25, 1),
-                  opacity    300ms ease,
-                  transform  300ms ease;
-      will-change: max-height, opacity, transform;
-    }
-    .tab-pane.open {
-      max-height: none;
-      opacity: 1;
-      transform: translateY(0);
-      overflow: visible;
-    }
-
-    /* =========================================================
-       COMING SOON PANE
-       ========================================================= */
-    .coming-soon-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-xl);
-      padding: 3rem 2rem;
-      box-shadow: var(--ios-shadow);
-      text-align: center;
-      animation: fadeSlideUp 0.5s var(--ios-smooth) both;
-    }
-    .coming-soon-card i {
-      font-size: 3rem;
-      color: var(--ios-blue);
-      opacity: 0.55;
-      margin-bottom: 1.25rem;
-      display: block;
-    }
-    .coming-soon-card h3 {
-      font-family: var(--ios-font-display);
-      font-size: 1.3rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      margin: 0 0 0.5rem 0;
-      letter-spacing: -0.02em;
-    }
-    .coming-soon-card p {
-      color: var(--ios-label-secondary);
-      font-size: 0.9rem;
-      line-height: 1.55;
-      margin: 0 auto;
-      max-width: 380px;
-      letter-spacing: -0.005em;
-    }
-
-    /* =========================================================
-       HERO CARD
-       ========================================================= */
-    .hero-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-xl);
-      padding: 1.5rem;
-      margin-bottom: 1.75rem;
-      box-shadow: var(--ios-shadow);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1.25rem;
-      align-items: center;
-      border: none;
-      animation: fadeSlideUp .45s var(--ios-smooth) both;
-    }
-    .student-photo {
-      width: 90px; height: 90px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 3px solid var(--ios-blue);
-      background: var(--ios-fill);
-      box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.12), var(--ios-shadow);
-      flex-shrink: 0;
-    }
-    .hero-info h2 {
-      font-family: var(--ios-font-display);
-      font-size: 1.4rem;
-      font-weight: 700;
-      margin-bottom: .2rem;
-      color: var(--ios-label);
-      letter-spacing: -0.03em;
-    }
-    .hero-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .5rem;
-      margin-top: .5rem;
-      font-size: .82rem;
-    }
-    .hero-meta span {
-      background: rgba(0, 122, 255, 0.10);
-      color: var(--ios-blue);
-      padding: .22rem .75rem;
-      border-radius: 999px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: .35rem;
-      border: 1px solid rgba(0, 122, 255, 0.12);
-      letter-spacing: -0.005em;
-    }
-    .hero-meta span i { font-size: .72rem; }
-
-    /* =========================================================
-       INFO GRID (profile details)
-       ========================================================= */
-    .info-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: .9rem;
-    }
-    .info-item {
-      background: var(--ios-bg-elevated);
-      padding: .85rem 1rem;
-      border-radius: var(--ios-radius);
-      border-left: 3px solid var(--ios-blue);
-      box-shadow: var(--ios-shadow-sm);
-      transition: transform .18s var(--ios-smooth), box-shadow .18s var(--ios-smooth);
-    }
-    .info-item:hover {
-      transform: translateX(3px);
-      box-shadow: var(--ios-shadow);
-    }
-    .info-label {
-      font-weight: 600;
-      font-size: .7rem;
-      text-transform: uppercase;
-      color: var(--ios-label-secondary);
-      letter-spacing: .06em;
-    }
-    .info-value {
-      font-weight: 600;
-      font-size: .9rem;
-      color: var(--ios-label);
-      margin-top: .2rem;
-      min-height: 1.2em;
-      letter-spacing: -0.005em;
-    }
-
-    /* =========================================================
-       ABOUT ME — SUBJECTS SUB-SECTION
-       ========================================================= */
-    .about-subjects-section {
-      margin-top: 1.5rem;
-      padding-top: 1.25rem;
-      border-top: 1px solid var(--ios-separator);
-    }
-    .about-subjects-heading {
-      font-family: var(--ios-font-display);
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      margin: 0 0 0.9rem 0;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      letter-spacing: -0.02em;
-    }
-    .about-subjects-heading i {
-      color: var(--ios-blue);
-      font-size: 0.9rem;
-    }
-    .about-subjects-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-    .subject-chip {
-      background: rgba(0, 122, 255, 0.10);
-      color: var(--ios-blue);
-      padding: 0.4rem 0.9rem;
-      border-radius: 999px;
-      font-size: 0.82rem;
-      font-weight: 600;
-      letter-spacing: -0.005em;
-      border: 1px solid rgba(0, 122, 255, 0.12);
-      transition: transform 0.15s var(--ios-smooth), background 0.2s ease;
-    }
-    .subject-chip:hover {
-      background: rgba(0, 122, 255, 0.16);
-      transform: translateY(-1px);
-    }
-    .about-subjects-empty {
-      color: var(--ios-label-secondary);
-      font-size: 0.88rem;
-      margin: 0;
-      letter-spacing: -0.005em;
-    }
-
-    /* =========================================================
-       SUMMARY STATS
-       ========================================================= */
-    .summary-stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: .9rem;
-      margin-bottom: 1.25rem;
-    }
-    .stat-badge {
-      background: var(--ios-bg-elevated);
-      padding: 1.1rem 1rem;
-      border-radius: var(--ios-radius-lg);
-      text-align: center;
-      box-shadow: var(--ios-shadow);
-      border: none;
-      animation: fadeSlideUp .4s var(--ios-smooth) both;
-    }
-    .stat-badge .number {
-      font-family: var(--ios-font-display);
-      font-size: 2rem;
-      font-weight: 700;
-      color: var(--ios-blue);
-      line-height: 1;
-      letter-spacing: -0.04em;
-      font-variant-numeric: tabular-nums;
-    }
-    .stat-badge .label {
-      font-size: .72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      color: var(--ios-label-secondary);
-      letter-spacing: .05em;
-      margin-top: .3rem;
-    }
-
-    /* =========================================================
-       ATTENDANCE
-       ========================================================= */
-    .attendance-meta-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-      gap: .9rem;
-      margin-top: 1rem;
-    }
-    .attendance-meta-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius);
-      padding: .9rem 1rem;
-      border-left: 3px solid var(--ios-blue);
-      box-shadow: var(--ios-shadow-sm);
-      font-size: .875rem;
-    }
-    .attendance-progress {
-      background: var(--ios-bg-secondary);
-      border-radius: 20px;
-      height: 10px;
-      overflow: hidden;
-      margin: .9rem 0 .25rem;
-    }
-    .attendance-progress-bar {
-      background: linear-gradient(90deg, var(--ios-blue), var(--ios-indigo));
-      height: 100%;
-      width: 0%;
-      border-radius: 20px;
-      transition: width .7s var(--ios-smooth);
-    }
-    .attendance-pct-label {
-      font-size: .78rem;
-      color: var(--ios-label-secondary);
-      font-weight: 500;
-      margin-bottom: .9rem;
-    }
-
-    /* =========================================================
-       GRADE BADGES
-       ========================================================= */
-    .grade-A { background: rgba(52, 199, 89, 0.15); color: #1B7F3A; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
-    .grade-B { background: rgba(0, 122, 255, 0.15); color: #0055AA; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
-    .grade-C { background: rgba(255, 149, 0, 0.18); color: #8A4A00; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
-    .grade-D { background: rgba(255, 59, 48, 0.15); color: #991B1B; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
-    .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
-
-    /* =========================================================
-       RESULTS — Percentage column + See-more button
-       ========================================================= */
-    .percentage-cell {
-      font-weight: 700;
-      color: var(--ios-indigo);
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.005em;
-    }
-    .see-more-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.55rem;
-      margin: 1.25rem auto 0;
-      padding: 0.72rem 1.55rem;
-      background: rgba(0, 122, 255, 0.10);
-      color: var(--ios-blue);
-      border: 1px solid rgba(0, 122, 255, 0.18);
-      border-radius: 999px;
-      font-family: var(--ios-font);
-      font-size: 0.86rem;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      cursor: pointer;
-      transition: transform 0.15s var(--ios-smooth),
-                  background 0.2s ease,
-                  box-shadow 0.2s ease;
-      box-shadow: 0 1px 3px rgba(0, 122, 255, 0.08);
-    }
-    .see-more-btn:hover {
-      background: rgba(0, 122, 255, 0.16);
-      box-shadow: 0 4px 14px rgba(0, 122, 255, 0.15);
-    }
-    .see-more-btn:active {
-      transform: scale(0.97);
-    }
-    .see-more-btn i {
-      font-size: 0.78rem;
-      opacity: 0.9;
-    }
-    .see-more-btn .remaining-count {
-      background: var(--ios-blue);
-      color: #fff;
-      font-size: 0.7rem;
-      font-weight: 700;
-      padding: 0.12rem 0.5rem;
-      border-radius: 999px;
-      margin-left: 0.35rem;
-      min-width: 22px;
-      text-align: center;
-      letter-spacing: 0;
-      line-height: 1.4;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* =========================================================
-       WELCOME CARD (results pane header)
-       ========================================================= */
-    .welcome-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-xl);
-      padding: 1.4rem 1.6rem;
-      margin-bottom: 1.8rem;
-      border: none;
-      box-shadow: var(--ios-shadow);
-      text-align: left;
-    }
-    .welcome-card h1 {
-      font-family: var(--ios-font-display);
-      font-size: 1.45rem;
-      font-weight: 700;
-      color: var(--ios-label);
-      margin: 0 0 0.3rem 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      letter-spacing: -0.03em;
-    }
-    .welcome-card h1 i {
-      color: var(--ios-blue);
-      font-size: 1.3rem;
-    }
-    .welcome-card p {
-      font-size: 0.9rem;
-      color: var(--ios-label-secondary);
-      margin: 0;
-      line-height: 1.4;
-      letter-spacing: -0.005em;
-    }
-
-    /* =========================================================
-       GENERIC CARD
-       ========================================================= */
-    .card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      box-shadow: var(--ios-shadow);
-      border: none;
-    }
-
-    /* =========================================================
-       ASSIGNMENT / STAT-CARD
-       ========================================================= */
-    .stat-card {
-      background: var(--ios-bg-elevated);
-      border-radius: var(--ios-radius-lg);
-      padding: 1.1rem 1.2rem;
-      box-shadow: var(--ios-shadow);
-      border: none;
-      animation: fadeSlideUp .4s var(--ios-smooth) both;
-    }
-    .stat-card h4 {
-      font-family: var(--ios-font-display);
-      font-weight: 700;
-      color: var(--ios-label);
-      letter-spacing: -0.02em;
-      margin: 0 0 .4rem 0;
-    }
-    .stat-card p {
-      color: var(--ios-label-secondary);
-      font-size: .88rem;
-      margin: .2rem 0;
-      letter-spacing: -0.005em;
-    }
-
-    /* =========================================================
-       MOBILE RESPONSIVE
-       ========================================================= */
-    @media (max-width: 768px) {
-      .tab-card-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-      }
-      .tab-card {
-        padding: 16px 10px 12px;
-        border-radius: 18px;
-        gap: 10px;
-      }
-      .tab-card-icon {
-        width: 48px;
-        height: 48px;
-        font-size: 1.2rem;
-        border-radius: 14px;
-      }
-      .tab-card-label { font-size: 0.75rem; }
-
-      .coming-soon-card { padding: 2.25rem 1.25rem; }
-      .coming-soon-card i { font-size: 2.5rem; }
-      .coming-soon-card h3 { font-size: 1.15rem; }
-
-      .notification-dropdown { width: 280px; right: -10px; }
-
-      /* ── Logout on mobile: compact pill with "Logout" text KEPT visible ──
-         Students must always understand what the button does.
-         Padding and font shrink, but the label stays. */
-      .logout-btn-header {
-        padding: 7px 11px;
-        gap: 5px;
-        font-size: 0.72rem;
-      }
-      .logout-btn-header i {
-        font-size: 0.72rem;
-      }
-      /* .logout-btn-text stays visible — no display:none override here. */
-
-      .header { flex-wrap: nowrap; gap: 8px; }
-      .header-right { flex-shrink: 0; margin-left: auto; gap: 6px; display: flex; align-items: center; }
-      .school-header-left {
-        flex: 1 1 auto;
-        min-width: 0;
-        gap: 10px;
-      }
-      .school-name { flex: 1 1 auto; min-width: 0; }
-      .school-name h1#schoolName {
-        font-size: 1rem;
-        line-height: 1.3;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        white-space: normal;
-        overflow-wrap: break-word;
-        word-break: break-word;
-        margin: 0;
-        max-width: none;
-      }
-      .school-address {
-        font-size: 0.7rem;
-        line-height: 1.25;
-        white-space: normal;
-        overflow-wrap: break-word;
-        word-break: break-word;
-      }
-
-      .school-logo-readonly {
-        width: 46px !important;
-        height: 46px !important;
-        cursor: default !important;
-      }
-
-      .header-right .subscription-badge { display: none !important; }
-
-      .academic-badge { font-size: 0.72rem; padding: 5px 12px; }
-    }
-
-    /* Very small phones: shrink logout label further so it fits */
-    @media (max-width: 360px) {
-      .logout-btn-header {
-        padding: 6px 9px;
-        gap: 4px;
-        font-size: 0.68rem;
-      }
-      .logout-btn-header i {
-        font-size: 0.68rem;
-      }
-      .school-logo-readonly {
-        width: 40px !important;
-        height: 40px !important;
-      }
-    }
-
-    /* =========================================================
-       ANIMATIONS
-       ========================================================= */
-    @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(18px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-  </style>
-</head>
-<body>
-<div class="dashboard-container">
-
-  <!-- MAIN CONTENT -->
-  <main class="main-content">
-
-    <!-- ---- TOP HEADER ---- -->
-    <header class="header">
-      <div class="school-header-left">
-        <div class="school-logo-readonly">
-          <img
-            id="schoolLogoImg"
-            alt="School Logo"
-            src="https://ui-avatars.com/api/?background=e0e7ff&color=4f46e5&name=S&size=80"
-          >
-        </div>
-        <div class="school-name">
-          <h1 id="schoolName">Loading&hellip;</h1>
-          <div id="schoolAddress" class="school-address"></div>
-        </div>
-      </div>
-
-      <div class="header-right">
-        <!-- Logout pill — "Logout" text is ALWAYS visible (desktop + mobile)
-             so students clearly understand the action. -->
-        <button id="logoutBtn" class="logout-btn-header" aria-label="Logout">
-          <i class="fa-solid fa-right-from-bracket"></i>
-          <span class="logout-btn-text">Logout</span>
-        </button>
-
-        <div id="subscriptionBadge" class="subscription-badge">
-          <i class="fa-solid fa-circle-notch fa-spin" style="font-size:.7rem;"></i>
-        </div>
-
-        <div style="position:relative;">
-          <button id="notificationBell" class="notification-bell" aria-label="Notifications">
-            <i class="fa-solid fa-bell"></i>
-            <span id="notificationBadge" class="notification-badge-counter"></span>
-          </button>
-          <div id="notificationDropdown" class="notification-dropdown">
-            <div class="notification-header">
-              <i class="fa-solid fa-bell"></i> Notifications
-            </div>
-            <div id="notificationList">
-              <div class="empty-notification">
-                <i class="fa-regular fa-bell-slash"></i>
-                No notifications yet
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <!-- ---- ACADEMIC CALENDAR BADGE ---- -->
-    <div class="academic-badge-row">
-      <div class="academic-badge">
-        <i class="fa-solid fa-calendar-days"></i>
-        <span id="currentTermDisplay">&mdash;</span>
-        &nbsp;|&nbsp;
-        <span id="currentSessionDisplay">&mdash;</span>
-      </div>
-    </div>
-
-    <!-- ===================== PAGE CONTENT ===================== -->
-    <div class="content" id="mainContentArea">
-
-      <!-- DASHBOARD SECTION -->
-      <div id="dashboardSection" class="dynamic-section">
-        <div id="heroContainer"></div>
-
-        <!-- TAB CARD GRID -->
-        <div class="tab-card-grid" id="tabCardGrid" role="list">
-
-          <button type="button" class="tab-card" data-tab="profile" role="listitem" aria-expanded="false" aria-controls="profileTab">
-            <div class="tab-card-icon tab-icon-about"><i class="fa-solid fa-user"></i></div>
-            <span class="tab-card-label">About Me</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="attendance" role="listitem" aria-expanded="false" aria-controls="attendanceTab">
-            <div class="tab-card-icon tab-icon-attendance"><i class="fa-solid fa-clipboard-list"></i></div>
-            <span class="tab-card-label">Attendance</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="assignments" role="listitem" aria-expanded="false" aria-controls="assignmentsTab">
-            <div class="tab-card-icon tab-icon-assignments"><i class="fa-solid fa-pen-to-square"></i></div>
-            <span class="tab-card-label">Assignments</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="achievements" data-future-page="" role="listitem" aria-expanded="false" aria-controls="achievementsTab">
-            <div class="tab-card-icon tab-icon-achievements"><i class="fa-solid fa-trophy"></i></div>
-            <span class="tab-card-label">Achievements</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="library" data-future-page="../student/library.html" role="listitem" aria-expanded="false" aria-controls="libraryTab">
-            <div class="tab-card-icon tab-icon-library"><i class="fa-solid fa-book-open"></i></div>
-            <span class="tab-card-label">Library</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="video-tutorials" data-future-page="../student/video-tutorials.html" role="listitem" aria-expanded="false" aria-controls="videoTutorialsTab">
-            <div class="tab-card-icon tab-icon-video"><i class="fa-solid fa-circle-play"></i></div>
-            <span class="tab-card-label">Video Tutorials</span>
-          </button>
-
-          <button type="button" class="tab-card" data-navigate="../cbt/html/cbt.html" role="listitem" aria-label="Open CBT">
-            <div class="tab-card-icon tab-icon-cbt"><i class="fa-solid fa-laptop-code"></i></div>
-            <span class="tab-card-label">CBT</span>
-          </button>
-
-          <button type="button" class="tab-card" data-tab="results" role="listitem" aria-expanded="false" aria-controls="resultsTab">
-            <div class="tab-card-icon tab-icon-results"><i class="fa-solid fa-chart-bar"></i></div>
-            <span class="tab-card-label">Results</span>
-          </button>
-
-          <!-- ─────────── TAB PANES ─────────── -->
-          <div id="profileTab" class="tab-pane" data-pane="profile" role="region" aria-label="About Me">
-            Loading profile&hellip;
-          </div>
-
-          <div id="attendanceTab" class="tab-pane" data-pane="attendance" role="region" aria-label="Attendance">
-            Loading attendance&hellip;
-          </div>
-
-          <div id="assignmentsTab" class="tab-pane" data-pane="assignments" role="region" aria-label="Assignments">
-            Loading assignments&hellip;
-          </div>
-
-          <div id="achievementsTab" class="tab-pane" data-pane="achievements" role="region" aria-label="Achievements">
-            <div class="coming-soon-card">
-              <i class="fa-solid fa-trophy"></i>
-              <h3>Coming Soon</h3>
-              <p>Your badges, milestones and learning achievements will live here. Keep learning — every step counts.</p>
-            </div>
-          </div>
-
-          <div id="libraryTab" class="tab-pane" data-pane="library" role="region" aria-label="Library">
-            <div class="coming-soon-card">
-              <i class="fa-solid fa-book-open"></i>
-              <h3>Coming Soon</h3>
-              <p>The Acadex Library will open here — class notes, past questions and study materials, all in one place.</p>
-            </div>
-          </div>
-
-          <div id="videoTutorialsTab" class="tab-pane" data-pane="video-tutorials" role="region" aria-label="Video Tutorials">
-            <div class="coming-soon-card">
-              <i class="fa-solid fa-circle-play"></i>
-              <h3>Coming Soon</h3>
-              <p>Video tutorials for every subject will be available here. Learn at your own pace, from anywhere.</p>
-            </div>
-          </div>
-
-          <div id="resultsTab" class="tab-pane" data-pane="results" role="region" aria-label="Results">
-            <div class="welcome-card">
-              <h1><i class="fa-solid fa-chart-bar" style="opacity:.8; margin-right:8px;"></i> Assigned CBT Performance</h1>
-              <p>Your assigned CBT results breakdown.</p>
-            </div>
-            <div id="resultsSummaryContainer" class="summary-stats"></div>
-            <div style="background:var(--ios-bg-elevated); border-radius:var(--ios-radius-lg); padding:1.4rem; box-shadow:var(--ios-shadow); border:none;">
-              <h3 style="font-family:var(--ios-font-display); font-size:1.05rem; margin-bottom:.25rem; display:flex; align-items:center; gap:.5rem; letter-spacing:-0.02em; color:var(--ios-label);">
-                <i class="fa-solid fa-table-list" style="color:var(--ios-blue);"></i> Subject Results
-              </h3>
-              <div id="resultsTableContainer" class="results-table-wrapper">Loading results&hellip;</div>
-              <div class="form-actions" style="margin-top:1rem;">
-                <button id="downloadResultBtn" class="btn-secondary">
-                  <i class="fa-solid fa-file-arrow-down"></i> Download Result
-                </button>
-              </div>
-            </div>
-          </div>
-
-        </div>
-        <!-- /tab-card-grid -->
-
-      </div>
-      <!-- /dashboardSection -->
-
-    </div>
-
-    <footer class="app-footer">
-      <p><i class="fa-regular fa-copyright" style="margin-right:4px;"></i> <span id="currentYear"></span> Acadex &mdash; All rights reserved.</p>
-    </footer>
-  </main>
-</div>
-
-<!-- ===================== SCRIPTS ===================== -->
-<script src="../js/card-3d-effects.js"></script>
-<script type="module" src="./student-portal.js"></script>
-
-<script>
-  /* Year stamp only (sidebar removed) */
-  document.addEventListener('DOMContentLoaded', function () {
-    const yr = new Date().getFullYear();
-    const yearEl = document.getElementById('currentYear');
-    if (yearEl) yearEl.innerText = yr;
-  });
-</script>
-
-<!-- Daily educational quote — student variant. -->
-<script type="module">
-  import { auth } from '../js/firebase-config.js';
-  import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
-  import { initEducationalQuote } from '../js/educational-quotes.js';
-
-  onAuthStateChanged(auth, (user) => {
-    if (user && user.uid) {
-      initEducationalQuote({ role: 'student', userId: user.uid });
-    }
-  });
-</script>
-
-<script>
-  // Unregister any existing service worker, then clear all its caches.
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      for (let registration of registrations) {
-        registration.unregister();
-      }
-    }).catch(function(err) {
-      console.log('Service Worker unregistration failed: ', err);
-    });
-
-    if (window.caches) {
-      caches.keys().then(function(cacheNames) {
-        cacheNames.forEach(function(cacheName) {
-          caches.delete(cacheName);
-        });
-      });
-    }
-  }
-</script>
-</body>
-</html>
+      transition: transform 0.15s var
