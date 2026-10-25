@@ -945,23 +945,32 @@
   import { initClasses } from '../js/classes.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
 
-  protectAdminPage().then(() => {
-    loadSchoolInfo();
+  showOverlayLoader({ label: 'Loading subjects & classes…' });
+
+  protectAdminPage().then(async () => {
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
     initMobileMenu();
-    initSubjects();
-    initClasses();
+
+    await initSubjects();
+    await initClasses();
 
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
     if (mobileLogoutBtn && headerLogoutBtn) {
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
+  }).catch(err => {
+    console.error('[Setup] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
