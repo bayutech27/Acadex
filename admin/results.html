@@ -917,11 +917,15 @@
   import { initResultsPage } from '../js/results.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
 
+  showOverlayLoader({ label: 'Loading results…' });
+
   protectAdminPage().then(async () => {
-    loadSchoolInfo();
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
@@ -942,6 +946,10 @@
        Works whether the button is present now or added later.
        ───────────────────────────────────────────────────────── */
     upgradeWhatsAppButton();
+  }).catch(err => {
+    console.error('[Results] Boot error:', err);
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
