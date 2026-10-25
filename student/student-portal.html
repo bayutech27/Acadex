@@ -100,21 +100,14 @@
       pointer-events: auto;
     }
 
-    /* Spinner — iOS-style partial-arc rotating ring */
-    .acadex-spinner svg {
-      display: block;
-    }
-    .acadex-spinner-track {
-      stroke: rgba(0, 122, 255, 0.16);
-    }
+    .acadex-spinner svg { display: block; }
+    .acadex-spinner-track { stroke: rgba(0, 122, 255, 0.16); }
     .acadex-spinner-ring {
       stroke: var(--ios-blue);
       animation: acadex-spin 0.9s linear infinite;
       transform-origin: center;
     }
-    @keyframes acadex-spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes acadex-spin { to { transform: rotate(360deg); } }
     .acadex-spinner-lg svg { width: 60px; height: 60px; }
     .acadex-spinner-sm svg { width: 32px; height: 32px; }
 
@@ -124,6 +117,7 @@
       font-weight: 600;
       color: var(--ios-label-secondary);
       letter-spacing: -0.005em;
+      text-align: center;
     }
     .acadex-loader-failsafe {
       text-align: center;
@@ -136,15 +130,16 @@
     .acadex-loader-failsafe p {
       color: var(--ios-label-secondary);
       font-size: 0.9rem;
-      line-height: 1.5;
+      line-height: 1.6;
       margin: 0;
     }
+    .acadex-loader-failsafe strong { color: var(--ios-label); }
     .acadex-loader-failsafe a {
       color: var(--ios-blue);
       text-decoration: underline;
+      font-weight: 600;
     }
 
-    /* Pane loader (inside .tab-pane when clicked) */
     .pane-loader {
       display: flex;
       flex-direction: column;
@@ -156,9 +151,7 @@
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-xl);
     }
-    .pane-loader .acadex-loader-label {
-      font-size: 0.82rem;
-    }
+    .pane-loader .acadex-loader-label { font-size: 0.82rem; }
 
     /* =========================================================
        ACADEMIC BADGE
@@ -182,7 +175,6 @@
       gap: 7px;
       letter-spacing: -0.01em;
       border: 1px solid rgba(0, 122, 255, 0.12);
-      box-shadow: none;
       white-space: nowrap;
     }
     .academic-badge i { color: var(--ios-blue); }
@@ -195,9 +187,6 @@
       font-weight: 700;
     }
 
-    /* =========================================================
-       SCHOOL ADDRESS
-       ========================================================= */
     .school-address {
       font-size: 0.74rem;
       color: var(--ios-label-secondary);
@@ -205,9 +194,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* =========================================================
-       SUBSCRIPTION BADGE
-       ========================================================= */
     .subscription-badge {
       font-weight: 600;
       font-size: 0.75rem;
@@ -225,9 +211,6 @@
     .subscription-badge.active  { background: rgba(52, 199, 89, 0.14); color: #1B7F3A; }
     .subscription-badge.expired { background: rgba(255, 59, 48, 0.12); color: #B3261E; }
 
-    /* =========================================================
-       HEADER LOGOUT BUTTON
-       ========================================================= */
     .logout-btn-header {
       display: inline-flex;
       align-items: center;
@@ -254,15 +237,10 @@
       background: rgba(255, 59, 48, 0.16);
       box-shadow: 0 4px 14px rgba(255, 59, 48, 0.15);
     }
-    .logout-btn-header:active {
-      transform: scale(0.96);
-    }
+    .logout-btn-header:active { transform: scale(0.96); }
     .logout-btn-header i { font-size: 0.8rem; }
     .logout-btn-header .logout-btn-text { display: inline; }
 
-    /* =========================================================
-       SCHOOL LOGO (read-only)
-       ========================================================= */
     .school-logo-readonly {
       width: 54px; height: 54px;
       border-radius: 50%;
@@ -283,9 +261,6 @@
       pointer-events: none;
     }
 
-    /* =========================================================
-       NOTIFICATION BELL
-       ========================================================= */
     .notification-bell {
       position: relative;
       background: var(--ios-bg-secondary);
@@ -496,9 +471,6 @@
     .tab-card:nth-child(7) { animation-delay: 0.28s; }
     .tab-card:nth-child(8) { animation-delay: 0.32s; }
 
-    /* =========================================================
-       TAB PANES
-       ========================================================= */
     .tab-pane {
       grid-column: 1 / -1;
       display: none;
@@ -518,9 +490,6 @@
       overflow: visible;
     }
 
-    /* =========================================================
-       COMING SOON
-       ========================================================= */
     .coming-soon-card {
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-xl);
@@ -553,9 +522,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* =========================================================
-       HERO CARD
-       ========================================================= */
     .hero-card {
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-xl);
@@ -607,9 +573,6 @@
     }
     .hero-meta span i { font-size: .72rem; }
 
-    /* =========================================================
-       INFO GRID
-       ========================================================= */
     .info-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -643,7 +606,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* ABOUT ME SUBJECTS */
     .about-subjects-section {
       margin-top: 1.5rem;
       padding-top: 1.25rem;
@@ -691,7 +653,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* SUMMARY STATS */
     .summary-stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -725,7 +686,6 @@
       margin-top: .3rem;
     }
 
-    /* ATTENDANCE */
     .attendance-meta-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -761,14 +721,12 @@
       margin-bottom: .9rem;
     }
 
-    /* GRADE BADGES */
     .grade-A { background: rgba(52, 199, 89, 0.15); color: #1B7F3A; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-B { background: rgba(0, 122, 255, 0.15); color: #0055AA; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-C { background: rgba(255, 149, 0, 0.18); color: #8A4A00; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .grade-D { background: rgba(255, 59, 48, 0.15); color: #991B1B; font-weight: 700; padding: 2px 9px; border-radius: 6px; display: inline-block; font-size: .82rem; }
     .results-table-wrapper { overflow-x: auto; margin-top: 1rem; }
 
-    /* RESULTS */
     .percentage-cell {
       font-weight: 700;
       color: var(--ios-indigo);
@@ -817,7 +775,6 @@
       font-variant-numeric: tabular-nums;
     }
 
-    /* WELCOME CARD */
     .welcome-card {
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-xl);
@@ -850,7 +807,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* GENERIC CARD */
     .card {
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-lg);
@@ -858,7 +814,6 @@
       border: none;
     }
 
-    /* STAT CARD (assignments) */
     .stat-card {
       background: var(--ios-bg-elevated);
       border-radius: var(--ios-radius-lg);
@@ -881,7 +836,6 @@
       letter-spacing: -0.005em;
     }
 
-    /* MOBILE */
     @media (max-width: 768px) {
       .tab-card-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -963,6 +917,8 @@
 
   <!-- =========================================================
        FULL-SCREEN BOOT LOADER
+       Patient with slow networks — spinner stays until boot really
+       finishes, or up to the failsafe at 120s.
        ========================================================= -->
   <div id="acadexFullscreenLoader"
        class="acadex-fullscreen-loader active"
@@ -978,27 +934,26 @@
     <div class="acadex-loader-label">Preparing your dashboard…</div>
   </div>
 
-  <!-- Inline failsafe — fires even if the main module fails to load -->
+  <!-- Inline failsafe — only fires if boot is truly stuck (2 minutes). -->
   <script>
     window.__acadexBootFailsafe = setTimeout(function () {
       var loader = document.getElementById('acadexFullscreenLoader');
       if (loader && loader.classList.contains('active')) {
         loader.innerHTML =
           '<div class="acadex-loader-failsafe">' +
-            '<div class="icon">⚠️</div>' +
-            '<p>Taking longer than expected.<br>' +
-            '<a href="javascript:location.reload()">Refresh the page</a></p>' +
+            '<div class="icon">📶</div>' +
+            '<p><strong>Network is taking too long.</strong><br>' +
+            'Please check your connection and try again.<br>' +
+            '<a href="javascript:location.reload()">Tap to refresh</a></p>' +
           '</div>';
       }
-    }, 10000);
+    }, 120000);
   </script>
 
   <div class="dashboard-container">
 
-    <!-- MAIN CONTENT -->
     <main class="main-content">
 
-      <!-- ---- TOP HEADER ---- -->
       <header class="header">
         <div class="school-header-left">
           <div class="school-logo-readonly">
@@ -1100,7 +1055,6 @@
               <span class="tab-card-label">Results</span>
             </button>
 
-            <!-- PANES -->
             <div id="profileTab" class="tab-pane" data-pane="profile" role="region" aria-label="About Me">
               <div class="pane-loader">
                 <div class="acadex-spinner acadex-spinner-sm">
