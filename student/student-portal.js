@@ -14,7 +14,12 @@
 //   • Attendance  → getAttendanceByStudent (~15)
 //   • Assignments → getAssignmentsByClass (~5)
 //   • Results     → CBT test_results query (~5)
-//   • Notification bell first click → setup listeners (~20)
+//   • Notification bell first click → scores listener (~5–10)
+//
+// NOTIFICATIONS:
+//   • Only the `scores` collection is read (CA/Exam updates).
+//   • The `cbt` listener was removed — CBT results already live in the
+//     Results tab, so no duplication in the bell.
 //
 // SLOW-NETWORK TUNING (all timing now 12× more generous):
 //   • ESSENTIAL_TIMEOUT_MS      = 60s
@@ -85,11 +90,9 @@ let assignmentsList    = [];
 let allCbtScores       = [];
 let visibleCbtCount    = RESULTS_PAGE_SIZE;
 
-// Notifications
-let unsubscribeCBT     = null;
+// Notifications (scores only — CBT listener removed)
 let unsubscribeScores  = null;
 let mergedNotifications = [];
-const teacherNameCache = new Map();
 let notificationListenersStarted = false;
 
 // Calendar
@@ -156,8 +159,6 @@ function hideFullScreenLoader() {
   const loader = document.getElementById('acadexFullscreenLoader');
   if (loader) {
     loader.classList.remove('active');
-    // Belt-and-braces: force display:none after the fade-out so the
-    // loader can never linger even if CSS loading was interrupted.
     setTimeout(() => {
       if (loader && !loader.classList.contains('active')) {
         loader.style.display = 'none';
@@ -436,7 +437,6 @@ function ensureTabLoaded(tabId) {
       loadedPanes.add(tabId);
     } catch (err) {
       console.warn('[StudentPortal] Tab timeout:', tabId, err);
-      // Show a retry message — do NOT mark as loaded so next click retries.
       const pane = document.querySelector(`.tab-pane[data-pane="${tabId}"]`);
       if (tabId === 'results') {
         const tableEl = document.getElementById('resultsTableContainer');
@@ -483,7 +483,6 @@ async function handleCardActivation(card) {
   const pane = grid ? grid.querySelector(`.tab-pane[data-pane="${tabId}"]`) : null;
   if (!pane) return;
 
-  // Same card → close
   if (activeAccordionCard === card && activeAccordionPane === pane) {
     const prevPane = pane;
     const prevCard = card;
@@ -495,7 +494,6 @@ async function handleCardActivation(card) {
     return;
   }
 
-  // Different card → instant-close previous
   if (activeAccordionPane && activeAccordionPane !== pane) {
     const prevPane = activeAccordionPane;
     const prevCard = activeAccordionCard;
@@ -513,13 +511,11 @@ async function handleCardActivation(card) {
   card.setAttribute('aria-expanded', 'true');
   card.classList.add('open');
 
-  // Static tabs — content already in HTML
   if (STATIC_TABS.has(tabId) || loadedPanes.has(tabId)) {
     openAccordionPane(card, pane);
     return;
   }
 
-  // Lazy-load tabs
   if (tabId !== 'results') {
     showPaneLoader(pane);
   } else {
@@ -976,22 +972,11 @@ async function resolveSubjectNames(rawSubjects) {
   return [];
 }
 
-// ── Notifications ───────────────────────────────────────────────────────────
-async function fetchTeacherName(teacherId) {
-  if (!teacherId) return 'Teacher';
-  if (teacherNameCache.has(teacherId)) return teacherNameCache.get(teacherId);
-  const promise = (async () => {
-    try {
-      const teacher = await service.getTeacherById(teacherId);
-      return teacher?.name || teacher?.fullName || 'Teacher';
-    } catch (err) {
-      console.warn('Teacher fetch error:', err);
-      return 'Teacher';
-    }
-  })();
-  teacherNameCache.set(teacherId, promise);
-  return promise;
-}
+// ── Notifications — scores only ────────────────────────────────────────────
+// The `cbt` collection listener was removed — CBT results are shown in the
+// Results tab, so the bell no longer reads that collection.
+// This halves the notification reads (~20 → ~10) and eliminates the
+// teacher-name lookups that CBT notifications previously required.
 
 function formatScoreMessage(data) {
   const sub = safeVal(data.subjectName) || 'Unknown Subject';
@@ -1002,20 +987,6 @@ function formatScoreMessage(data) {
   return `📊 ${sub}: ${scoreText}`.substring(0, 120);
 }
 
-function formatCBTMessage(data) {
-  const sub = safeVal(data.subjectName) || 'Unknown Subject';
-  const type = safeVal(data.type) || 'Test';
-  const date = data.scheduledDate
-    ? new Date(data.scheduledDate + 'T00:00:00').toLocaleDateString()
-    : 'N/A';
-  const status = data.status || 'assigned';
-  const teacherPlaceholder = `{{teacher_${data.teacherId}}}`;
-  if (status === 'started') {
-    return { message: `🚀 ${sub} ${type} has started! Scheduled: ${date}`, teacherId: data.teacherId, placeholder: teacherPlaceholder };
-  }
-  return { message: `📝 New ${sub} ${type} assigned by ${teacherPlaceholder} — ${date}`, teacherId: data.teacherId, placeholder: teacherPlaceholder };
-}
-
 function renderNotifications(notifs) {
   const container = document.getElementById('notificationList');
   if (!container) return;
@@ -1023,18 +994,15 @@ function renderNotifications(notifs) {
     container.innerHTML = '<div class="empty-notification"><i class="fa-regular fa-bell-slash"></i> No notifications</div>';
     return;
   }
-  container.innerHTML = notifs.map(n => {
-    const icon = n.type === 'score' ? '📊' : '📝';
-    const borderClass = n.type === 'score' ? 'score' : 'cbt';
-    return `
-      <div class="notification-item" data-type="${borderClass}">
-        <span class="notif-icon">${icon}</span>
-        <div class="notif-body">
-          <div class="notif-text">${n.message || 'Update'}</div>
-          ${n.meta ? `<div class="notif-meta">${n.meta}</div>` : ''}
-        </div>
-      </div>`;
-  }).join('');
+  container.innerHTML = notifs.map(n => `
+    <div class="notification-item" data-type="score">
+      <span class="notif-icon">📊</span>
+      <div class="notif-body">
+        <div class="notif-text">${n.message || 'Update'}</div>
+        ${n.meta ? `<div class="notif-meta">${n.meta}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
 }
 
 function updateBadgeFromMerged() {
@@ -1062,72 +1030,21 @@ function processScoreDocs(scoreDocs) {
       type: 'score',
       message,
       meta: '',
-      timestampMillis: millis,
-      teacherPlaceholder: null
+      timestampMillis: millis
     };
   });
 }
 
-function processCBTDocs(cbtDocs) {
-  const items = [];
-  const fetchPromises = [];
-
-  cbtDocs.forEach(docSnap => {
-    const data = docSnap.data();
-    const timestamp = data.updatedAt || data.createdAt;
-    const millis = timestamp ? timestamp.toDate().getTime() : 0;
-    const formatted = formatCBTMessage(data);
-    const teacherId = formatted.teacherId;
-
-    const item = {
-      id: `cbt-${docSnap.id}`,
-      type: 'cbt',
-      message: formatted.message,
-      meta: '',
-      timestampMillis: millis,
-      teacherId,
-      placeholder: formatted.placeholder
-    };
-    items.push(item);
-
-    if (teacherId && formatted.message.includes(formatted.placeholder)) {
-      if (!teacherNameCache.has(teacherId)) {
-        teacherNameCache.set(teacherId, fetchTeacherName(teacherId));
-      }
-      const promise = teacherNameCache.get(teacherId).then(name => {
-        item.message = item.message.replace(item.placeholder, name);
-        item.teacherResolved = true;
-      });
-      fetchPromises.push(promise);
-    }
-  });
-
-  return { items, fetchPromises };
-}
-
-function mergeAndRender(cbtDocs, scoreDocs) {
+function renderScoreNotifications(scoreDocs) {
   const scoreItems = processScoreDocs(scoreDocs);
-  const { items: cbtItems, fetchPromises } = processCBTDocs(cbtDocs);
-
-  Promise.all(fetchPromises).then(() => {
-    const all = [...scoreItems, ...cbtItems];
-    all.sort((a, b) => b.timestampMillis - a.timestampMillis);
-    mergedNotifications = all.slice(0, 10);
-    renderNotifications(mergedNotifications);
-    updateBadgeFromMerged();
-  }).catch(err => {
-    console.warn('Teacher name fetch error:', err);
-    const all = [...scoreItems, ...cbtItems];
-    all.sort((a, b) => b.timestampMillis - a.timestampMillis);
-    mergedNotifications = all.slice(0, 10);
-    renderNotifications(mergedNotifications);
-    updateBadgeFromMerged();
-  });
+  scoreItems.sort((a, b) => b.timestampMillis - a.timestampMillis);
+  mergedNotifications = scoreItems.slice(0, 10);
+  renderNotifications(mergedNotifications);
+  updateBadgeFromMerged();
 }
 
-function setupNotificationListeners(classId, studentId) {
+function setupNotificationListeners(studentId) {
   if (!studentId) return;
-  if (unsubscribeCBT) { unsubscribeCBT(); unsubscribeCBT = null; }
   if (unsubscribeScores) { unsubscribeScores(); unsubscribeScores = null; }
 
   const scoresQuery = query(
@@ -1137,26 +1054,8 @@ function setupNotificationListeners(classId, studentId) {
     limit(10)
   );
 
-  const cbtQuery = query(
-    collection(db, 'cbt'),
-    where('assignedTo', 'array-contains', studentId),
-    orderBy('updatedAt', 'desc'),
-    limit(10)
-  );
-
-  let cbtDocs = [];
-  let scoreDocs = [];
-
-  unsubscribeCBT = onSnapshot(cbtQuery, snap => {
-    cbtDocs = snap.docs;
-    mergeAndRender(cbtDocs, scoreDocs);
-  }, err => {
-    console.warn('CBT listener error:', err);
-  });
-
   unsubscribeScores = onSnapshot(scoresQuery, snap => {
-    scoreDocs = snap.docs;
-    mergeAndRender(cbtDocs, scoreDocs);
+    renderScoreNotifications(snap.docs);
   }, err => {
     console.warn('Scores listener error:', err);
   });
@@ -1177,10 +1076,7 @@ function initNotificationBell() {
 
       if (!notificationListenersStarted) {
         notificationListenersStarted = true;
-        setupNotificationListeners(
-          safeVal(currentStudentData?.classId),
-          currentStudentId
-        );
+        setupNotificationListeners(currentStudentId);
       }
     }
   });
@@ -1193,7 +1089,6 @@ function initNotificationBell() {
 
 // ── Cleanup / logout / download ────────────────────────────────────────────
 function cleanupListeners() {
-  if (unsubscribeCBT) { unsubscribeCBT(); unsubscribeCBT = null; }
   if (unsubscribeScores) { unsubscribeScores(); unsubscribeScores = null; }
   if (unsubscribeSubscription) { unsubscribeSubscription(); unsubscribeSubscription = null; }
 }
@@ -1214,9 +1109,6 @@ function initDownload() {
 }
 
 // ── Student fetch (with self-heal) ─────────────────────────────────────────
-// Fires once. If it times out, boot proceeds without it; when the read
-// eventually resolves, this function renders the hero (and refreshes
-// profile if it was already opened).
 async function fetchAndRenderStudent() {
   try {
     const data = await service.getStudentById(currentStudentId);
@@ -1224,17 +1116,14 @@ async function fetchAndRenderStudent() {
 
     currentStudentData = data;
 
-    // Resolve class name (only if not already cached)
     const classId = safeVal(data.classId);
     if (classId && !resolvedClassName) {
       resolvedClassName = await resolveClassName(currentSchoolId, classId);
     }
 
-    // Render hero
     renderHero(currentStudentData);
     studentRenderDone = true;
 
-    // If the profile pane was opened before the student arrived, refresh it.
     if (loadedPanes.has('profile')) {
       renderProfile(currentStudentData, subjectsList);
     }
@@ -1248,7 +1137,6 @@ async function bootDashboard(user) {
   const bootStart = Date.now();
 
   try {
-    // ── Step 1: auth read (essential — no self-heal possible) ──
     const userData = await service.getUserById(user.uid);
     if (!userData) {
       toast.error('User profile not found. Please log out and log in again.');
@@ -1283,29 +1171,23 @@ async function bootDashboard(user) {
       return;
     }
 
-    // ── Step 2: kick off parallel essential reads ──
-    // Student fetch is fire-and-forget: it self-heals when it eventually resolves.
-    fetchAndRenderStudent(); // no await — runs in background
+    // Student fetch is fire-and-forget: self-heals when it eventually resolves.
+    fetchAndRenderStudent();
 
-    // Calendar + subscription listeners kick off their subscriptions now.
     initCalendar();
     initSubscriptionListener(currentSchoolId);
 
-    // Await only the timeouts, not the actual reads.
     await Promise.all([
-      loadSchoolHeader(currentSchoolId),                           // fire-and-forget style
+      loadSchoolHeader(currentSchoolId),
       withTimeout(calendarReadyPromise, CALENDAR_TIMEOUT_MS),
       withTimeout(subscriptionReadyPromise, SUBSCRIPTION_TIMEOUT_MS)
     ]);
 
-    // ── Step 3: hold the loader for a minimum sensible time ──
-    // Only for fast networks, so the spinner doesn't flash-and-vanish.
     const elapsed = Date.now() - bootStart;
     if (elapsed < MIN_BOOT_TIME_MS) {
       await new Promise(r => setTimeout(r, MIN_BOOT_TIME_MS - elapsed));
     }
 
-    // ── Step 4: warn gently if the student read hasn't landed yet ──
     if (!studentRenderDone) {
       console.warn('[StudentPortal] Student read is slow — hero will render when it lands.');
     }
@@ -1313,12 +1195,9 @@ async function bootDashboard(user) {
     console.error('[StudentPortal] Boot error:', err);
     toast.error('Unable to load dashboard. Please refresh the page.');
   } finally {
-    // ALWAYS hide the loader. `finally` guarantees this even if the try
-    // block threw anywhere above.
     hideFullScreenLoader();
   }
 
-  // ── Step 5: wire up the UI (safe even if student is still pending) ──
   initInternalTabs();
   initNotificationBell();
   initDownload();
