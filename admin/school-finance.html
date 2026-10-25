@@ -1303,24 +1303,32 @@ import { initFinancePage } from '../js/finance.js';
 import { protectAdminPage, loadSchoolInfo, setupSidebar, setupLogout, setupLogoUpload } from '../js/admin.js';
 import { initMobileMenu } from '../js/menu.js';
 import { subscribeToCalendar } from '../js/academic-calendar.js';
+// NEW: overlay loader (sub-pages use the faint transparent variant)
+import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
 document.getElementById('currentYear').innerText = new Date().getFullYear();
 const sidebarYr = document.getElementById('sidebarYear');
 if (sidebarYr) sidebarYr.innerText = new Date().getFullYear();
 
+showOverlayLoader({ label: 'Loading finance…' });
+
 protectAdminPage().then(async () => {
-  loadSchoolInfo();
+  await loadSchoolInfo();
   setupSidebar();
   setupLogout();
   setupLogoUpload();
   initMobileMenu();
-  initFinancePage();
+  await initFinancePage();
 
   const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
   const headerLogoutBtn = document.getElementById('logoutBtn');
   if (mobileLogoutBtn && headerLogoutBtn) {
     mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
   }
+}).catch(err => {
+  console.error('[Finance] Boot error:', err);
+}).finally(() => {
+  hideOverlayLoader({ minDisplayMs: 400 });
 });
 
 subscribeToCalendar((state) => {
