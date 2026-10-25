@@ -819,9 +819,10 @@
   } from '../js/admin.js';
   import { initMobileMenu }      from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
-  // NEW: daily educational quote imports
   import { auth }               from '../js/firebase-config.js';
   import { initEducationalQuote } from '../js/educational-quotes.js';
+  // NEW: global loader
+  import { showFullscreenLoader, hideFullscreenLoader } from '../js/loading.js';
 
   /* Year stamps */
   const yr = new Date().getFullYear();
@@ -829,10 +830,18 @@
   const sidebarYr = document.getElementById('sidebarYear');
   if (sidebarYr) sidebarYr.innerText = yr;
 
+  /* ── Boot loader — dashboard uses the fullscreen variant ── */
+  showFullscreenLoader({ label: 'Preparing your dashboard…' });
+
   /* Protect + boot */
   protectAdminPage().then(async () => {
-    loadSchoolInfo();
+    // Await header essentials so the loader stays up until the page is
+    // ready to look at (school name, address, logo).
+    await loadSchoolInfo();
+
+    // Counts populate in the background — no need to block the loader.
     loadDashboardCounts();
+
     setupSidebar();
     setupLogout();
     setupLogoUpload();
@@ -845,10 +854,7 @@
       mobileLogoutBtn.addEventListener('click', () => headerLogoutBtn.click());
     }
 
-    // ── NEW: Daily educational quote ─────────────────────────
-    // Admins receive teacher quotes (educational leadership,
-    // impact, inspiration) since they guide teachers and students.
-    // Fires once per calendar day per admin per device.
+    // ── Daily educational quote ─────────────────────────
     try {
       if (auth.currentUser && auth.currentUser.uid) {
         initEducationalQuote({ role: 'teacher', userId: auth.currentUser.uid });
@@ -856,6 +862,11 @@
     } catch (err) {
       console.warn('[Admin] Quote init skipped:', err);
     }
+  }).catch(err => {
+    console.error('[Admin] Boot error:', err);
+  }).finally(() => {
+    // Guaranteed to hide the loader, even on redirect / exception.
+    hideFullscreenLoader({ minDisplayMs: 600 });
   });
 
   /* Academic calendar subscription */
