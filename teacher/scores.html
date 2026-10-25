@@ -387,16 +387,20 @@
   import { initScoresPage } from '../js/scores.js';
   import { initMobileMenu } from '../js/menu.js';
   import { subscribeToCalendar } from '../js/academic-calendar.js';
+  // NEW: overlay loader (sub-pages use the faint transparent variant)
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
   document.getElementById('currentYear').innerText = new Date().getFullYear();
 
-  protectTeacherPage().then(() => {
-    loadSchoolInfo();
+  showOverlayLoader({ label: 'Loading scores…' });
+
+  protectTeacherPage().then(async () => {
+    await loadSchoolInfo();
     setupSidebar();
     setupLogout();
     setupLogoUpload();
     initMobileMenu();
-    initScoresPage();
+    await initScoresPage();
 
     const mobileLogoutBtn = document.querySelector('.mobile-logout-btn');
     const headerLogoutBtn = document.getElementById('logoutBtn');
@@ -409,6 +413,8 @@
     if (container) {
       container.innerHTML = '<div class="error-message">Unable to load scores. Please refresh or contact admin.</div>';
     }
+  }).finally(() => {
+    hideOverlayLoader({ minDisplayMs: 400 });
   });
 
   subscribeToCalendar((state) => {
