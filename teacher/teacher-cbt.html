@@ -796,6 +796,56 @@
   </div>
 </div>
 
+<!-- ===================== SCRIPTS ===================== -->
+<!-- NEW: overlay loader (faint transparent variant for sub-pages).
+     teacher-cbt.js self-initializes and doesn't export an init function,
+     so we detect completion via the `#testsTableWrapper` loading marker:
+     once the "Loading tests…" text is replaced by real content (or the
+     empty state / error message), we hide the overlay.
+     A 15-second failsafe covers any path that never clears the marker
+     (e.g. auth failure → redirect, teacher with no classes, etc.). -->
+<script type="module">
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
+
+  showOverlayLoader({ label: 'Loading CBT…' });
+
+  let done = false;
+  const hideNow = () => {
+    if (done) return;
+    done = true;
+    hideOverlayLoader({ minDisplayMs: 400 });
+  };
+
+  /* Failsafe — force-hide if the marker never clears */
+  const failsafe = setTimeout(hideNow, 15000);
+
+  const tryObserve = () => {
+    const target = document.getElementById('testsTableWrapper');
+    if (!target) {
+      setTimeout(tryObserve, 100);
+      return;
+    }
+
+    const check = () => {
+      const txt = (target.textContent || '').trim();
+      // Hide once the "Loading tests…" marker is gone.
+      if (txt && !txt.includes('Loading tests')) {
+        clearTimeout(failsafe);
+        hideNow();
+        try { observer.disconnect(); } catch (_) {}
+        return true;
+      }
+      return false;
+    };
+
+    if (check()) return;
+
+    const observer = new MutationObserver(check);
+    observer.observe(target, { childList: true, subtree: true, characterData: true });
+  };
+
+  tryObserve();
+</script>
 <script type="module" src="../js/teacher-cbt.js"></script>
 <script>
   // Unregister any existing service worker, then clear all its caches.
