@@ -1031,97 +1031,75 @@ if ('serviceWorker' in navigator) {
   </div>
 </main>
 
-<!-- ============================================================
-     OVERLAY LOADER — shows while the page fetches from Firestore
-     and hides once cbt.js finishes building the dashboard.
-     Uses loading.js → showOverlayLoader() / hideOverlayLoader().
-     ============================================================ -->
+<!-- ===================== SCRIPTS ===================== -->
+<!-- NEW: overlay loader (faint transparent variant for sub-pages).
+     Mirrors the exact pattern used on teacher-cbt.html:
+       • showOverlayLoader() is called at module top level
+       • we observe #assignedTestsTableWrapper for its initial
+         "Loading assigned tests..." placeholder to disappear
+       • #userName is watched as a lightweight backup signal
+       • 15-second failsafe force-hides the overlay if neither
+         signal ever fires (auth failure, network error, etc.) -->
 <script type="module">
   import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
 
-  (function initCbtOverlayLoader() {
-    let hidden = false;
-    let shown = false;
-    let pollTimer = null;
-    let observer = null;
-    let fallbackTimer = null;
+  showOverlayLoader({ label: 'Loading CBT Dashboard…' });
 
-    function isReady() {
-      const userNameEl = document.getElementById('userName');
-      const hasUser = !!(userNameEl && userNameEl.textContent.trim().length > 0);
-      const hasTabs = !!document.querySelector('.cbt-tab');
-      return hasUser && hasTabs;
+  let done = false;
+  const hideNow = () => {
+    if (done) return;
+    done = true;
+    hideOverlayLoader({ minDisplayMs: 400 });
+  };
+
+  /* Failsafe — force-hide if neither ready signal ever fires */
+  const failsafe = setTimeout(hideNow, 15000);
+
+  const tryObserve = () => {
+    const assignedEl = document.getElementById('assignedTestsTableWrapper');
+    const userEl = document.getElementById('userName');
+
+    if (!assignedEl && !userEl) {
+      setTimeout(tryObserve, 100);
+      return;
     }
 
-    function hideOnce(reason) {
-      if (hidden) return;
-      hidden = true;
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
-      if (observer) { try { observer.disconnect(); } catch (e) {} observer = null; }
-      if (shown) {
-        try { hideOverlayLoader({ minDisplayMs: 400 }); } catch (e) { console.warn(e); }
-        console.log('[CBT Overlay] Hidden —', reason);
+    const check = () => {
+      // Signal 1: assigned-tests table no longer shows its loading placeholder
+      if (assignedEl) {
+        const txt = (assignedEl.textContent || '').trim();
+        if (txt && !txt.includes('Loading assigned tests')) {
+          clearTimeout(failsafe);
+          hideNow();
+          try { observer.disconnect(); } catch (_) {}
+          return true;
+        }
       }
-    }
-
-    function showOnce() {
-      if (shown || hidden) return;
-      shown = true;
-      try {
-        showOverlayLoader({
-          label: 'Preparing your CBT dashboard…',
-          failsafeMs: 30000
-        });
-      } catch (e) { console.warn(e); }
-      console.log('[CBT Overlay] Shown while loading from Firestore…');
-    }
-
-    function check() {
-      if (hidden) return;
-      if (isReady()) {
-        hideOnce('ready');
-      } else if (!shown) {
-        showOnce();
+      // Signal 2 (backup): student name has been populated
+      if (userEl) {
+        const txt = (userEl.textContent || '').trim();
+        if (txt.length > 0) {
+          clearTimeout(failsafe);
+          hideNow();
+          try { observer.disconnect(); } catch (_) {}
+          return true;
+        }
       }
+      return false;
+    };
+
+    if (check()) return;
+
+    const observer = new MutationObserver(check);
+    if (assignedEl) {
+      observer.observe(assignedEl, { childList: true, subtree: true, characterData: true });
     }
-
-    function start() {
-      // If the page is already fully ready before this script ran (rare),
-      // skip showing the overlay entirely.
-      if (isReady()) {
-        hidden = true;
-        return;
-      }
-
-      showOnce();
-
-      // Poll at 150 ms — cheap, and catches any state that MutationObserver
-      // may momentarily miss (e.g. character-data-only updates).
-      pollTimer = setInterval(check, 150);
-
-      // Also observe DOM changes for snappier reaction.
-      try {
-        observer = new MutationObserver(check);
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true
-        });
-      } catch (e) {
-        console.warn('[CBT Overlay] MutationObserver unavailable:', e);
-      }
-
-      // Safety fallback: never leave the overlay stuck for more than 15 s.
-      fallbackTimer = setTimeout(() => hideOnce('fallback-timeout'), 15000);
+    if (userEl) {
+      observer.observe(userEl, { childList: true, subtree: true, characterData: true });
     }
+  };
 
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', start, { once: true });
-    } else {
-      start();
-    }
-  })();
+  tryObserve();
 </script>
 
 <script type="module" src="../js/script.js"></script>
