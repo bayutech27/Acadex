@@ -6,8 +6,16 @@
 //    fullscreen prompt) before starting the timer and loading question 1.
 //  - Subject-tab highlighting now uses an `.active` CSS class instead of
 //    inline styles, so the dark theme defined in test.html can style it.
-//  - All other behaviour (anti-cheat, submission, results, solutions)
-//    is preserved exactly as before.
+//
+// TITLE FIX:
+//  - In CBT mode, the title now reads "Assigned CBT: {subject}" and shows
+//    the real subject name — resolved from (in order) testData.subjectName,
+//    a question's subjectName/subject, or fetched from Firestore via the
+//    stored subjectId. Falls back to the subjectId itself, then to
+//    "Assigned Test" as a last resort.
+//  - initializeTest() is now async to await the subject fetch. All other
+//    behaviour (anti-cheat, submission, results, solutions) is preserved
+//    exactly as before.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -584,6 +592,115 @@ function shuffleArray(array) {
 }
 
 // =============================================
+// HELPER: HTML escape (safe subject name rendering)
+// =============================================
+function escapeHtmlBasic(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// =============================================
+// HELPER: Resolve the CBT subject name
+// =============================================
+// Priority:
+//   1. testData.subjectName                (set by teacher-cbt.js saveTestToFirestore)
+//   2. testData.questions[0].subjectName
+//   3. testData.questions[0].subject        (if not 'general')
+//   4. testData.subject                     (if not 'general')
+//   5. Fetch from Firestore via subjectId
+//   6. Raw subjectId
+//   7. "Assigned Test"
+async function resolveCbtSubjectName() {
+    if (!testData) return 'Assigned Test';
+
+    // 1. Direct testData.subjectName
+    if (testData.subjectName && typeof testData.subjectName === 'string' && testData.subjectName.trim()) {
+        return testData.subjectName.trim();
+    }
+
+    const q0 = (Array.isArray(testData.questions) && testData.questions[0]) ? testData.questions[0] : null;
+
+    // 2. From first question's subjectName
+    if (q0 && q0.subjectName && typeof q0.subjectName === 'string' && q0.subjectName.trim()) {
+        return q0.subjectName.trim();
+    }
+
+    // 3. From first question's subject field (skip generic 'general')
+    if (q0 && q0.subject && typeof q0.subject === 'string' &&
+        q0.subject.trim() && q0.subject.toLowerCase() !== 'general') {
+        return q0.subject.trim();
+    }
+
+    // 4. From testData.subject (skip generic 'general')
+    if (testData.subject && typeof testData.subject === 'string' &&
+        testData.subject.trim() && testData.subject.toLowerCase() !== 'general') {
+        return testData.subject.trim();
+    }
+
+    // 5. Fetch from Firestore using subjectId
+    const subjectId = testData.subjectId || (q0 && q0.subjectId) || null;
+    if (subjectId) {
+        const name = await fetchSubjectNameById(subjectId);
+        if (name) return name;
+        // Last resort: show the raw ID rather than nothing
+        return subjectId;
+    }
+
+    // 6. Ultimate fallback
+    return 'Assigned Test';
+}
+
+// Try several paths to resolve a subject name from its ID.
+async function fetchSubjectNameById(subjectId) {
+    if (!subjectId) return null;
+    const schoolId = localStorage.getItem('userSchoolId');
+
+    // A) Direct 'subjects/{id}' doc read
+    try {
+        const snap = await getDoc(doc(db, 'subjects', subjectId));
+        if (snap.exists()) {
+            const data = snap.data() || {};
+            const name = data.name || data.subjectName || data.title;
+            if (name) return name;
+        }
+    } catch (e) {
+        console.warn('[test.js] Direct subject lookup failed:', e);
+    }
+
+    // B) School-scoped 'schools/{schoolId}/subjects/{id}'
+    if (schoolId) {
+        try {
+            const snap = await getDoc(doc(db, 'schools', schoolId, 'subjects', subjectId));
+            if (snap.exists()) {
+                const data = snap.data() || {};
+                const name = data.name || data.subjectName || data.title;
+                if (name) return name;
+            }
+        } catch (e) {
+            console.warn('[test.js] School-subject lookup failed:', e);
+        }
+    }
+
+    // C) Fetch all subjects for school and find by id
+    if (schoolId && service && typeof service.getSubjectsBySchool === 'function') {
+        try {
+            const subjects = await service.getSubjectsBySchool(schoolId);
+            const found = (subjects || []).find(function (s) { return s && s.id === subjectId; });
+            if (found && found.name) return found.name;
+        } catch (e) {
+            console.warn('[test.js] Subject lookup via service failed:', e);
+        }
+    }
+
+    return null;
+}
+
+// =============================================
 // START-TEST EVENT (from fullscreen prompt)
 // =============================================
 function maybeStartTest() {
@@ -698,7 +815,7 @@ async function loadTestData() {
     try {
         testData = JSON.parse(savedTest);
         console.log("Test data loaded:", testData);
-        initializeTest();
+        await initializeTest();
     } catch (error) {
         console.error('Error loading test data:', error);
         toast.error('Error loading test. Please try again.');
@@ -706,7 +823,7 @@ async function loadTestData() {
     }
 }
 
-function initializeTest() {
+async function initializeTest() {
     if (!testData || !testData.questions) {
         toast.error('Error: Test questions not loaded properly.');
         window.location.href = DASHBOARD_URL;
@@ -714,7 +831,8 @@ function initializeTest() {
     }
 
     if (testData.mode === 'cbt') {
-        testSubject.innerHTML = '<i class="fas fa-laptop"></i> CBT: ' + (testData.title || 'Assigned Test');
+        const subjectName = await resolveCbtSubjectName();
+        testSubject.innerHTML = '<i class="fas fa-laptop"></i> Assigned CBT: ' + escapeHtmlBasic(subjectName);
     } else if (testData.mode === 'jamb_drill') {
         const subjectsList = testData.subjects.map(function (s) { return s.name; }).join(' + ');
         testSubject.innerHTML = '<i class="fas fa-graduation-cap"></i> JAMB Drill: ' + subjectsList;
