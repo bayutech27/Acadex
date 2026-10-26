@@ -1031,6 +1031,99 @@ if ('serviceWorker' in navigator) {
   </div>
 </main>
 
+<!-- ============================================================
+     OVERLAY LOADER — shows while the page fetches from Firestore
+     and hides once cbt.js finishes building the dashboard.
+     Uses loading.js → showOverlayLoader() / hideOverlayLoader().
+     ============================================================ -->
+<script type="module">
+  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
+
+  (function initCbtOverlayLoader() {
+    let hidden = false;
+    let shown = false;
+    let pollTimer = null;
+    let observer = null;
+    let fallbackTimer = null;
+
+    function isReady() {
+      const userNameEl = document.getElementById('userName');
+      const hasUser = !!(userNameEl && userNameEl.textContent.trim().length > 0);
+      const hasTabs = !!document.querySelector('.cbt-tab');
+      return hasUser && hasTabs;
+    }
+
+    function hideOnce(reason) {
+      if (hidden) return;
+      hidden = true;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+      if (observer) { try { observer.disconnect(); } catch (e) {} observer = null; }
+      if (shown) {
+        try { hideOverlayLoader({ minDisplayMs: 400 }); } catch (e) { console.warn(e); }
+        console.log('[CBT Overlay] Hidden —', reason);
+      }
+    }
+
+    function showOnce() {
+      if (shown || hidden) return;
+      shown = true;
+      try {
+        showOverlayLoader({
+          label: 'Preparing your CBT dashboard…',
+          failsafeMs: 30000
+        });
+      } catch (e) { console.warn(e); }
+      console.log('[CBT Overlay] Shown while loading from Firestore…');
+    }
+
+    function check() {
+      if (hidden) return;
+      if (isReady()) {
+        hideOnce('ready');
+      } else if (!shown) {
+        showOnce();
+      }
+    }
+
+    function start() {
+      // If the page is already fully ready before this script ran (rare),
+      // skip showing the overlay entirely.
+      if (isReady()) {
+        hidden = true;
+        return;
+      }
+
+      showOnce();
+
+      // Poll at 150 ms — cheap, and catches any state that MutationObserver
+      // may momentarily miss (e.g. character-data-only updates).
+      pollTimer = setInterval(check, 150);
+
+      // Also observe DOM changes for snappier reaction.
+      try {
+        observer = new MutationObserver(check);
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      } catch (e) {
+        console.warn('[CBT Overlay] MutationObserver unavailable:', e);
+      }
+
+      // Safety fallback: never leave the overlay stuck for more than 15 s.
+      fallbackTimer = setTimeout(() => hideOnce('fallback-timeout'), 15000);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+      start();
+    }
+  })();
+</script>
+
 <script type="module" src="../js/script.js"></script>
 <script type="module" src="../js/cbt.js"></script>
 
