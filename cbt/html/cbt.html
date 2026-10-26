@@ -17,165 +17,85 @@
 
   <style>
     /* =========================================================
-       iOS DESIGN TOKENS — shared with dashboards
+       iOS DESIGN TOKENS — dark variant
+       (header left entirely to cbt.css)
        ========================================================= */
     :root {
-      --ios-blue:      #007AFF;
-      --ios-blue-600:  #0062CC;
-      --ios-green:     #34C759;
-      --ios-green-600: #248A3D;
-      --ios-indigo:    #5856D6;
-      --ios-orange:    #FF9500;
-      --ios-pink:      #FF2D55;
-      --ios-purple:    #AF52DE;
-      --ios-purple-600:#6A11CB;
-      --ios-red:       #FF3B30;
-      --ios-teal:      #5AC8FA;
-      --ios-yellow:    #FFCC00;
+      /* Dark surfaces — subtle, eye-friendly */
+      --bg-base:       #16132B;   /* page background */
+      --bg-elevated:   #1F1C3F;   /* cards */
+      --bg-elevated-2: #282350;   /* nested surfaces */
+      --bg-elevated-3: #312B60;   /* deepest */
 
-      --ios-bg:            #F2F2F7;
-      --ios-bg-elevated:   #FFFFFF;
-      --ios-bg-secondary:  #E5E5EA;
+      /* Vivid text on dark */
+      --text-primary:   #F8F8FF;
+      --text-secondary: rgba(235, 235, 245, 0.65);
+      --text-tertiary:  rgba(235, 235, 245, 0.42);
 
-      --ios-label:            #000000;
-      --ios-label-secondary:  rgba(60, 60, 67, 0.60);
-      --ios-label-tertiary:   rgba(60, 60, 67, 0.30);
+      /* Borders / separators */
+      --border-subtle:  rgba(255, 255, 255, 0.08);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --border-strong:  rgba(255, 255, 255, 0.18);
 
-      --ios-separator: rgba(60, 60, 67, 0.12);
-      --ios-fill:      rgba(120, 120, 128, 0.12);
-      --ios-fill-2:    rgba(120, 120, 128, 0.08);
+      /* Subtle fills */
+      --fill-subtle:    rgba(255, 255, 255, 0.04);
+      --fill-strong:    rgba(255, 255, 255, 0.08);
+
+      /* iOS dark-mode accents — brighter for vividness */
+      --ios-blue:       #0A84FF;
+      --ios-blue-600:   #0066CC;
+      --ios-green:      #30D158;
+      --ios-green-600:  #248A3D;
+      --ios-indigo:     #5E5CE6;
+      --ios-orange:     #FF9F0A;
+      --ios-purple:     #BF5AF2;
+      --ios-purple-600: #8B34B8;
+      --ios-red:        #FF453A;
+      --ios-teal:       #64D2FF;
+
+      /* Dark shadows */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
+      --shadow:    0 1px 3px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.18);
+      --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
 
       --ios-radius-sm: 10px;
       --ios-radius:    14px;
       --ios-radius-lg: 18px;
       --ios-radius-xl: 22px;
 
-      --ios-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-      --ios-shadow:    0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
-      --ios-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.08);
-      --ios-shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
-
       --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Poppins', 'Helvetica Neue', Arial, sans-serif;
       --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
 
-      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
       --ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+      --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
     }
 
     /* =========================================================
-       BASE
+       DARK BACKGROUND (header untouched)
        ========================================================= */
-    html, body {
-      background: var(--ios-bg) !important;
+    html {
+      background: var(--bg-base) !important;
+    }
+    body {
+      background: var(--bg-base) !important;
       font-family: var(--ios-font) !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       letter-spacing: -0.011em;
     }
-
-    /* =========================================================
-       HEADER — iOS frosted glass
-       ========================================================= */
-    header.header {
-      background: rgba(255, 255, 255, 0.92) !important;
-      -webkit-backdrop-filter: saturate(180%) blur(20px);
-      backdrop-filter: saturate(180%) blur(20px);
-      border-bottom: 1px solid var(--ios-separator) !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-      padding: 0.6rem 0 !important;
-      position: sticky !important;
-      top: 0 !important;
-      z-index: 100 !important;
-    }
-    .header-container {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: space-between !important;
-      gap: 12px;
-    }
-    .brand-name {
-      font-family: var(--ios-font-display) !important;
-      font-weight: 800 !important;
-      color: var(--ios-label) !important;
-      letter-spacing: -0.03em !important;
-      font-size: 1.5rem !important;
-    }
-    .brand-name .cbt {
-      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo)) !important;
-      -webkit-background-clip: text !important;
-      -webkit-text-fill-color: transparent !important;
-      background-clip: text !important;
-      font-weight: 800 !important;
-      color: transparent !important;
-    }
-    .hamburger {
-      background: var(--ios-fill) !important;
-      border-radius: 10px !important;
-      padding: 8px !important;
-      cursor: pointer !important;
-    }
-    .hamburger span { background: var(--ios-label) !important; }
-
-    /* Desktop nav */
-    .desktop-nav-link {
-      color: var(--ios-label-secondary) !important;
-      font-weight: 600 !important;
-      font-family: var(--ios-font) !important;
-      border-radius: 999px !important;
-      padding: 8px 16px !important;
-      transition: all 0.15s var(--ios-smooth) !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      gap: 6px !important;
-    }
-    .desktop-nav-link:hover {
-      background: var(--ios-fill-2) !important;
-      color: var(--ios-blue) !important;
-    }
-    .desktop-nav-link.active {
-      background: rgba(0, 122, 255, 0.12) !important;
-      color: var(--ios-blue) !important;
-      font-weight: 700 !important;
-    }
-
-    /* Mobile menu */
-    .mobile-menu {
-      background: var(--ios-bg-elevated) !important;
-      box-shadow: var(--ios-shadow-lg) !important;
-    }
-    .nav-link {
-      color: var(--ios-label) !important;
-      border-radius: var(--ios-radius) !important;
-      font-weight: 600 !important;
-      font-family: var(--ios-font) !important;
-      padding: 10px 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 8px !important;
-      transition: background 0.15s ease !important;
-    }
-    .nav-link:hover { background: var(--ios-fill-2) !important; }
-    .nav-link.active {
-      background: rgba(0, 122, 255, 0.12) !important;
-      color: var(--ios-blue) !important;
-    }
-
-    /* =========================================================
-       DASHBOARD WRAPPER
-       ========================================================= */
-    .dashboard {
-      background: var(--ios-bg) !important;
-      color: var(--ios-label) !important;
+    main.dashboard {
+      background: var(--bg-base) !important;
+      color: var(--text-primary) !important;
     }
 
     /* =========================================================
        SUBSCRIPTION NOTICE
        ========================================================= */
     .subscription-notice {
-      background: rgba(255, 59, 48, 0.10) !important;
-      color: #B3261E !important;
-      border: 1px solid rgba(255, 59, 48, 0.22) !important;
+      background: rgba(255, 69, 58, 0.14) !important;
+      color: #FF8078 !important;
+      border: 1px solid rgba(255, 69, 58, 0.28) !important;
       padding: 12px 18px !important;
       border-radius: var(--ios-radius) !important;
       font-weight: 600 !important;
@@ -187,25 +107,25 @@
        WELCOME SECTION
        ========================================================= */
     .welcome-section {
-      background: var(--ios-bg-elevated) !important;
+      background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-xl) !important;
       padding: 1.4rem 1.6rem !important;
       margin-bottom: 1.25rem !important;
-      box-shadow: var(--ios-shadow) !important;
-      border: none !important;
-      color: var(--ios-label) !important;
+      box-shadow: var(--shadow) !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-primary) !important;
     }
     .user-welcome h1 {
       font-family: var(--ios-font-display) !important;
       font-weight: 700 !important;
       font-size: 1.5rem !important;
       letter-spacing: -0.03em !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       margin: 0 !important;
     }
-    .user-welcome h1 span { color: var(--ios-label) !important; }
+    .user-welcome h1 span { color: var(--text-primary) !important; }
     .student-class {
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       font-size: 0.9rem !important;
       margin-top: 4px !important;
       display: inline-flex !important;
@@ -219,20 +139,20 @@
        ========================================================= */
     .stats-section { margin-bottom: 1.25rem !important; }
     .stat-card {
-      background: var(--ios-bg-elevated) !important;
+      background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-lg) !important;
       padding: 1.1rem 1.25rem !important;
-      box-shadow: var(--ios-shadow) !important;
-      border: none !important;
+      box-shadow: var(--shadow) !important;
+      border: 1px solid var(--border-subtle) !important;
       display: flex !important;
       align-items: center !important;
       gap: 1rem !important;
-      color: var(--ios-label) !important;
-      transition: transform 0.22s var(--ios-spring), box-shadow 0.22s var(--ios-smooth) !important;
+      color: var(--text-primary) !important;
+      transition: transform 0.22s var(--ios-spring), border-color 0.2s ease !important;
     }
     .stat-card:hover {
       transform: translateY(-2px) !important;
-      box-shadow: var(--ios-shadow-lg) !important;
+      border-color: var(--border-default) !important;
     }
     .stat-icon {
       width: 48px !important;
@@ -245,11 +165,11 @@
       flex-shrink: 0 !important;
     }
     .stat-card:nth-child(1) .stat-icon {
-      background: rgba(52, 199, 89, 0.14) !important;
+      background: rgba(48, 209, 88, 0.18) !important;
       color: var(--ios-green) !important;
     }
     .stat-card:nth-child(2) .stat-icon {
-      background: rgba(0, 122, 255, 0.14) !important;
+      background: rgba(10, 132, 255, 0.20) !important;
       color: var(--ios-blue) !important;
     }
     .stat-card h3 {
@@ -258,50 +178,49 @@
       font-weight: 600 !important;
       text-transform: uppercase !important;
       letter-spacing: 0.05em !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       margin: 0 0 2px 0 !important;
     }
     .stat-number {
       font-family: var(--ios-font-display) !important;
       font-size: 1.9rem !important;
       font-weight: 700 !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       letter-spacing: -0.04em !important;
       line-height: 1.1 !important;
       font-variant-numeric: tabular-nums !important;
     }
     .stat-number .percent {
       font-size: 1.1rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       margin-left: 2px !important;
       font-weight: 600 !important;
     }
     .stat-label {
       font-size: 0.75rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       margin-top: 2px !important;
     }
 
     /* =========================================================
-       TABS — iOS PILL BUTTONS
-       JS in cbt.js adds inline styles (background:none, border:none,
-       color:#6A11CB, border-bottom:3px solid #6A11CB) — overridden
-       here with !important so both tabs render as vivid pills.
+       TABS — dark iOS pills
+       Overrides the inline styles from cbt.js via !important.
        ========================================================= */
     .cbt-tabs {
       display: flex !important;
       gap: 0.4rem !important;
-      background: var(--ios-fill-2) !important;
+      background: var(--fill-subtle) !important;
       border-radius: 999px !important;
       padding: 5px !important;
       margin-bottom: 1.25rem !important;
-      border-bottom: none !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
       box-shadow: none !important;
     }
     .cbt-tab {
       flex: 1 !important;
       background: transparent !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       border: none !important;
       border-bottom: none !important;
       padding: 0.8rem 1rem !important;
@@ -318,13 +237,13 @@
     }
     .cbt-tab:hover {
       color: var(--ios-blue) !important;
-      background: rgba(0, 122, 255, 0.06) !important;
+      background: rgba(10, 132, 255, 0.10) !important;
     }
     .cbt-tab.active {
-      background: var(--ios-bg-elevated) !important;
+      background: var(--bg-elevated) !important;
       color: var(--ios-blue) !important;
       border-bottom: none !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 122, 255, 0.10) !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
       font-weight: 800 !important;
     }
 
@@ -332,19 +251,19 @@
        PRACTICE / SECTION CARDS
        ========================================================= */
     .practice-section {
-      background: var(--ios-bg-elevated) !important;
+      background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-xl) !important;
       padding: 1.4rem 1.6rem !important;
       margin-bottom: 1.25rem !important;
-      box-shadow: var(--ios-shadow) !important;
-      border: none !important;
-      color: var(--ios-label) !important;
+      box-shadow: var(--shadow) !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-primary) !important;
     }
     .section-header h2 {
       font-family: var(--ios-font-display) !important;
       font-size: 1.15rem !important;
       font-weight: 700 !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       letter-spacing: -0.02em !important;
       margin: 0 0 4px 0 !important;
       display: flex !important;
@@ -354,19 +273,19 @@
     .section-header h2 i { color: var(--ios-blue) !important; }
     .section-subtitle {
       font-size: 0.85rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       margin: 0 0 1rem 0 !important;
       line-height: 1.5 !important;
     }
 
     /* =========================================================
-       FORM CONTROLS
+       FORM CONTROLS — dark
        ========================================================= */
     .form-group label {
       font-family: var(--ios-font) !important;
       font-weight: 600 !important;
       font-size: 0.78rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       text-transform: uppercase !important;
       letter-spacing: 0.05em !important;
       display: flex !important;
@@ -380,29 +299,33 @@
       width: 100% !important;
       padding: 0.75rem 2.2rem 0.75rem 0.95rem !important;
       border-radius: var(--ios-radius) !important;
-      border: 1.5px solid var(--ios-separator) !important;
-      background-color: var(--ios-fill-2) !important;
-      color: var(--ios-label) !important;
+      border: 1.5px solid var(--border-default) !important;
+      background-color: var(--fill-subtle) !important;
+      color: var(--text-primary) !important;
       font-family: inherit !important;
       font-size: 0.95rem !important;
       transition: all 0.15s var(--ios-smooth) !important;
       -webkit-appearance: none !important;
       appearance: none !important;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L2 4h8z'/%3E%3C/svg%3E") !important;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23B8B8CC' d='M6 8L2 4h8z'/%3E%3C/svg%3E") !important;
       background-repeat: no-repeat !important;
       background-position: right 0.95rem center !important;
     }
     .form-select:focus {
       outline: none !important;
       border-color: var(--ios-blue) !important;
-      background-color: #ffffff !important;
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12) !important;
+      background-color: var(--bg-elevated-2) !important;
+      box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
+    }
+    .form-select option {
+      background: var(--bg-elevated) !important;
+      color: var(--text-primary) !important;
     }
 
     .checkbox-item label {
       font-weight: 500 !important;
       font-size: 0.9rem !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       text-transform: none !important;
       letter-spacing: normal !important;
     }
@@ -411,13 +334,13 @@
       accent-color: var(--ios-blue) !important;
     }
     #subjectSelectionHint {
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       font-size: 0.8rem !important;
       margin-top: 8px !important;
     }
 
     /* =========================================================
-       START TEST BUTTONS
+       START TEST BUTTONS — dark iOS pills
        ========================================================= */
     .start-test-btn {
       display: inline-flex !important;
@@ -433,50 +356,50 @@
       letter-spacing: -0.005em !important;
       color: #ffffff !important;
       cursor: pointer !important;
-      transition: transform 0.15s var(--ios-smooth), box-shadow 0.2s ease, filter 0.2s ease !important;
+      transition: transform 0.15s var(--ios-smooth), filter 0.2s ease !important;
       -webkit-tap-highlight-color: transparent;
       white-space: nowrap !important;
     }
     #startQuickTestBtn {
       background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo)) !important;
-      box-shadow: 0 4px 14px rgba(0, 122, 255, 0.28) !important;
+      box-shadow: 0 4px 14px rgba(10, 132, 255, 0.35) !important;
     }
     #startJambDrillBtn {
       background: linear-gradient(135deg, var(--ios-purple), var(--ios-purple-600)) !important;
-      box-shadow: 0 4px 14px rgba(175, 82, 222, 0.28) !important;
+      box-shadow: 0 4px 14px rgba(191, 90, 242, 0.35) !important;
     }
     #startWaecNecoDrillBtn {
       background: linear-gradient(135deg, var(--ios-green), var(--ios-green-600)) !important;
-      box-shadow: 0 4px 14px rgba(52, 199, 89, 0.28) !important;
+      box-shadow: 0 4px 14px rgba(48, 209, 88, 0.35) !important;
     }
     .start-test-btn:hover {
       transform: translateY(-1px) !important;
-      filter: brightness(1.05) !important;
+      filter: brightness(1.08) !important;
     }
     .start-test-btn:active { transform: scale(0.97) !important; }
 
     /* =========================================================
-       ASSIGNED TESTS TABLE
+       ASSIGNED TESTS TABLE — dark
        ========================================================= */
     .assigned-tests-table-wrapper {
-      background: var(--ios-bg-elevated) !important;
-      border: 1px solid var(--ios-separator) !important;
+      background: var(--bg-elevated-2) !important;
+      border: 1px solid var(--border-subtle) !important;
       border-radius: var(--ios-radius-lg) !important;
       box-shadow: none !important;
       max-height: 60vh !important;
       -webkit-overflow-scrolling: touch !important;
     }
     .assigned-tests-table {
-      background: var(--ios-bg-elevated) !important;
-      color: var(--ios-label) !important;
+      background: var(--bg-elevated-2) !important;
+      color: var(--text-primary) !important;
       border-radius: 0 !important;
       box-shadow: none !important;
       min-width: 640px !important;
     }
     .assigned-tests-table th {
-      background: var(--ios-bg) !important;
-      color: var(--ios-label-secondary) !important;
-      border-bottom: 1px solid var(--ios-separator) !important;
+      background: var(--bg-elevated-3) !important;
+      color: var(--text-secondary) !important;
+      border-bottom: 1px solid var(--border-default) !important;
       font-family: var(--ios-font) !important;
       font-size: 0.72rem !important;
       font-weight: 600 !important;
@@ -485,14 +408,14 @@
       padding: 12px !important;
     }
     .assigned-tests-table td {
-      color: var(--ios-label) !important;
-      border-bottom: 1px solid var(--ios-separator) !important;
+      color: var(--text-primary) !important;
+      border-bottom: 1px solid var(--border-subtle) !important;
       padding: 12px !important;
       font-size: 0.88rem !important;
       letter-spacing: -0.005em !important;
     }
     .assigned-tests-table tr:hover td {
-      background: var(--ios-fill-2) !important;
+      background: var(--fill-subtle) !important;
     }
     .assigned-tests-table tr:last-child td { border-bottom: none !important; }
 
@@ -507,14 +430,14 @@
       font-size: 0.8rem !important;
       cursor: pointer !important;
       transition: all 0.15s var(--ios-smooth) !important;
-      box-shadow: 0 2px 6px rgba(0, 122, 255, 0.25) !important;
+      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.35) !important;
       white-space: nowrap !important;
     }
-    .take-test-btn:hover { filter: brightness(1.05) !important; }
+    .take-test-btn:hover { filter: brightness(1.08) !important; }
     .take-test-btn:active { transform: scale(0.96) !important; }
     .take-test-btn:disabled {
-      background: var(--ios-fill) !important;
-      color: var(--ios-label-secondary) !important;
+      background: var(--fill-strong) !important;
+      color: var(--text-tertiary) !important;
       cursor: not-allowed !important;
       box-shadow: none !important;
       opacity: 1 !important;
@@ -531,50 +454,50 @@
       letter-spacing: 0.04em !important;
     }
     .status-started {
-      background: rgba(52, 199, 89, 0.15) !important;
-      color: #1B7F3A !important;
+      background: rgba(48, 209, 88, 0.18) !important;
+      color: #5CE08A !important;
     }
     .status-pending {
-      background: rgba(255, 149, 0, 0.15) !important;
-      color: #8A4A00 !important;
+      background: rgba(255, 159, 10, 0.18) !important;
+      color: #FFB84D !important;
     }
     .status-expired {
-      background: rgba(255, 59, 48, 0.12) !important;
-      color: #B3261E !important;
+      background: rgba(255, 69, 58, 0.16) !important;
+      color: #FF8078 !important;
     }
 
     /* =========================================================
-       RECENT TESTS
+       RECENT TESTS — dark
        ========================================================= */
     .recent-tests-section { margin-top: 0.5rem !important; }
     .recent-tests {
-      background: var(--ios-bg-elevated) !important;
+      background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-xl) !important;
       padding: 1.4rem 1.6rem !important;
-      box-shadow: var(--ios-shadow) !important;
-      border: none !important;
-      color: var(--ios-label) !important;
+      box-shadow: var(--shadow) !important;
+      border: 1px solid var(--border-subtle) !important;
+      color: var(--text-primary) !important;
     }
     .recent-tests h3 {
       font-family: var(--ios-font-display) !important;
       font-size: 1.15rem !important;
       font-weight: 700 !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       letter-spacing: -0.02em !important;
       margin: 0 0 1rem 0 !important;
     }
 
     .recent-test-item {
-      background: var(--ios-fill-2) !important;
+      background: var(--bg-elevated-2) !important;
       border-radius: var(--ios-radius) !important;
       padding: 0.9rem 1rem !important;
       margin-bottom: 0.6rem !important;
-      border: 1px solid var(--ios-separator) !important;
-      transition: background 0.15s ease, transform 0.15s var(--ios-smooth) !important;
+      border: 1px solid var(--border-subtle) !important;
+      transition: background 0.15s ease, border-color 0.15s ease !important;
     }
     .recent-test-item:hover {
-      background: var(--ios-fill) !important;
-      transform: translateY(-1px) !important;
+      background: var(--bg-elevated-3) !important;
+      border-color: var(--border-default) !important;
     }
     .recent-test-item .test-header {
       display: flex !important;
@@ -589,24 +512,24 @@
       width: 32px !important;
       height: 32px !important;
       border-radius: 10px !important;
-      background: rgba(0, 122, 255, 0.12) !important;
+      background: rgba(10, 132, 255, 0.18) !important;
       color: var(--ios-blue) !important;
       font-size: 0.9rem !important;
     }
     .recent-test-item .test-date {
       font-size: 0.75rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       font-weight: 500 !important;
     }
     .recent-test-item .test-subject {
       font-weight: 700 !important;
-      color: var(--ios-label) !important;
+      color: var(--text-primary) !important;
       font-size: 0.95rem !important;
       margin-bottom: 0.3rem !important;
     }
     .recent-test-item .test-score {
       font-size: 0.85rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
     }
     .recent-test-item .test-score strong {
       color: var(--ios-blue) !important;
@@ -618,12 +541,12 @@
       font-size: 0.8rem !important;
       padding: 3px 0 !important;
     }
-    .recent-test-item .subject-name { color: var(--ios-label-secondary) !important; }
-    .recent-test-item .score-value { color: var(--ios-label) !important; font-weight: 600 !important; }
+    .recent-test-item .subject-name { color: var(--text-secondary) !important; }
+    .recent-test-item .score-value { color: var(--text-primary) !important; font-weight: 600 !important; }
     .recent-test-item .test-total-score {
       margin-top: 0.4rem !important;
       padding-top: 0.4rem !important;
-      border-top: 1px solid var(--ios-separator) !important;
+      border-top: 1px solid var(--border-subtle) !important;
       font-size: 0.85rem !important;
     }
     .recent-test-item .test-total-score strong { color: var(--ios-blue) !important; }
@@ -631,24 +554,24 @@
     .no-tests {
       text-align: center !important;
       padding: 2rem 1rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       font-size: 0.9rem !important;
       font-style: italic !important;
     }
     .error {
-      color: var(--ios-red) !important;
+      color: #FF8078 !important;
       text-align: center !important;
       padding: 1rem !important;
       font-size: 0.9rem !important;
     }
 
     /* =========================================================
-       LOAD MORE
+       LOAD MORE — dark iOS pill
        ========================================================= */
     .load-more-btn {
-      background: var(--ios-fill) !important;
+      background: var(--fill-strong) !important;
       color: var(--ios-blue) !important;
-      border: 1px solid var(--ios-separator) !important;
+      border: 1px solid var(--border-default) !important;
       padding: 0.7rem 1.4rem !important;
       border-radius: 999px !important;
       font-family: var(--ios-font) !important;
@@ -660,19 +583,22 @@
       align-items: center !important;
       gap: 6px !important;
     }
-    .load-more-btn:hover { background: rgba(0, 122, 255, 0.12) !important; }
+    .load-more-btn:hover {
+      background: rgba(10, 132, 255, 0.15) !important;
+      border-color: var(--ios-blue) !important;
+    }
     .load-more-btn:active { transform: scale(0.97) !important; }
 
-    /* Loading + error message states */
+    /* Loading + error states */
     .loading {
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       text-align: center !important;
       padding: 2rem 1rem !important;
       font-style: italic !important;
     }
     .error-message {
-      background: rgba(255, 59, 48, 0.10) !important;
-      color: #B3261E !important;
+      background: rgba(255, 69, 58, 0.12) !important;
+      color: #FF8078 !important;
       padding: 1rem 1.25rem !important;
       border-radius: var(--ios-radius) !important;
       font-size: 0.9rem !important;
@@ -680,14 +606,14 @@
     }
 
     /* =========================================================
-       FOOTER
+       FOOTER — dark
        ========================================================= */
     .dashboard-footer {
       background: transparent !important;
-      border-top: 1px solid var(--ios-separator) !important;
+      border-top: 1px solid var(--border-subtle) !important;
       padding: 1.5rem 0 1rem !important;
       margin-top: 2rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
     }
     .footer-content {
       display: flex !important;
@@ -701,19 +627,22 @@
       align-items: center !important;
       gap: 6px !important;
       padding: 8px 16px !important;
-      background: var(--ios-bg-elevated) !important;
+      background: var(--fill-strong) !important;
       color: var(--ios-blue) !important;
-      border: 1px solid var(--ios-separator) !important;
+      border: 1px solid var(--border-default) !important;
       border-radius: 999px !important;
       text-decoration: none !important;
       font-weight: 600 !important;
       font-size: 0.85rem !important;
       transition: background 0.15s ease !important;
     }
-    .footer-nav .home-btn:hover { background: var(--ios-fill) !important; }
+    .footer-nav .home-btn:hover {
+      background: rgba(10, 132, 255, 0.15) !important;
+      border-color: var(--ios-blue) !important;
+    }
     .footer-copyright p {
       font-size: 0.78rem !important;
-      color: var(--ios-label-secondary) !important;
+      color: var(--text-secondary) !important;
       margin: 0 !important;
     }
 
@@ -721,10 +650,10 @@
        MOBILE RESPONSIVE
        ========================================================= */
     @media (max-width: 768px) {
-      .header-container { padding: 0 1rem !important; }
-      .brand-name { font-size: 1.25rem !important; }
-
-      .welcome-section { padding: 1.1rem 1.2rem !important; border-radius: var(--ios-radius-lg) !important; }
+      .welcome-section {
+        padding: 1.1rem 1.2rem !important;
+        border-radius: var(--ios-radius-lg) !important;
+      }
       .user-welcome h1 { font-size: 1.25rem !important; }
 
       .practice-section,
@@ -738,7 +667,6 @@
       .stat-icon { width: 40px !important; height: 40px !important; font-size: 1.15rem !important; }
       .stat-card { padding: 0.95rem 1rem !important; gap: 0.75rem !important; }
 
-      /* Tabs on mobile — bold, normal-sized pill buttons */
       .cbt-tabs { padding: 4px !important; gap: 4px !important; }
       .cbt-tab {
         padding: 0.7rem 0.6rem !important;
@@ -758,7 +686,6 @@
         padding: 0.7rem 2.2rem 0.7rem 0.9rem !important;
       }
 
-      /* Stack the form-row on mobile so selects + button aren't cramped */
       .practice-form .form-row {
         flex-direction: column !important;
         align-items: stretch !important;
@@ -777,8 +704,6 @@
     }
 
     @media (max-width: 480px) {
-      .brand-name { font-size: 1.15rem !important; }
-
       .cbt-tab {
         padding: 0.65rem 0.4rem !important;
         font-size: 0.76rem !important;
