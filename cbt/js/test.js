@@ -1,24 +1,13 @@
 // cbt/js/test.js - Acadex CBT Engine (with academic session/term integration)
-// ADDED: Tab-switching detector – first violation warns, second auto-submits.
-// ADDED: Page refresh prevention (F5, Ctrl+R, beforeunload, etc.)
-// FIXED: Double-trigger bug (blur + visibilitychange both counting), isSubmitting guard conflict.
-// FIXED: Modal visibility — the anti-cheat modal now contains the
-//        .antiCheatMessage / .antiCheatCountdown children the JS expects,
-//        and the CSS defines .anti-cheat-modal.is-visible.
-// ADDED: Fullscreen-exit warning handler (was missing in the original file).
 //
-// NEW: Per-student submission markers. After a CBT result is saved to
-//      `test_results`, a marker document is written to `cbt_submissions`
-//      (`{cbtId}_{studentId}`) so the student dashboard can disable the
-//      "Take Test" button and prevent retakes while the test is still open.
-//      The write is NON-FATAL: if it fails (e.g. missing Firestore rule),
-//      the student dashboard's GUARD 3 (test_results existence + epoch check)
-//      still blocks the student on the next attempt.
-//
-// REMOVED: dead duplicate startAssignedTest() at the bottom of this file —
-//          it was never called; the live version lives in cbt/js/cbt.js and
-//          has its own guards. Removing it eliminates a future footgun where
-//          a deep-linked test.html?cbtId=… could bypass guards.
+// THEME / FULLSCREEN UPDATE:
+//  - initializeTest() now splits setup from actual test start. The engine
+//    waits for a CustomEvent 'acadex:start-test' (fired from test.html's
+//    fullscreen prompt) before starting the timer and loading question 1.
+//  - Subject-tab highlighting now uses an `.active` CSS class instead of
+//    inline styles, so the dark theme defined in test.html can style it.
+//  - All other behaviour (anti-cheat, submission, results, solutions)
+//    is preserved exactly as before.
 
 import { auth, db } from '../../js/firebase-config.js';
 import {
@@ -300,15 +289,13 @@ let currentUser = null;
 let subjectStartIndices = {};
 let subjectCounts = {};
 
+// Fullscreen-gated start:
+let testDataReady = false;
+let testStarted   = false;
+let startTriggered = false;
+
 // ============================================================
 // ANTI-CHEAT MODULE
-//
-// Handles: tab switch, window blur, right-click, copy/paste,
-// screenshots, devtools shortcuts, refresh prevention, and
-// fullscreen-exit detection.
-//
-// All modal styling lives in test.html's <style> block.
-// JS only toggles the `.is-visible` class.
 // ============================================================
 
 const DASHBOARD_URL = '../../student/student-portal.html';
@@ -317,41 +304,32 @@ let tabSwitchCount = 0;
 let isSubmitting = false;
 let lastViolationTs = 0;
 
-const VIOLATION_DEDUPE_MS = 5000;   // >= 5 s: blur + visibilitychange = 1 violation
-const FIRST_WARNING_MS    = 15000;  // 15 s first warning
-const SECOND_MODAL_MS     = 5000;   // 5 s minimum before redirect
+const VIOLATION_DEDUPE_MS = 5000;
+const FIRST_WARNING_MS    = 15000;
+const SECOND_MODAL_MS     = 5000;
 
 let warningIntervalHandle = null;
 let warningEndTime = 0;
 
-const antiCheatWarningModal   = document.getElementById('antiCheatWarningModal');
-const fullscreenWarningModal  = document.getElementById('fullscreenWarningModal');
+const antiCheatWarningModal  = document.getElementById('antiCheatWarningModal');
+const fullscreenWarningModal = document.getElementById('fullscreenWarningModal');
 
-// ── Anti-cheat modal ──────────────────────────────────────────────────────
 function showAntiCheatModal(message, autoCloseMs) {
     if (!antiCheatWarningModal) return;
-
-    // Cancel any previous countdown so a stale timer cannot hide a new modal.
     if (warningIntervalHandle) {
         clearInterval(warningIntervalHandle);
         warningIntervalHandle = null;
     }
-
     const msgEl = antiCheatWarningModal.querySelector('.antiCheatMessage');
     const cdEl  = antiCheatWarningModal.querySelector('.antiCheatCountdown');
     if (msgEl) msgEl.textContent = message;
-
     antiCheatWarningModal.classList.add('is-visible');
     antiCheatWarningModal.setAttribute('aria-hidden', 'false');
-
-    // Persistent mode (second warning): keep visible until navigation.
     if (autoCloseMs === null || autoCloseMs === undefined) {
         if (cdEl) cdEl.textContent = 'Please wait...';
         return;
     }
-
     warningEndTime = Date.now() + autoCloseMs;
-
     const tick = function () {
         const remaining = warningEndTime - Date.now();
         const seconds = Math.max(0, Math.ceil(remaining / 1000));
@@ -383,7 +361,6 @@ function hideAntiCheatModal() {
     antiCheatWarningModal.setAttribute('aria-hidden', 'true');
 }
 
-// ── Fullscreen warning ────────────────────────────────────────────────────
 let wasFullscreenActive = false;
 
 function getFullscreenElement() {
@@ -418,7 +395,6 @@ function handleFullscreenChange() {
     }
 }
 
-// ── Silent violation logger (fire-and-forget, never blocks) ────────────────
 function logViolation(type, detail) {
     try {
         if (!currentUser || !currentUser.uid) return;
@@ -438,16 +414,11 @@ function logViolation(type, detail) {
     } catch (err) {}
 }
 
-// ── Central violation handler ─────────────────────────────────────────────
 function registerViolation(reason) {
     if (isSubmitting) return;
-
     const now = Date.now();
-    if (now - lastViolationTs < VIOLATION_DEDUPE_MS) {
-        return;
-    }
+    if (now - lastViolationTs < VIOLATION_DEDUPE_MS) return;
     lastViolationTs = now;
-
     tabSwitchCount++;
 
     if (tabSwitchCount === 1) {
@@ -461,7 +432,6 @@ function registerViolation(reason) {
     }
 
     logViolation('second_violation', reason);
-
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
 
     showAntiCheatModal(
@@ -469,7 +439,6 @@ function registerViolation(reason) {
         null
     );
 
-    // NEW: submissionType 'auto' → cbt_submissions marker records it as auto.
     submitTest(true, SECOND_MODAL_MS, 'auto').catch(function (err) {
         console.warn('Auto-submit failed, forcing redirect:', err);
         try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err2) {}
@@ -493,7 +462,6 @@ function preventRefresh(e) {
         (e.ctrlKey  && (key === 'r' || key === 'R')) ||
         (e.ctrlKey  && e.shiftKey && (key === 'r' || key === 'R')) ||
         (e.metaKey  && (key === 'r' || key === 'R'));
-
     if (isRefreshKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -528,28 +496,24 @@ function preventContextMenu(e) {
 
 function handleKeyBlock(e) {
     const k = (e.key || '').toLowerCase();
-
     if ((e.ctrlKey || e.metaKey) && ['c','v','x','a'].indexOf(k) !== -1) {
         e.preventDefault(); e.stopPropagation();
         showAntiCheatModal('This shortcut is disabled during the test.', 2000);
         logViolation('shortcut_blocked', 'ctrl+' + k);
         return false;
     }
-
     if ((e.ctrlKey || e.metaKey) && ['s','p','u'].indexOf(k) !== -1) {
         e.preventDefault(); e.stopPropagation();
         showAntiCheatModal('This action is disabled during the test.', 2000);
         logViolation('shortcut_blocked', 'ctrl+' + k);
         return false;
     }
-
     if (k === 'f12' || ((e.ctrlKey || e.metaKey) && e.shiftKey && ['i','j','c'].indexOf(k) !== -1)) {
         e.preventDefault(); e.stopPropagation();
         showAntiCheatModal('Developer tools are disabled during the test.', 2000);
         logViolation('devtools_blocked', k);
         return false;
     }
-
     if (k === 'printscreen') {
         try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -561,7 +525,6 @@ function handleKeyBlock(e) {
         logViolation('screenshot_attempt');
         return false;
     }
-
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && k === 's') {
         e.preventDefault(); e.stopPropagation();
         showAntiCheatModal('Screenshots are not allowed during the test.', 2500);
@@ -575,10 +538,7 @@ function preventSelectStart(e) {
     if (tag === 'input' || tag === 'textarea') return;
     e.preventDefault();
 }
-
-function preventDragStart(e) {
-    e.preventDefault();
-}
+function preventDragStart(e) { e.preventDefault(); }
 
 function initAntiCheat() {
     document.addEventListener('visibilitychange', handleVisibilityLoss);
@@ -599,7 +559,6 @@ function initAntiCheat() {
         });
 }
 
-// Kept for backward compatibility with any external reference.
 async function forceSubmitAndRedirect() {
     if (isSubmitting) {
         try { window.removeEventListener('beforeunload', preventBeforeUnload); } catch (err) {}
@@ -611,7 +570,7 @@ async function forceSubmitAndRedirect() {
 }
 
 // =============================================
-// HELPER: Shuffle array for assigned test randomisation
+// HELPER: Shuffle
 // =============================================
 function shuffleArray(array) {
     const shuffled = array.slice();
@@ -623,6 +582,30 @@ function shuffleArray(array) {
     }
     return shuffled;
 }
+
+// =============================================
+// START-TEST EVENT (from fullscreen prompt)
+// =============================================
+function maybeStartTest() {
+    if (testStarted) return;
+    if (!testDataReady) return;
+    if (!startTriggered) return;
+    doStartTest();
+}
+
+function doStartTest() {
+    if (testStarted) return;
+    testStarted = true;
+    startTimer();
+    loadQuestion(0);
+    updateProgressBar();
+    updateAnsweredCount();
+}
+
+document.addEventListener('acadex:start-test', function () {
+    startTriggered = true;
+    maybeStartTest();
+});
 
 // =============================================
 // INITIALIZATION
@@ -754,12 +737,18 @@ function initializeTest() {
     totalQuestionsModal.textContent = testData.totalQuestions || testData.questions.length;
     timeRemaining = testData.totalTime || (testData.questions.length * 120);
     updateTimerDisplay();
-    startTimer();
+
+    if (!testData.userAnswers) {
+        testData.userAnswers = new Array(testData.questions.length).fill(null);
+    }
     generateQuestionDots();
-    if (!testData.userAnswers) testData.userAnswers = new Array(testData.questions.length).fill(null);
-    loadQuestion(0);
-    updateProgressBar();
-    updateAnsweredCount();
+
+    // Mark setup complete and try to start (waits for fullscreen event too)
+    testDataReady = true;
+    if (startTriggered || window.__acadexTestStartTriggered) {
+        startTriggered = true;
+        maybeStartTest();
+    }
 }
 
 function renderSubjectTabs() {
@@ -774,29 +763,12 @@ function renderSubjectTabs() {
         tab.addEventListener('click', function () { switchToSubject(subj.value); });
         subjectTabs.appendChild(tab);
     });
-    document.querySelectorAll('.subject-tab').forEach(function (tab) {
-        tab.style.padding = '10px 20px';
-        tab.style.marginRight = '5px';
-        tab.style.border = 'none';
-        tab.style.borderRadius = '20px';
-        tab.style.background = '#e0e0e0';
-        tab.style.cursor = 'pointer';
-        tab.style.fontSize = '14px';
-        tab.style.fontWeight = '500';
-        tab.style.transition = 'all 0.3s';
-    });
     highlightActiveSubjectTab(testData.questions[0] && testData.questions[0].subject);
 }
 
 function highlightActiveSubjectTab(subject) {
     document.querySelectorAll('.subject-tab').forEach(function (tab) {
-        if (tab.dataset.subject === subject) {
-            tab.style.background = 'var(--eggplant)';
-            tab.style.color = 'white';
-        } else {
-            tab.style.background = '#e0e0e0';
-            tab.style.color = '#333';
-        }
+        tab.classList.toggle('active', tab.dataset.subject === subject);
     });
 }
 
@@ -915,6 +887,7 @@ function showNextQuestion() { if (currentQuestionIndex < testData.questions.leng
 
 function startTimer() {
     updateTimerDisplay();
+    if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(function () {
         timeRemaining--;
         updateTimerDisplay();
@@ -936,7 +909,6 @@ function updateTimerDisplay() {
 function showSubmitModal() { updateAnsweredCount(); submitModal.style.display = 'flex'; }
 function hideSubmitModal() { submitModal.style.display = 'none'; }
 
-// NEW: timer-expiry submission is now explicitly marked 'auto'.
 function autoSubmitTest() {
     getResultBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Time\'s Up! Submitting...';
     setTimeout(function () { submitTest(false, 0, 'auto'); }, 1000);
@@ -944,12 +916,6 @@ function autoSubmitTest() {
 
 // =============================================
 // SAVE TEST RESULT TO FIRESTORE
-//
-// CHANGED: new `submissionType` parameter ('manual' | 'auto' | 'backfill').
-// CHANGED: after successfully saving `test_results`, write a per-student
-//          marker to `cbt_submissions/{cbtId}_{studentId}`. The write is
-//          non-fatal: if it fails, the student dashboard's GUARD 3 still
-//          blocks the student on the next attempt.
 // =============================================
 async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjectScores, submissionType = 'manual') {
     try {
@@ -970,9 +936,7 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
                 className = studentData.className || null;
                 if (classId && !className) {
                     const classData = await service.getClassById(classId);
-                    if (classData) {
-                        className = classData.name || null;
-                    }
+                    if (classData) className = classData.name || null;
                 }
             } else {
                 console.warn("Student document not found for UID:", currentUser.uid);
@@ -1049,11 +1013,7 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
         const docRef = await service.saveTestResult(resultData);
         console.log('Test result saved to Firestore with ID:', docRef);
 
-        // ─────────────────────────────────────────────────────────────────────
-        // NEW: write per-student "submitted" marker for CBT tests.
-        // Non-fatal: if this fails, the dashboard's GUARD 3 (test_results
-        // existence + epoch check) still blocks the student on the next click.
-        // ─────────────────────────────────────────────────────────────────────
+        // Per-student submission marker for CBT tests (non-fatal).
         if (testData.mode === 'cbt' && testData.cbtId) {
             try {
                 const submissionDocId = testData.cbtId + '_' + currentUser.uid;
@@ -1084,9 +1044,6 @@ async function saveTestResultToFirestore(score, correctAnswers, rawScore, subjec
 
 // =============================================
 // SUBMIT TEST
-//
-// CHANGED: new optional `explicitSubmissionType` parameter — used to
-//          distinguish 'auto' (timer / anti-cheat) from 'manual'.
 // =============================================
 async function submitTest(redirectAfter, minRedirectDelayMs, explicitSubmissionType) {
     if (isSubmitting) return;
@@ -1328,7 +1285,7 @@ function showSolutionsModal(questions, userAnswers) {
     if (testData.mode === 'jamb_drill') {
         testData.subjects.forEach(function (subj) {
             const header = document.createElement('h3');
-            header.style.color = 'var(--eggplant)';
+            header.style.color = 'var(--ios-blue)';
             header.style.margin = '20px 0 10px';
             header.innerHTML = '<i class="fas fa-book"></i> ' + subj.name;
             container.appendChild(header);
@@ -1350,7 +1307,7 @@ function showSolutionsModal(questions, userAnswers) {
     const backDiv = document.createElement('div');
     backDiv.style.marginTop = '30px';
     backDiv.style.paddingTop = '20px';
-    backDiv.style.borderTop = '2px solid #eee';
+    backDiv.style.borderTop = '2px solid var(--border-subtle)';
     backDiv.style.textAlign = 'center';
     const backBtn = document.createElement('button');
     backBtn.className = 'modal-btn confirm';
@@ -1408,7 +1365,7 @@ function createSolutionItem(question, userAnswer, displayNumber) {
     const separator = document.createElement('hr');
     separator.style.margin = '20px 0';
     separator.style.border = 'none';
-    separator.style.borderTop = '1px solid #eee';
+    separator.style.borderTop = '1px solid var(--border-subtle)';
     solutionItem.appendChild(separator);
     return solutionItem;
 }
@@ -1440,8 +1397,3 @@ function handleKeyboardNavigation(e) {
         case 'Escape': showSubmitModal(); break;
     }
 }
-
-// ⚠️ REMOVED: dead duplicate `startAssignedTest()` that used to sit here.
-//              The live version lives in cbt/js/cbt.js and is fully guarded.
-//              Removing it eliminates a footgun where a manual navigation to
-//              test.html?cbtId=... could have bypassed the guards.
