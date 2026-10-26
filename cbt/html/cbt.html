@@ -21,27 +21,22 @@
        (header left entirely to cbt.css)
        ========================================================= */
     :root {
-      /* Dark surfaces — subtle, eye-friendly */
-      --bg-base:       #16132B;   /* page background */
-      --bg-elevated:   #1F1C3F;   /* cards */
-      --bg-elevated-2: #282350;   /* nested surfaces */
-      --bg-elevated-3: #312B60;   /* deepest */
+      --bg-base:       #16132B;
+      --bg-elevated:   #1F1C3F;
+      --bg-elevated-2: #282350;
+      --bg-elevated-3: #312B60;
 
-      /* Vivid text on dark */
       --text-primary:   #F8F8FF;
       --text-secondary: rgba(235, 235, 245, 0.65);
       --text-tertiary:  rgba(235, 235, 245, 0.42);
 
-      /* Borders / separators */
       --border-subtle:  rgba(255, 255, 255, 0.08);
       --border-default: rgba(255, 255, 255, 0.12);
       --border-strong:  rgba(255, 255, 255, 0.18);
 
-      /* Subtle fills */
       --fill-subtle:    rgba(255, 255, 255, 0.04);
       --fill-strong:    rgba(255, 255, 255, 0.08);
 
-      /* iOS dark-mode accents — brighter for vividness */
       --ios-blue:       #0A84FF;
       --ios-blue-600:   #0066CC;
       --ios-green:      #30D158;
@@ -53,7 +48,6 @@
       --ios-red:        #FF453A;
       --ios-teal:       #64D2FF;
 
-      /* Dark shadows */
       --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
       --shadow:    0 1px 3px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.18);
       --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
@@ -73,9 +67,7 @@
     /* =========================================================
        DARK BACKGROUND (header untouched)
        ========================================================= */
-    html {
-      background: var(--bg-base) !important;
-    }
+    html { background: var(--bg-base) !important; }
     body {
       background: var(--bg-base) !important;
       font-family: var(--ios-font) !important;
@@ -204,7 +196,6 @@
 
     /* =========================================================
        TABS — dark iOS pills
-       Overrides the inline styles from cbt.js via !important.
        ========================================================= */
     .cbt-tabs {
       display: flex !important;
@@ -258,6 +249,7 @@
       box-shadow: var(--shadow) !important;
       border: 1px solid var(--border-subtle) !important;
       color: var(--text-primary) !important;
+      min-width: 0 !important;
     }
     .section-header h2 {
       font-family: var(--ios-font-display) !important;
@@ -339,6 +331,38 @@
       margin-top: 8px !important;
     }
 
+    /* Show/Hide JAMB subjects toggle button */
+    #showAllSubjectsBtn {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 8px !important;
+      padding: 0.7rem 1.35rem !important;
+      background: var(--fill-strong) !important;
+      color: var(--ios-blue) !important;
+      border: 1px solid var(--border-default) !important;
+      border-radius: 999px !important;
+      font-family: var(--ios-font) !important;
+      font-size: 0.85rem !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      transition: all 0.15s var(--ios-smooth) !important;
+      margin-top: 4px !important;
+      margin-bottom: 12px !important;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #showAllSubjectsBtn:hover {
+      background: rgba(10, 132, 255, 0.15) !important;
+      border-color: var(--ios-blue) !important;
+    }
+    #showAllSubjectsBtn:active { transform: scale(0.97) !important; }
+    #showAllSubjectsBtn i {
+      transition: transform 0.25s var(--ios-smooth);
+      font-size: 0.8rem !important;
+      color: var(--ios-blue) !important;
+    }
+    #showAllSubjectsBtn.expanded i { transform: rotate(180deg); }
+
     /* =========================================================
        START TEST BUTTONS — dark iOS pills
        ========================================================= */
@@ -379,22 +403,32 @@
     .start-test-btn:active { transform: scale(0.97) !important; }
 
     /* =========================================================
-       ASSIGNED TESTS TABLE — dark
+       ASSIGNED TESTS TABLE — dark, fully contained scroll
        ========================================================= */
     .assigned-tests-table-wrapper {
       background: var(--bg-elevated-2) !important;
       border: 1px solid var(--border-subtle) !important;
       border-radius: var(--ios-radius-lg) !important;
       box-shadow: none !important;
+      overflow: auto !important;
+      overflow-x: auto !important;
+      overflow-y: auto !important;
       max-height: 60vh !important;
+      max-width: 100% !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
       -webkit-overflow-scrolling: touch !important;
+      margin-top: 1rem !important;
+      display: block !important;
     }
     .assigned-tests-table {
       background: var(--bg-elevated-2) !important;
       color: var(--text-primary) !important;
       border-radius: 0 !important;
       box-shadow: none !important;
-      min-width: 640px !important;
+      min-width: 700px !important;
+      width: 100% !important;
+      border-collapse: collapse !important;
     }
     .assigned-tests-table th {
       background: var(--bg-elevated-3) !important;
@@ -406,6 +440,9 @@
       text-transform: uppercase !important;
       letter-spacing: 0.05em !important;
       padding: 12px !important;
+      position: sticky !important;
+      top: 0 !important;
+      z-index: 1 !important;
     }
     .assigned-tests-table td {
       color: var(--text-primary) !important;
@@ -566,7 +603,7 @@
     }
 
     /* =========================================================
-       LOAD MORE — dark iOS pill
+       LOAD MORE / CHECK RECENT TESTS — dark iOS pill
        ========================================================= */
     .load-more-btn {
       background: var(--fill-strong) !important;
@@ -588,6 +625,24 @@
       border-color: var(--ios-blue) !important;
     }
     .load-more-btn:active { transform: scale(0.97) !important; }
+    .load-more-btn:disabled {
+      opacity: 0.65 !important;
+      cursor: wait !important;
+    }
+
+    /* The "Check Your Recent Tests" CTA — slightly more prominent */
+    #loadRecentTestsBtn {
+      padding: 0.85rem 1.6rem !important;
+      font-size: 0.92rem !important;
+      font-weight: 700 !important;
+      background: rgba(10, 132, 255, 0.15) !important;
+      border: 1px solid rgba(10, 132, 255, 0.35) !important;
+      color: var(--ios-blue) !important;
+    }
+    #loadRecentTestsBtn:hover {
+      background: rgba(10, 132, 255, 0.22) !important;
+      border-color: var(--ios-blue) !important;
+    }
 
     /* Loading + error states */
     .loading {
@@ -701,6 +756,12 @@
         padding: 6px 12px !important;
         font-size: 0.72rem !important;
       }
+
+      #loadRecentTestsBtn {
+        padding: 0.75rem 1.25rem !important;
+        font-size: 0.85rem !important;
+        width: 100% !important;
+      }
     }
 
     @media (max-width: 480px) {
@@ -727,6 +788,11 @@
       .take-test-btn { padding: 6px 10px !important; font-size: 0.7rem !important; }
 
       .recent-test-item .test-subject { font-size: 0.88rem !important; }
+
+      #showAllSubjectsBtn {
+        font-size: 0.8rem !important;
+        padding: 0.65rem 1.1rem !important;
+      }
     }
   </style>
 </head>
@@ -931,7 +997,15 @@ if ('serviceWorker' in navigator) {
       <section class="recent-tests-section">
         <div id="recentTestsContainer" class="recent-tests">
           <h3>Recent Tests</h3>
-          <div id="recentTestsList"></div>
+
+          <!-- NEW: Button lives inside #recentTestsList so it auto-disappears
+               the moment setupRecentTests() replaces the container's innerHTML. -->
+          <div id="recentTestsList">
+            <button id="loadRecentTestsBtn" class="load-more-btn">
+              <i class="fas fa-history"></i> Check Your Recent Tests
+            </button>
+          </div>
+
           <div id="recentTestsMore" class="load-more-container" style="display:none; text-align: center; margin-top: 1rem;">
             <button id="loadMoreRecentBtn" class="load-more-btn">
               <i class="fas fa-chevron-down"></i> Load More
@@ -959,8 +1033,42 @@ if ('serviceWorker' in navigator) {
 
 <script type="module" src="../js/script.js"></script>
 <script type="module" src="../js/cbt.js"></script>
+
+<!-- ============================================================
+     Show/Hide subjects toggle for JAMB Drill (unchanged)
+     ============================================================ -->
 <script>
-  // Unregister any existing service worker, then clear all its caches.
+  (function () {
+    const container = document.getElementById('additionalSubjects');
+    if (!container) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'showAllSubjectsBtn';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show All Subjects';
+
+    container.parentNode.insertBefore(btn, container);
+    container.style.display = 'none';
+
+    btn.addEventListener('click', function () {
+      const isCollapsed = container.style.display === 'none';
+      if (isCollapsed) {
+        container.style.display = 'grid';
+        btn.innerHTML = '<i class="fas fa-chevron-down"></i> Hide Subjects';
+        btn.classList.add('expanded');
+        btn.setAttribute('aria-expanded', 'true');
+      } else {
+        container.style.display = 'none';
+        btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show All Subjects';
+        btn.classList.remove('expanded');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  })();
+</script>
+
+<script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
       for (let registration of registrations) {
@@ -970,7 +1078,6 @@ if ('serviceWorker' in navigator) {
       console.log('Service Worker unregistration failed: ', err);
     });
 
-    // Also delete all caches just in case.
     if (window.caches) {
       caches.keys().then(function(cacheNames) {
         cacheNames.forEach(function(cacheName) {
