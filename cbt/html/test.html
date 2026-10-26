@@ -978,38 +978,6 @@
     })();
   </script>
 
-  <!-- HEADER -->
-  <header class="header">
-    <div class="container header-container">
-      <div class="brand">
-        <h1 class="brand-name">Acadex <span class="cbt">CBT</span></h1>
-      </div>
-      <div class="hamburger" id="hamburger">
-        <span></span><span></span><span></span>
-      </div>
-      <nav class="desktop-nav">
-        <ul class="desktop-nav-list">
-          <li class="desktop-nav-item">
-            <a href="../../students/student-portal.html" class="desktop-nav-link"><i class="fas fa-home"></i> Home</a>
-          </li>
-          <li class="desktop-nav-item">
-            <a href="test.html" class="desktop-nav-link active"><i class="fas fa-pencil-alt"></i> Test</a>
-          </li>
-        </ul>
-      </nav>
-    </div>
-  </header>
-
-  <!-- MOBILE MENU -->
-  <nav class="mobile-menu" id="mobileMenu">
-    <div class="container">
-      <ul class="nav-list">
-        <li><a href="../../students/student-portal.html" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
-        <li><a href="test.html" class="nav-link active"><i class="fas fa-pencil-alt"></i> Test</a></li>
-      </ul>
-    </div>
-  </nav>
-
   <main class="test-page">
     <div class="test-container">
       <div class="test-header">
@@ -1205,7 +1173,7 @@
     })();
   </script>
 
-  <!-- FULLSCREEN ENTRY CONTROL (new) -->
+  <!-- FULLSCREEN ENTRY CONTROL (preserved) -->
   <script>
     (function () {
       const prompt = document.getElementById('fullscreenPrompt');
@@ -1278,7 +1246,7 @@
         registration.unregister();
       }
     }).catch(function(err) {
-      console.log('Service Worker Unregistration failed: ', err);
+      console.log('Service Worker unregistration failed: ', err);
     });
 
     if (window.caches) {
