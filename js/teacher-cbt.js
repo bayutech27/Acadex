@@ -8,12 +8,24 @@
 // NEW: The "Student Name" column in the CBT Scores table now shows the real student name
 //      pulled from the `students` collection's `name` field (via the student's UID),
 //      instead of the auth-account-derived userName stored on each test_results document.
+//
+// ============================================================================
+// RESTART FIX (this revision):
+//   Previously, when a teacher clicked "Start" on an already-expired CBT, every
+//   student who had submitted the *previous* run was still blocked because the
+//   per-student `cbt_submissions/{cbtId}_{studentId}` markers persisted forever.
+//   Because a "Start" action begins a NEW logical run of the test, those old
+//   markers are now cleared at the moment Start is pressed. Only the manual
+//   Start path clears markers — natural expiry and early End leave them intact.
+//   The fix is contained in `startTest()` + new `clearSubmissionMarkers()`;
+//   no changes are required in test.js or cbt.js. See inline comments.
+// ============================================================================
 
 import * as service from './service.js';
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc,
-  getDoc, orderBy, serverTimestamp, onSnapshot, setDoc
+  getDoc, orderBy, serverTimestamp, onSnapshot, setDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 import { db } from './firebase-config.js';
 import { getSchoolById } from './app.js';
@@ -304,7 +316,7 @@ function renderTestsTable(testList) {
 }
 
 // ==============================
-// EXPIRATION & ACTIONS (unchanged – direct Firestore for status updates)
+// EXPIRATION & ACTIONS
 // ==============================
 function checkAndExpireTests(testList) {
   testList.forEach(t => {
@@ -330,6 +342,9 @@ function scheduleExpiration(testId, msUntilExpiry) {
 }
 
 async function expireTest(testId) {
+  // NOTE: Natural expiry intentionally does NOT clear submission markers.
+  // Students who took this run stay blocked. Only a manual "Start" begins a
+  // new run and clears markers (see startTest / clearSubmissionMarkers).
   try {
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
   } catch (e) { console.warn('Expire error:', e); }
@@ -338,6 +353,7 @@ async function expireTest(testId) {
 async function endTest(testId) {
   if (!cbtAccessEnabled) return;
   if (!confirm('End this test early? Students will no longer be able to take it.')) return;
+  // NOTE: Early End also leaves markers intact (same rationale as expireTest).
   try {
     await updateDoc(doc(db, 'cbt', testId), { status: 'expired', expiredAt: serverTimestamp() });
     toast.success('Test ended successfully.');
@@ -347,13 +363,64 @@ async function endTest(testId) {
   }
 }
 
+// ============================================================
+// RESTART FIX — Start clears stale submission markers
+// ============================================================
+// Deletes every `cbt_submissions` record for the given test. Called only
+// from startTest(), because a "Start" action begins a NEW run of the test
+// and any markers from a previous run are stale.
+//
+// Design notes:
+//  - Non-throwing on purpose: callers decide how to handle failures.
+//  - Equality filters on cbtId + schoolId keep the query cheap and
+//    safely scoped; a composite index on (cbtId, schoolId) may be needed
+//    the first time this runs (Firestore will prompt).
+//  - Batches are chunked at 400 to remain safely under Firestore's
+//    500-operation-per-batch limit.
+//  - Returns the number of markers deleted (0 on error).
+async function clearSubmissionMarkers(testId) {
+  if (!testId || !currentSchoolId) return 0;
+  try {
+    const q = query(
+      collection(db, 'cbt_submissions'),
+      where('cbtId', '==', testId),
+      where('schoolId', '==', currentSchoolId)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return 0;
+
+    const refs = snap.docs.map(d => d.ref);
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = writeBatch(db);
+      refs.slice(i, i + 400).forEach(ref => batch.delete(ref));
+      await batch.commit();
+    }
+    console.log(`[startTest] Cleared ${refs.length} stale submission marker(s) for test ${testId}.`);
+    return refs.length;
+  } catch (err) {
+    console.warn('[startTest] Submission-marker cleanup failed (non-fatal):', err);
+    return 0;
+  }
+}
+
 async function startTest(testId) {
   if (!cbtAccessEnabled) return;
   if (!confirm('Activate this test? Students will be able to take it immediately.')) return;
   try {
     showLoader();
+
+    // ── RESTART FIX ─────────────────────────────────────────────────────
+    // A Start click begins a new run of the test. Any per-student marker
+    // left behind by a previous run would permanently block those students
+    // from retaking — so clear them BEFORE the run goes live.
+    // Cleanup failure is non-fatal; the test still restarts.
+    const markersCleared = await clearSubmissionMarkers(testId);
+
     await updateDoc(doc(db, 'cbt', testId), { status: 'started', startedAt: serverTimestamp() });
-    toast.success('Test activated! Students can now take it.');
+
+    toast.success(markersCleared > 0
+      ? `Test activated! ${markersCleared} previous submission${markersCleared === 1 ? '' : 's'} cleared — students may retake.`
+      : 'Test activated! Students can now take it.');
   } catch (e) {
     console.error('Start test error:', e);
     toast.error('Failed to start test. Please try again.');
