@@ -82,6 +82,62 @@
     }
 
     /* =========================================================
+       BOOT LOADER — static HTML, visible on first paint.
+       No JS is needed to *show* it. JS only hides it.
+       ========================================================= */
+    .cbt-boot-loader {
+      position: fixed;
+      top: 0; right: 0; bottom: 0; left: 0;
+      background: rgba(22, 19, 43, 0.82);
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+      z-index: 2147483000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.1rem;
+      opacity: 1;
+      pointer-events: auto;
+      transition: opacity 0.35s ease;
+    }
+    .cbt-boot-loader.cbt-boot-fadeout {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .cbt-boot-loader.cbt-boot-gone {
+      display: none;
+    }
+    .cbt-boot-spinner svg {
+      display: block;
+      width: 52px;
+      height: 52px;
+    }
+    .cbt-boot-track {
+      stroke: rgba(10, 132, 255, 0.20);
+    }
+    .cbt-boot-ring {
+      stroke: #0A84FF;
+      animation: cbtBootSpin 0.9s linear infinite;
+      transform-origin: center;
+    }
+    @keyframes cbtBootSpin {
+      to { transform: rotate(360deg); }
+    }
+    .cbt-boot-label {
+      color: rgba(248, 248, 255, 0.85);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      text-align: center;
+    }
+    @media (max-width: 768px) {
+      .cbt-boot-spinner svg { width: 44px; height: 44px; }
+      .cbt-boot-label { font-size: 0.82rem; }
+    }
+
+    /* =========================================================
        SUBSCRIPTION NOTICE
        ========================================================= */
     .subscription-notice {
@@ -820,6 +876,98 @@ if ('serviceWorker' in navigator) {
 }
 </script>
 
+<!-- ============================================================
+     BOOT LOADER — visible on first paint, no JS required to show.
+     Static HTML + CSS. JS only hides it when the dashboard is ready.
+     ============================================================ -->
+<div id="cbtBootLoader" class="cbt-boot-loader" role="status" aria-live="polite">
+  <div class="cbt-boot-spinner">
+    <svg viewBox="0 0 40 40">
+      <circle class="cbt-boot-track" cx="20" cy="20" r="16" fill="none" stroke-width="3"/>
+      <circle class="cbt-boot-ring" cx="20" cy="20" r="16" fill="none" stroke-width="3" stroke-linecap="round" pathLength="100" stroke-dasharray="25 100"/>
+    </svg>
+  </div>
+  <div class="cbt-boot-label">Loading CBT Dashboard…</div>
+</div>
+
+<script>
+/* Boot loader hide logic.
+   - Runs as a plain (non-module) script so it never depends on ES imports.
+   - Hides the loader once one of the two "ready" signals fires:
+       • #assignedTestsTableWrapper no longer shows "Loading assigned tests..."
+       • #userName has been populated
+   - 900 ms minimum visible time so fast networks don't skip the loader.
+   - 15 s failsafe force-hides the loader if neither signal ever fires. */
+(function () {
+  var loader = document.getElementById('cbtBootLoader');
+  if (!loader) return;
+
+  var showTime = Date.now();
+  var done = false;
+
+  function hideNow() {
+    if (done) return;
+    done = true;
+    var elapsed = Date.now() - showTime;
+    var wait = Math.max(0, 900 - elapsed);
+    setTimeout(function () {
+      loader.classList.add('cbt-boot-fadeout');
+      setTimeout(function () {
+        loader.classList.add('cbt-boot-gone');
+      }, 400);
+    }, wait);
+  }
+
+  window.__cbtBootLoaderHide = hideNow;
+
+  var failsafe = setTimeout(hideNow, 15000);
+
+  function tryObserve() {
+    var assignedEl = document.getElementById('assignedTestsTableWrapper');
+    var userEl = document.getElementById('userName');
+
+    if (!assignedEl && !userEl) {
+      setTimeout(tryObserve, 100);
+      return;
+    }
+
+    function check() {
+      if (assignedEl) {
+        var txt = (assignedEl.textContent || '').trim();
+        if (txt && txt.indexOf('Loading assigned tests') === -1) {
+          clearTimeout(failsafe);
+          hideNow();
+          return true;
+        }
+      }
+      if (userEl) {
+        var txt = (userEl.textContent || '').trim();
+        if (txt.length > 0) {
+          clearTimeout(failsafe);
+          hideNow();
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (check()) return;
+
+    var observer = new MutationObserver(function () {
+      if (check()) observer.disconnect();
+    });
+    if (assignedEl) {
+      observer.observe(assignedEl, { childList: true, subtree: true, characterData: true });
+    }
+    if (userEl) {
+      observer.observe(userEl, { childList: true, subtree: true, characterData: true });
+    }
+  }
+
+  tryObserve();
+})();
+</script>
+
 <header class="header">
   <div class="container header-container">
     <div class="brand">
@@ -1030,77 +1178,6 @@ if ('serviceWorker' in navigator) {
     </footer>
   </div>
 </main>
-
-<!-- ===================== SCRIPTS ===================== -->
-<!-- NEW: overlay loader (faint transparent variant for sub-pages).
-     Mirrors the exact pattern used on teacher-cbt.html:
-       • showOverlayLoader() is called at module top level
-       • we observe #assignedTestsTableWrapper for its initial
-         "Loading assigned tests..." placeholder to disappear
-       • #userName is watched as a lightweight backup signal
-       • 15-second failsafe force-hides the overlay if neither
-         signal ever fires (auth failure, network error, etc.) -->
-<script type="module">
-  import { showOverlayLoader, hideOverlayLoader } from '../js/loading.js';
-
-  showOverlayLoader({ label: 'Loading CBT Dashboard…' });
-
-  let done = false;
-  const hideNow = () => {
-    if (done) return;
-    done = true;
-    hideOverlayLoader({ minDisplayMs: 400 });
-  };
-
-  /* Failsafe — force-hide if neither ready signal ever fires */
-  const failsafe = setTimeout(hideNow, 15000);
-
-  const tryObserve = () => {
-    const assignedEl = document.getElementById('assignedTestsTableWrapper');
-    const userEl = document.getElementById('userName');
-
-    if (!assignedEl && !userEl) {
-      setTimeout(tryObserve, 100);
-      return;
-    }
-
-    const check = () => {
-      // Signal 1: assigned-tests table no longer shows its loading placeholder
-      if (assignedEl) {
-        const txt = (assignedEl.textContent || '').trim();
-        if (txt && !txt.includes('Loading assigned tests')) {
-          clearTimeout(failsafe);
-          hideNow();
-          try { observer.disconnect(); } catch (_) {}
-          return true;
-        }
-      }
-      // Signal 2 (backup): student name has been populated
-      if (userEl) {
-        const txt = (userEl.textContent || '').trim();
-        if (txt.length > 0) {
-          clearTimeout(failsafe);
-          hideNow();
-          try { observer.disconnect(); } catch (_) {}
-          return true;
-        }
-      }
-      return false;
-    };
-
-    if (check()) return;
-
-    const observer = new MutationObserver(check);
-    if (assignedEl) {
-      observer.observe(assignedEl, { childList: true, subtree: true, characterData: true });
-    }
-    if (userEl) {
-      observer.observe(userEl, { childList: true, subtree: true, characterData: true });
-    }
-  };
-
-  tryObserve();
-</script>
 
 <script type="module" src="../js/script.js"></script>
 <script type="module" src="../js/cbt.js"></script>
