@@ -2,26 +2,691 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="author" content="Acadex">
-  
+
   <title>Acadex CBT | Test</title>
   <link rel="icon" type="image/png" href="../img/Smart-brain-icon.png">
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="../css/styles.css">
   <link rel="stylesheet" href="../css/cbt.css">
   <link rel="stylesheet" href="../css/test.css">
 
   <style>
-    /* =================================================================
-       WARNING MODALS — full-screen backdrop + centered responsive card.
-       Applies to BOTH #antiCheatWarningModal and #fullscreenWarningModal.
-       ================================================================= */
+    /* =========================================================
+       iOS DARK THEME — mirrored from cbt.html tokens
+       ========================================================= */
+    :root {
+      --bg-base:       #16132B;
+      --bg-elevated:   #1F1C3F;
+      --bg-elevated-2: #282350;
+      --bg-elevated-3: #312B60;
+
+      --text-primary:   #F8F8FF;
+      --text-secondary: rgba(235, 235, 245, 0.65);
+      --text-tertiary:  rgba(235, 235, 245, 0.42);
+
+      --border-subtle:  rgba(255, 255, 255, 0.08);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --border-strong:  rgba(255, 255, 255, 0.18);
+
+      --fill-subtle:    rgba(255, 255, 255, 0.04);
+      --fill-strong:    rgba(255, 255, 255, 0.08);
+
+      --ios-blue:       #0A84FF;
+      --ios-blue-600:   #0066CC;
+      --ios-green:      #30D158;
+      --ios-green-600:  #248A3D;
+      --ios-indigo:     #5E5CE6;
+      --ios-orange:     #FF9F0A;
+      --ios-purple:     #BF5AF2;
+      --ios-red:        #FF453A;
+      --ios-teal:       #64D2FF;
+
+      --ios-red-soft:    #FF8078;
+      --ios-green-soft:  #5CE08A;
+      --ios-orange-soft: #FFB84D;
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
+      --shadow:    0 1px 3px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.18);
+      --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
+
+      --ios-radius-sm: 10px;
+      --ios-radius:    14px;
+      --ios-radius-lg: 18px;
+      --ios-radius-xl: 22px;
+
+      --ios-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Poppins', 'Helvetica Neue', Arial, sans-serif;
+      --ios-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    /* =========================================================
+       BASE / FULLSCREEN FIT
+       ========================================================= */
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    html { background: var(--bg-base) !important; }
+
+    body {
+      background: var(--bg-base) !important;
+      color: var(--text-primary) !important;
+      font-family: var(--ios-font) !important;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.011em;
+      display: flex;
+      flex-direction: column;
+    }
+    body > .header { flex-shrink: 0; }
+
+    /* Main test area fills remaining viewport */
+    main.test-page {
+      flex: 1 1 auto;
+      display: flex !important;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--bg-base) !important;
+      padding: 0 !important;
+    }
+
+    main.test-page .test-container {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 10px 12px !important;
+      padding-top: max(10px, env(safe-area-inset-top)) !important;
+      padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+      gap: 10px;
+      box-sizing: border-box;
+    }
+
+    /* =========================================================
+       TEST HEADER (subject + timer)
+       ========================================================= */
+    .test-header {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 10px !important;
+      background: var(--bg-elevated) !important;
+      padding: 10px 14px !important;
+      border-radius: var(--ios-radius-lg) !important;
+      border: 1px solid var(--border-subtle) !important;
+      box-shadow: var(--shadow) !important;
+      flex-shrink: 0 !important;
+      color: var(--text-primary) !important;
+    }
+    .test-info { flex: 1 1 auto; min-width: 0; }
+    .test-subject {
+      font-family: var(--ios-font-display) !important;
+      font-size: 1rem !important;
+      font-weight: 700 !important;
+      color: var(--text-primary) !important;
+      margin: 0 !important;
+      letter-spacing: -0.02em !important;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .test-subject i { color: var(--ios-blue) !important; margin-right: 4px; }
+
+    .question-counter {
+      color: var(--text-secondary) !important;
+      font-size: 0.78rem !important;
+      margin-top: 2px;
+      font-weight: 500;
+    }
+    .question-counter span { color: var(--text-primary) !important; font-weight: 700; }
+
+    .timer-container {
+      background: rgba(255, 159, 10, 0.15) !important;
+      border: 1px solid rgba(255, 159, 10, 0.30) !important;
+      border-radius: var(--ios-radius) !important;
+      padding: 6px 12px !important;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .timer-label {
+      font-size: 0.62rem !important;
+      color: var(--ios-orange-soft) !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .timer {
+      font-family: var(--ios-font-display) !important;
+      font-size: 1.3rem !important;
+      font-weight: 800 !important;
+      color: var(--ios-orange) !important;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .timer.warning {
+      color: var(--ios-red) !important;
+      animation: acadex-pulse 1s infinite;
+    }
+    @keyframes acadex-pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.55; }
+    }
+
+    /* =========================================================
+       SUBJECT TABS (JAMB drill)
+       ========================================================= */
+    .subject-tabs {
+      display: flex !important;
+      gap: 6px;
+      overflow-x: auto;
+      flex-shrink: 0 !important;
+      padding-bottom: 2px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .subject-tabs::-webkit-scrollbar { display: none; }
+
+    .subject-tab {
+      padding: 6px 14px !important;
+      margin: 0 !important;
+      border: 1px solid var(--border-default) !important;
+      border-radius: 999px !important;
+      background: var(--fill-subtle) !important;
+      color: var(--text-secondary) !important;
+      font-size: 0.78rem !important;
+      font-weight: 600 !important;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .subject-tab:hover { background: var(--fill-strong) !important; }
+    .subject-tab.active {
+      background: var(--ios-blue) !important;
+      color: #ffffff !important;
+      border-color: var(--ios-blue) !important;
+    }
+
+    /* =========================================================
+       QUESTION CARD — flex column, internal scrolling
+       ========================================================= */
+    .question-card {
+      flex: 1 1 auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      background: var(--bg-elevated) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--ios-radius-lg) !important;
+      box-shadow: var(--shadow) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      color: var(--text-primary) !important;
+    }
+
+    .question-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 14px 16px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-strong) transparent;
+    }
+    .question-body::-webkit-scrollbar { width: 6px; }
+    .question-body::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 3px;
+    }
+
+    .question-content { margin-bottom: 12px; }
+
+    .question-text-content,
+    .question-text {
+      color: var(--text-primary) !important;
+      font-size: 0.98rem !important;
+      line-height: 1.55 !important;
+      font-weight: 500 !important;
+    }
+    .question-text-content strong,
+    .question-text strong { color: var(--text-primary) !important; }
+
+    .question-image-container {
+      margin: 10px 0;
+      text-align: center;
+    }
+    .question-image {
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: var(--ios-radius);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-base);
+    }
+
+    /* =========================================================
+       OPTIONS
+       ========================================================= */
+    .options-container {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .option {
+      display: flex !important;
+      align-items: flex-start !important;
+      gap: 10px !important;
+      padding: 10px 12px !important;
+      background: var(--bg-elevated-2) !important;
+      border: 1.5px solid var(--border-default) !important;
+      border-radius: var(--ios-radius) !important;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-primary) !important;
+    }
+    .option:hover {
+      background: var(--bg-elevated-3) !important;
+      border-color: var(--border-strong) !important;
+    }
+    .option.selected {
+      background: rgba(10, 132, 255, 0.18) !important;
+      border-color: var(--ios-blue) !important;
+      box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.25);
+    }
+    .option-letter {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--fill-strong) !important;
+      color: var(--text-primary) !important;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+      border: 1px solid var(--border-default);
+    }
+    .option.selected .option-letter {
+      background: var(--ios-blue) !important;
+      color: #ffffff !important;
+      border-color: var(--ios-blue);
+    }
+    .option-text {
+      color: var(--text-primary) !important;
+      font-size: 0.92rem !important;
+      line-height: 1.45;
+      flex: 1;
+      padding-top: 4px;
+      word-break: break-word;
+    }
+
+    /* =========================================================
+       PROGRESS / DOTS / NAVIGATION
+       ========================================================= */
+    .progress-container {
+      height: 4px !important;
+      background: var(--fill-subtle) !important;
+      border-radius: 2px !important;
+      overflow: hidden;
+      margin: 10px 16px 0 !important;
+      flex-shrink: 0 !important;
+    }
+    .progress-bar {
+      height: 100% !important;
+      background: linear-gradient(90deg, var(--ios-blue), var(--ios-indigo)) !important;
+      border-radius: 2px !important;
+      transition: width 0.3s ease;
+      width: 0;
+    }
+
+    .question-dots {
+      display: flex !important;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 8px 16px !important;
+      max-height: 66px;
+      overflow-y: auto;
+      flex-shrink: 0 !important;
+      border-top: 1px solid var(--border-subtle);
+      margin-top: 8px;
+    }
+    .dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--fill-subtle) !important;
+      border: 1px solid var(--border-default) !important;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .dot:hover {
+      background: var(--fill-strong) !important;
+      border-color: var(--border-strong) !important;
+    }
+    .dot.answered {
+      background: var(--ios-blue) !important;
+      border-color: var(--ios-blue) !important;
+    }
+    .dot.active {
+      border-color: var(--ios-orange) !important;
+      box-shadow: 0 0 0 2px rgba(255, 159, 10, 0.40);
+    }
+
+    .test-navigation {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      gap: 8px;
+      padding: 10px 16px !important;
+      border-top: 1px solid var(--border-subtle) !important;
+      flex-shrink: 0 !important;
+      background: var(--bg-elevated) !important;
+      border-radius: 0 0 var(--ios-radius-lg) var(--ios-radius-lg) !important;
+    }
+    .nav-buttons {
+      display: flex;
+      gap: 6px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .nav-btn {
+      padding: 8px 12px !important;
+      border-radius: 999px !important;
+      border: 1px solid var(--border-default) !important;
+      background: var(--fill-strong) !important;
+      color: var(--text-primary) !important;
+      font-family: var(--ios-font) !important;
+      font-size: 0.80rem !important;
+      font-weight: 600 !important;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .nav-btn:hover:not(:disabled) {
+      background: rgba(10, 132, 255, 0.15) !important;
+      border-color: var(--ios-blue) !important;
+      color: var(--ios-blue) !important;
+    }
+    .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .get-result-btn {
+      padding: 8px 14px !important;
+      border-radius: 999px !important;
+      border: none !important;
+      background: linear-gradient(135deg, var(--ios-green), var(--ios-green-600)) !important;
+      color: #ffffff !important;
+      font-family: var(--ios-font) !important;
+      font-size: 0.80rem !important;
+      font-weight: 700 !important;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      box-shadow: 0 2px 8px rgba(48, 209, 88, 0.35);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .get-result-btn:hover:not(.btn-loading) {
+      filter: brightness(1.10);
+      transform: translateY(-1px);
+    }
+    .get-result-btn.btn-loading { opacity: 0.7; cursor: wait; }
+
+    /* =========================================================
+       FOOTER — compact
+       ========================================================= */
+    .test-footer {
+      flex-shrink: 0 !important;
+      text-align: center;
+      padding: 6px 12px !important;
+      border-top: 1px solid var(--border-subtle) !important;
+      background: transparent !important;
+      color: var(--text-tertiary) !important;
+      font-size: 0.70rem !important;
+      margin: 0 !important;
+    }
+    .test-footer p {
+      margin: 0 !important;
+      color: var(--text-tertiary) !important;
+      font-size: 0.70rem !important;
+    }
+
+    /* =========================================================
+       MODALS — DARK THEME (kept as test.css layout)
+       ========================================================= */
+    .modal {
+      background: rgba(10, 8, 20, 0.88) !important;
+      z-index: 9999 !important;
+    }
+    .modal-content {
+      background: var(--bg-elevated) !important;
+      color: var(--text-primary) !important;
+      border: 1px solid var(--border-subtle) !important;
+      border-radius: var(--ios-radius-xl) !important;
+      box-shadow: var(--shadow-lg) !important;
+      max-height: calc(100vh - 32px) !important;
+      overflow-y: auto !important;
+      box-sizing: border-box !important;
+    }
+    .modal-content h3 {
+      color: var(--text-primary) !important;
+      font-family: var(--ios-font-display) !important;
+      font-weight: 700 !important;
+    }
+    .modal-content h3 i { color: var(--ios-orange) !important; margin-right: 6px; }
+    .modal-content p { color: var(--text-secondary) !important; }
+    .modal-content p span { color: var(--text-primary) !important; font-weight: 700; }
+
+    .modal-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .modal-btn {
+      padding: 10px 16px;
+      border-radius: 999px !important;
+      border: none;
+      font-family: var(--ios-font);
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex: 1 1 140px;
+    }
+    .modal-btn.cancel {
+      background: var(--fill-strong) !important;
+      color: var(--text-primary) !important;
+      border: 1px solid var(--border-default) !important;
+    }
+    .modal-btn.cancel:hover { background: var(--bg-elevated-3) !important; }
+    .modal-btn.confirm {
+      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo)) !important;
+      color: #ffffff !important;
+      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.35);
+    }
+    .modal-btn.confirm:hover { filter: brightness(1.10); }
+
+    /* Results modal specifics */
+    .score-display { text-align: center; }
+    .score-circle {
+      position: relative;
+      width: 130px;
+      height: 130px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      background: conic-gradient(var(--ios-blue) 0% 75%, var(--bg-elevated-3) 75% 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .score-circle::before {
+      content: '';
+      position: absolute;
+      inset: 10px;
+      border-radius: 50%;
+      background: var(--bg-elevated);
+    }
+    .score-circle > div { position: relative; z-index: 1; }
+    .score-number {
+      font-family: var(--ios-font-display);
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--ios-blue);
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    .score-label {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    #subjectBreakdown,
+    #topicBreakdownContainer,
+    #recommendationsContainer,
+    #premiumNotification {
+      background: var(--bg-elevated-2) !important;
+      border: 1px solid var(--border-subtle) !important;
+      padding: 12px !important;
+      border-radius: var(--ios-radius) !important;
+      margin: 12px 0 !important;
+      color: var(--text-primary) !important;
+      font-size: 0.88rem !important;
+      text-align: left;
+    }
+    #subjectBreakdown strong,
+    #topicBreakdownContainer strong,
+    #recommendationsContainer strong { color: var(--text-primary) !important; }
+    #recommendationsList { color: var(--text-secondary) !important; }
+
+    .topic-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-elevated-3);
+      border-radius: var(--ios-radius-sm);
+      margin-top: 6px;
+      font-size: 0.85rem;
+    }
+    .topic-name { color: var(--text-primary); flex: 1; font-weight: 500; }
+    .topic-stats { color: var(--text-secondary); font-size: 0.78rem; }
+    .topic-accuracy {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.70rem;
+      font-weight: 700;
+    }
+    .accuracy-weak   { background: rgba(255, 69, 58, 0.18); color: var(--ios-red-soft); }
+    .accuracy-strong { background: rgba(48, 209, 88, 0.18); color: var(--ios-green-soft); }
+
+    #premiumNotification {
+      background: rgba(255, 215, 0, 0.10) !important;
+      border-color: rgba(255, 215, 0, 0.25) !important;
+    }
+    #premiumNotification p { color: var(--text-secondary) !important; }
+
+    /* Solutions modal */
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 10px;
+    }
+    .modal-header h3 { margin: 0 !important; }
+    .close-modal {
+      background: var(--fill-strong);
+      border: 1px solid var(--border-default);
+      color: var(--text-primary);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .close-modal:hover { background: var(--ios-red); color: #ffffff; }
+
+    .modal-body { color: var(--text-primary); }
+    .solutions-container { color: var(--text-primary); }
+    .solution-item {
+      color: var(--text-primary) !important;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .solution-item h4 {
+      color: var(--text-primary) !important;
+      font-size: 1rem;
+      margin: 0 0 8px;
+    }
+    .solution-item h4 i { color: var(--ios-blue); margin-right: 4px; }
+    .solution-item p { color: var(--text-secondary) !important; }
+    .solution-item p strong { color: var(--text-primary) !important; }
+
+    .solution-options {
+      background: var(--bg-elevated-2);
+      padding: 10px;
+      border-radius: var(--ios-radius-sm);
+      margin: 8px 0;
+    }
+    .user-answer { color: var(--text-primary); font-weight: 700; }
+    .correct-answer { color: var(--ios-green-soft); font-weight: 700; }
+    .option-correct   { color: var(--ios-green-soft); font-weight: 700; margin-left: 6px; }
+    .option-incorrect { color: var(--ios-red-soft);   font-weight: 700; margin-left: 6px; }
+
+    .option-explanation {
+      background: rgba(10, 132, 255, 0.08);
+      border-left: 3px solid var(--ios-blue);
+      padding: 10px 12px;
+      border-radius: 0 var(--ios-radius-sm) var(--ios-radius-sm) 0;
+      margin-top: 10px;
+      color: var(--text-secondary) !important;
+    }
+    .option-explanation p strong { color: var(--ios-blue) !important; }
+    .solution-text-preserved { color: var(--text-secondary) !important; }
+    .solution-image {
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: var(--ios-radius-sm);
+      margin: 8px 0;
+    }
+
+    /* =========================================================
+       ANTI-CHEAT MODALS — dark, centered responsive cards
+       ========================================================= */
     .anti-cheat-modal {
       position: fixed;
       top: 0; right: 0; bottom: 0; left: 0;
@@ -29,115 +694,244 @@
       align-items: center;
       justify-content: center;
       padding: 16px;
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(10, 8, 20, 0.92) !important;
       z-index: 2147483647;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       box-sizing: border-box;
       text-align: center;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      /* Neutralise any conflicting positioning from external stylesheets */
-      transform: none;
-      -webkit-transform: none;
-      margin: 0;
-      border: none;
-      border-radius: 0;
-      box-shadow: none;
+      font-family: var(--ios-font);
     }
-    .anti-cheat-modal.is-visible {
-      display: flex;
-    }
+    .anti-cheat-modal.is-visible { display: flex; }
+
     .anti-cheat-modal > .anti-cheat-card {
       width: 100%;
-      max-width: 480px;
-      background: #ffffff;
-      border-radius: 14px;
-      padding: 24px 22px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(0, 0, 0, 0.08);
+      max-width: 440px;
+      background: var(--bg-elevated) !important;
+      border-radius: var(--ios-radius-xl);
+      padding: 22px !important;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-default);
       box-sizing: border-box;
       text-align: center;
       max-height: calc(100vh - 32px);
       overflow-y: auto;
       margin: auto;
       flex: 0 0 auto;
+      color: var(--text-primary) !important;
     }
     .anti-cheat-modal h3 {
-      margin: 0 0 12px 0;
-      color: #b71c1c;
-      font-size: clamp(1.05rem, 4vw, 1.35rem);
-      line-height: 1.3;
-      font-weight: 700;
+      margin: 0 0 12px 0 !important;
+      color: var(--ios-red-soft) !important;
+      font-size: clamp(1rem, 4vw, 1.2rem) !important;
+      line-height: 1.3 !important;
+      font-weight: 700 !important;
     }
     .anti-cheat-modal h3 i { margin-right: 6px; }
-    .anti-cheat-modal p {
-      margin: 0;
-      font-size: clamp(0.95rem, 3.8vw, 1.1rem);
-      line-height: 1.55;
-      color: #334155;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
+    .anti-cheat-modal p,
     .anti-cheat-modal .antiCheatMessage {
-      display: block;
-      margin: 0;
-      font-size: clamp(0.95rem, 3.8vw, 1.1rem);
-      line-height: 1.55;
-      color: #b91c1c;
-      font-weight: 600;
+      margin: 0 !important;
+      font-size: clamp(0.9rem, 3.6vw, 1rem) !important;
+      line-height: 1.55 !important;
+      color: var(--text-primary) !important;
       word-break: break-word;
       overflow-wrap: anywhere;
       white-space: normal;
+      display: block;
     }
     .anti-cheat-modal .antiCheatCountdown {
       display: block;
-      margin-top: 16px;
-      font-size: clamp(0.85rem, 3.2vw, 1rem);
-      color: #475569;
-      font-weight: 500;
-      letter-spacing: 0.01em;
-    }
-    @media (max-width: 360px) {
-      .anti-cheat-modal { padding: 10px; }
-      .anti-cheat-modal > .anti-cheat-card {
-        padding: 18px 14px;
-        border-radius: 12px;
-      }
-    }
-    @media (max-height: 500px) {
-      .anti-cheat-modal { padding: 8px; }
-      .anti-cheat-modal > .anti-cheat-card {
-        padding: 14px 16px;
-        border-radius: 10px;
-        max-height: calc(100vh - 16px);
-      }
-      .anti-cheat-modal h3 { font-size: 1rem; margin-bottom: 8px; }
-      .anti-cheat-modal p,
-      .anti-cheat-modal .antiCheatMessage {
-        font-size: clamp(0.85rem, 3.2vw, 1rem);
-        line-height: 1.4;
-      }
-      .anti-cheat-modal .antiCheatCountdown { margin-top: 10px; }
+      margin-top: 14px !important;
+      font-size: clamp(0.82rem, 3.2vw, 0.92rem) !important;
+      color: var(--ios-orange-soft) !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.01em !important;
     }
 
-    /* Non-modal utility widgets (unchanged behaviour, kept as-is) */
+    .fs-reenter-btn {
+      margin-top: 18px;
+      padding: 10px 22px;
+      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo));
+      color: #ffffff;
+      border: none;
+      border-radius: 999px;
+      font-family: var(--ios-font);
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 14px rgba(10, 132, 255, 0.35);
+    }
+    .fs-reenter-btn:hover { filter: brightness(1.10); transform: translateY(-1px); }
+
+    /* =========================================================
+       FULLSCREEN ENTRY PROMPT
+       ========================================================= */
+    .fullscreen-prompt {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-base);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 2147483645;
+      text-align: center;
+    }
+    .fullscreen-prompt.is-visible { display: flex; }
+
+    .fullscreen-prompt-card {
+      max-width: 440px;
+      width: 100%;
+      background: var(--bg-elevated);
+      border-radius: var(--ios-radius-xl);
+      padding: 28px 22px;
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-lg);
+      color: var(--text-primary);
+      box-sizing: border-box;
+    }
+    .fullscreen-prompt-card h2 {
+      color: var(--text-primary);
+      font-family: var(--ios-font-display);
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin: 0 0 12px;
+      letter-spacing: -0.02em;
+    }
+    .fullscreen-prompt-card h2 i { color: var(--ios-blue); margin-right: 8px; }
+    .fullscreen-prompt-card p {
+      color: var(--text-secondary);
+      font-size: 0.92rem;
+      line-height: 1.55;
+      margin: 0 0 20px;
+    }
+    .fs-enter-btn {
+      padding: 12px 26px;
+      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo));
+      color: #ffffff;
+      border: none;
+      border-radius: 999px;
+      font-family: var(--ios-font);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 6px 20px rgba(10, 132, 255, 0.40);
+    }
+    .fs-enter-btn:hover { filter: brightness(1.10); transform: translateY(-1px); }
+
+    /* =========================================================
+       UTILITY WIDGETS — dark theme
+       ========================================================= */
     .offline-banner {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: #ff9800; color: #fff; text-align: center;
-      padding: 10px; z-index: 10000; font-weight: bold; display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--ios-orange);
+      color: #1a1a1a;
+      text-align: center;
+      padding: 10px;
+      z-index: 10000;
+      font-weight: 700;
+      display: none;
+      font-size: 0.85rem;
     }
     .auto-save-indicator {
-      position: fixed; bottom: 20px; right: 20px;
-      background: rgba(0,0,0,0.7); color: #fff; padding: 6px 14px;
-      border-radius: 20px; font-size: 0.8rem; z-index: 9999; display: none;
+      position: fixed;
+      bottom: 20px; right: 20px;
+      background: rgba(30, 28, 63, 0.95);
+      color: var(--text-primary);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      z-index: 9999;
+      display: none;
+      border: 1px solid var(--border-default);
     }
     .restore-notification {
-      position: fixed; top: 20px; right: 20px;
-      background: #4caf50; color: #fff; padding: 12px 20px;
-      border-radius: 8px; z-index: 9999; display: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      position: fixed;
+      top: 20px; right: 20px;
+      background: var(--ios-green);
+      color: #0d2913;
+      padding: 12px 20px;
+      border-radius: var(--ios-radius);
+      z-index: 9999;
+      display: none;
+      box-shadow: var(--shadow-lg);
+      font-weight: 600;
     }
     .restore-notification i { margin-right: 8px; }
+
+    /* =========================================================
+       RESPONSIVE — mobile
+       ========================================================= */
+    @media (max-width: 768px) {
+      main.test-page .test-container { padding: 8px !important; gap: 8px; }
+      .test-header {
+        padding: 8px 12px !important;
+        border-radius: var(--ios-radius) !important;
+      }
+      .test-subject { font-size: 0.88rem !important; }
+      .question-counter { font-size: 0.72rem !important; }
+      .timer { font-size: 1.10rem !important; }
+      .timer-container { padding: 5px 10px !important; }
+      .timer-label { font-size: 0.60rem !important; }
+
+      .question-body { padding: 12px !important; }
+      .question-text-content, .question-text {
+        font-size: 0.92rem !important;
+        line-height: 1.5 !important;
+      }
+      .option { padding: 9px 10px !important; gap: 8px !important; }
+      .option-letter { width: 24px !important; height: 24px !important; font-size: 0.78rem !important; }
+      .option-text { font-size: 0.86rem !important; }
+
+      .progress-container { margin: 8px 12px 0 !important; }
+      .question-dots { padding: 6px 12px !important; max-height: 56px !important; }
+      .dot { width: 18px !important; height: 18px !important; }
+
+      .test-navigation { padding: 8px 12px !important; gap: 6px !important; }
+      .nav-btn { padding: 7px 10px !important; font-size: 0.74rem !important; }
+      .get-result-btn { padding: 7px 11px !important; font-size: 0.74rem !important; }
+
+      .test-footer { padding: 4px 8px !important; }
+      .test-footer, .test-footer p { font-size: 0.65rem !important; }
+
+      .modal-content { padding: 18px !important; border-radius: var(--ios-radius-lg) !important; }
+      .modal-buttons { gap: 8px; }
+      .modal-btn { padding: 9px 14px !important; font-size: 0.82rem !important; }
+
+      .score-circle { width: 110px; height: 110px; }
+      .score-number { font-size: 1.9rem; }
+    }
+
+    @media (max-width: 380px) {
+      .test-navigation {
+        flex-direction: column !important;
+        gap: 6px !important;
+        padding: 8px !important;
+      }
+      .nav-buttons { width: 100%; }
+      .nav-btn { flex: 1 1 auto; justify-content: center; }
+      .get-result-btn { width: 100%; justify-content: center; }
+    }
+
+    /* Short viewport (landscape mobile) — squeeze chrome */
+    @media (max-height: 500px) {
+      .header { min-height: 40px !important; }
+      .test-header { padding: 6px 10px !important; }
+      .timer { font-size: 1rem !important; }
+      .timer-label { font-size: 0.55rem !important; }
+      .question-dots { max-height: 44px !important; padding: 4px 12px !important; }
+      .progress-container { margin: 6px 12px 0 !important; }
+      .test-footer { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -203,14 +997,16 @@
       <div class="subject-tabs" id="subjectTabs" style="display: none;"></div>
 
       <div class="question-card">
-        <div class="question-content" id="questionContent">
-          <div class="question-text" id="questionText">Loading question...</div>
-        </div>
-        <div class="options-container" id="optionsContainer">
-          <div class="option" data-option="A"><div class="option-letter">A</div><div class="option-text">Loading...</div></div>
-          <div class="option" data-option="B"><div class="option-letter">B</div><div class="option-text">Loading...</div></div>
-          <div class="option" data-option="C"><div class="option-letter">C</div><div class="option-text">Loading...</div></div>
-          <div class="option" data-option="D"><div class="option-letter">D</div><div class="option-text">Loading...</div></div>
+        <div class="question-body">
+          <div class="question-content" id="questionContent">
+            <div class="question-text" id="questionText">Loading question...</div>
+          </div>
+          <div class="options-container" id="optionsContainer">
+            <div class="option" data-option="A"><div class="option-letter">A</div><div class="option-text">Loading...</div></div>
+            <div class="option" data-option="B"><div class="option-letter">B</div><div class="option-text">Loading...</div></div>
+            <div class="option" data-option="C"><div class="option-letter">C</div><div class="option-text">Loading...</div></div>
+            <div class="option" data-option="D"><div class="option-letter">D</div><div class="option-text">Loading...</div></div>
+          </div>
         </div>
         <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
         <div class="question-dots" id="questionDots"></div>
@@ -228,7 +1024,7 @@
     </footer>
   </main>
 
-  <!-- SUBMIT CONFIRMATION MODAL (unchanged) -->
+  <!-- SUBMIT CONFIRMATION MODAL -->
   <div class="modal" id="submitModal">
     <div class="modal-content">
       <h3><i class="fas fa-exclamation-triangle"></i> Submit Test?</h3>
@@ -240,7 +1036,7 @@
     </div>
   </div>
 
-  <!-- RESULTS MODAL (unchanged) -->
+  <!-- RESULTS MODAL -->
   <div class="modal" id="resultsModal">
     <div class="modal-content">
       <div class="score-display">
@@ -267,7 +1063,7 @@
         </div>
       </div>
       <div id="premiumNotification">
-        <p style="margin: 0; font-size: 0.9rem; color: #666;">
+        <p style="margin: 0; font-size: 0.9rem;">
           <i class="fas fa-crown" style="color: #ffd700; margin-right: 8px;"></i>
           <strong>Premium Feature:</strong> View detailed solutions for each question
         </p>
@@ -278,29 +1074,29 @@
     </div>
   </div>
 
-  <!-- SOLUTION MODAL (unchanged) -->
+  <!-- SOLUTION MODAL -->
   <div id="solutionModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
         <h3><i class="fas fa-lightbulb"></i> Detailed Solutions</h3>
         <button class="close-modal" id="closeSolutionModal">&times;</button>
       </div>
-      <div class="modal-body" id="solutionModalBody">
-        <!-- solutions will be loaded here -->
-      </div>
+      <div class="modal-body" id="solutionModalBody"></div>
     </div>
   </div>
 
-  <!-- FULLSCREEN WARNING MODAL — proper backdrop + centered card -->
+  <!-- FULLSCREEN WARNING MODAL -->
   <div id="fullscreenWarningModal" class="anti-cheat-modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="anti-cheat-card">
       <h3><i class="fas fa-expand"></i> Fullscreen Mode Exited!</h3>
       <p>Please re-enter fullscreen to continue the exam securely.</p>
+      <button id="reenterFullscreenBtn" class="fs-reenter-btn">
+        <i class="fas fa-expand"></i> Re-enter Fullscreen
+      </button>
     </div>
   </div>
 
-  <!-- ANTI-CHEAT WARNING MODAL — same backdrop pattern, contains the
-       .antiCheatMessage and .antiCheatCountdown children the JS expects -->
+  <!-- ANTI-CHEAT WARNING MODAL -->
   <div id="antiCheatWarningModal" class="anti-cheat-modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="anti-cheat-card">
       <h3><i class="fas fa-exclamation-triangle"></i> Warning</h3>
@@ -309,7 +1105,18 @@
     </div>
   </div>
 
-  <!-- Offline banner / auto-save / restore widgets (unchanged) -->
+  <!-- FULLSCREEN ENTRY PROMPT (blocks test start until fullscreen) -->
+  <div id="fullscreenPrompt" class="fullscreen-prompt is-visible" role="dialog" aria-modal="true">
+    <div class="fullscreen-prompt-card">
+      <h2><i class="fas fa-expand"></i> Fullscreen Required</h2>
+      <p>This exam runs in fullscreen mode. Browser tabs, navigation, and exiting fullscreen will be monitored and will end the test.</p>
+      <button id="enterFullscreenBtn" class="fs-enter-btn">
+        <i class="fas fa-expand"></i> Enter Fullscreen &amp; Begin
+      </button>
+    </div>
+  </div>
+
+  <!-- Offline banner / auto-save / restore widgets -->
   <div id="offlineBanner" class="offline-banner" style="display:none;">
     <i class="fas fa-wifi"></i> You are offline. The exam will continue, but please reconnect to save your progress.
   </div>
@@ -324,7 +1131,7 @@
   <script type="module" src="../js/script.js"></script>
   <script type="module" src="../js/test.js"></script>
 
-  <!-- ANTI-COPY SCRIPT (unchanged, preserved for extra safety) -->
+  <!-- ANTI-COPY SCRIPT (preserved) -->
   <script>
     (function() {
       document.addEventListener('contextmenu', function(e) {
@@ -366,8 +1173,74 @@
       document.body.style.userSelect = 'none';
     })();
   </script>
+
+  <!-- FULLSCREEN ENTRY CONTROL (new) -->
   <script>
-  // Unregister any existing service worker, then clear all its caches.
+    (function () {
+      const prompt = document.getElementById('fullscreenPrompt');
+      const enterBtn = document.getElementById('enterFullscreenBtn');
+      const reenterBtn = document.getElementById('reenterFullscreenBtn');
+      const fullscreenWarning = document.getElementById('fullscreenWarningModal');
+
+      function requestFullscreen() {
+        const el = document.documentElement;
+        try {
+          if (el.requestFullscreen) return el.requestFullscreen();
+          if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+          if (el.mozRequestFullScreen) return el.mozRequestFullScreen();
+          if (el.msRequestFullscreen) return el.msRequestFullscreen();
+        } catch (e) {
+          console.warn('Fullscreen request failed:', e);
+        }
+        return Promise.resolve();
+      }
+
+      function isFullscreen() {
+        return !!(document.fullscreenElement ||
+                  document.webkitFullscreenElement ||
+                  document.mozFullScreenElement ||
+                  document.msFullscreenElement);
+      }
+
+      function triggerTestStart() {
+        window.__acadexTestStartTriggered = true;
+        document.dispatchEvent(new CustomEvent('acadex:start-test'));
+      }
+
+      if (enterBtn) {
+        enterBtn.addEventListener('click', function () {
+          Promise.resolve(requestFullscreen())
+            .catch(function (e) { console.warn('Fullscreen rejected:', e); })
+            .finally(function () {
+              if (prompt) prompt.classList.remove('is-visible');
+              triggerTestStart();
+            });
+        });
+      }
+
+      if (reenterBtn) {
+        reenterBtn.addEventListener('click', function () {
+          Promise.resolve(requestFullscreen())
+            .catch(function (e) { console.warn('Fullscreen rejected:', e); })
+            .finally(function () {
+              if (fullscreenWarning) {
+                fullscreenWarning.classList.remove('is-visible');
+                fullscreenWarning.setAttribute('aria-hidden', 'true');
+              }
+            });
+        });
+      }
+
+      // If the page is already in fullscreen (rare), skip the prompt immediately
+      if (isFullscreen()) {
+        if (prompt) prompt.classList.remove('is-visible');
+        triggerTestStart();
+      }
+    })();
+  </script>
+
+  <!-- Service-worker cleanup (preserved) -->
+  <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
       for (let registration of registrations) {
