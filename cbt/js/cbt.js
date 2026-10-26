@@ -9,14 +9,16 @@
 //     submission marker exists — even while the test's global status is
 //     still 'started'.
 //   • startAssignedTest() runs THREE defence-in-depth guards so a student
-//     cannot retake a test they have already submitted:
-//         GUARD 1 — in-memory Set (instant, zero reads)
-//         GUARD 2 — authoritative read of cbt_submissions/{cbtId}_{uid}
-//         GUARD 3 — fallback query of test_results, epoch-scoped to the
-//                   current run (compare completedAt vs cbt.startedAt).
-//     GUARD 3 protects against the case where the cbt_submissions write in
-//     test.js silently failed (e.g. missing Firestore rule) — the student
-//     is still blocked because test_results is immutable from their side.
+//     cannot retake a test they have already submitted.
+//
+// NEW (recent tests — manual load):
+//   • Recent tests are NO LONGER loaded automatically on page load.
+//   • The student clicks "Check Your Recent Tests" (id: loadRecentTestsBtn)
+//     inside #recentTestsList, which calls setupRecentTests(). Once the
+//     container's innerHTML is replaced by the loaded tests, the button
+//     disappears naturally — no extra code needed.
+//   • RECENT_TESTS_PAGE_SIZE = 4 → initial load shows 4 tests, and the
+//     "Load More" button loads 4 more per click.
 //
 // All Firestore operations go through service.js where possible.
 
@@ -49,7 +51,7 @@ import { toast } from '../../js/error-handler.js';
 const WAEC_NECO_QUESTIONS = 50;
 const WAEC_NECO_TIME = 40 * 60;
 const QUESTIONS_TO_FETCH = 20;
-const RECENT_TESTS_PAGE_SIZE = 5;
+const RECENT_TESTS_PAGE_SIZE = 4;   // CHANGED: 5 → 4
 
 const EXAM_TYPE_MAP = {
     'waec': 'WAEC/NECO',
@@ -93,6 +95,7 @@ const startWaecNecoDrillBtn = getElement('startWaecNecoDrillBtn');
 const assignedCbtSection = getElement('assignedCbtSection');
 const assignedTestsWrapper = getElement('assignedTestsTableWrapper');
 const cbtErrorMessage = getElement('cbtErrorMessage');
+const loadRecentTestsBtn = getElement('loadRecentTestsBtn');   // NEW
 
 // ========== STATE ==========
 let currentStudentData = null;
@@ -204,6 +207,9 @@ function populateWaecNecoSubjects() {
 }
 
 // ========== RECENT TESTS (one-shot getDocs – no live listener) ==========
+// CHANGED: No longer auto-invoked at page load. Triggered only when the
+// student clicks "Check Your Recent Tests". Once the container's innerHTML
+// is replaced, the trigger button disappears on its own.
 async function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
@@ -395,10 +401,6 @@ async function updateBasicStats(userId) {
 }
 
 // ========== ASSIGNED TESTS TABLE ==========
-// Two live listeners (pending + started) — Firestore forbids combining
-// `array-contains-any` and `in` in one query, but two equality `status`
-// filters with `array-contains-any` is fine. Snapshots land in module-level
-// arrays and every listener triggers the same no-argument re-render.
 function subscribeToAssignedTests() {
     if (!currentSchoolId || !currentStudentId || !currentStudentData) return;
     if (unsubscribeAssignedTests) unsubscribeAssignedTests();
@@ -443,12 +445,7 @@ function subscribeToAssignedTests() {
     unsubscribeAssignedTests = () => { unsubPending(); unsubStarted(); };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NEW: real-time listener for this student's cbt submissions.
-// The moment test.js writes a cbt_submissions doc, submittedCbtIds updates
-// and the assigned-tests table re-renders — flipping "Take Test" to
-// "✅ Submitted" without a page reload.
-// ─────────────────────────────────────────────────────────────────────────────
+// Real-time listener for this student's cbt submissions.
 function subscribeToSubmissions() {
     if (!currentSchoolId || !currentStudentId) return;
     if (unsubscribeSubmissions) unsubscribeSubmissions();
@@ -465,8 +462,6 @@ function subscribeToSubmissions() {
         );
         renderAssignedTestsTable();
     }, (err) => {
-        // Non-fatal: the click path in startAssignedTest() also checks
-        // cbt_submissions and test_results, so the student is still blocked.
         console.warn('cbt_submissions listener error (non-fatal):', err);
     });
 }
@@ -491,7 +486,6 @@ function renderAssignedTestsTable() {
         else if (status === 'expired') statusBadge = '<span class="status-badge status-expired">Expired</span>';
         else statusBadge = `<span class="status-badge">${escapeHtml(status)}</span>`;
 
-        // Take Test only when: status === 'started' AND not already submitted.
         const isTakeEnabled = (status === 'started') && !hasSubmitted;
         const buttonLabel = hasSubmitted ? '✅ Submitted' : 'Take Test';
         const takeButton = `<button class="take-test-btn" data-id="${test.id}" ${!isTakeEnabled ? 'disabled' : ''}>${buttonLabel}</button>`;
@@ -509,8 +503,6 @@ function renderAssignedTestsTable() {
         `;
     }).join('');
 
-    // NOTE: pre-existing malformed markup fixed — original had `</table>`
-    // inside the <tr> of the header, which browsers silently corrected.
     assignedTestsWrapper.innerHTML = `
         <div class="assigned-tests-table-wrapper">
             <table class="assigned-tests-table">
@@ -532,25 +524,9 @@ function renderAssignedTestsTable() {
     });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// startAssignedTest() — three defence-in-depth guards.
-//
-// GUARD 1 (in-memory Set) — instant, zero Firestore reads. Catches any click
-//                           on a stale disabled button and most bypass attempts.
-// GUARD 2 (authoritative)  — direct read of cbt_submissions/{cbtId}_{uid}.
-//                           This is the primary source of truth.
-// GUARD 3 (fallback)       — query test_results, epoch-scoped to the current
-//                           run (completedAt >= cbt.startedAt). Covers the
-//                           case where the cbt_submissions write failed
-//                           (e.g. missing Firestore rule). Because students
-//                           cannot delete test_results, this still blocks
-//                           them. Epoch-scoped so a legitimate future
-//                           "restart same test" (which resets startedAt)
-//                           does not falsely block past attempts.
-// ─────────────────────────────────────────────────────────────────────────────
+// startAssignedTest() — three defence-in-depth guards (unchanged).
 async function startAssignedTest(cbtId) {
     try {
-        // GUARD 1 — in-memory Set, no reads.
         if (submittedCbtIds.has(cbtId)) {
             toast.error('You have already submitted this test. It cannot be retaken.');
             return;
@@ -567,7 +543,6 @@ async function startAssignedTest(cbtId) {
             return;
         }
 
-        // GUARD 2 — authoritative per-student read.
         try {
             const submissionSnap = await getDoc(doc(db, 'cbt_submissions', cbtId + '_' + currentStudentId));
             if (submissionSnap.exists()) {
@@ -578,7 +553,6 @@ async function startAssignedTest(cbtId) {
             console.warn('cbt_submissions check failed (falling back to test_results):', e);
         }
 
-        // GUARD 3 — fallback query of test_results, epoch-scoped.
         try {
             const startedAtRaw = cbtData.startedAt;
             let startedAtMs = 0;
@@ -614,8 +588,6 @@ async function startAssignedTest(cbtId) {
                         if (!isNaN(parsed.getTime())) completedMs = parsed.getTime();
                     }
                 }
-                // If the current run's start time is unknown, treat any
-                // historical result as current-run (safe conservative default).
                 if (startedAtMs === 0) return true;
                 return completedMs >= startedAtMs;
             });
@@ -854,7 +826,7 @@ function validateJambSubjectSelection() {
     }
 }
 
-// ========== TAB SYSTEM (existing, but load assigned tests on first show) ==========
+// ========== TAB SYSTEM ==========
 function createTabs() {
     const practiceContainer = document.getElementById('practiceTestsContainer');
     const assignedSection = document.getElementById('assignedCbtSection');
@@ -945,10 +917,12 @@ async function initCBTDashboard() {
             populateQuickTestSubjects();
             populateWaecNecoSubjects();
             setupJambDrillSubjects();
-            setupRecentTests(currentStudentId);
 
-            // NEW: start the submissions listener immediately so submittedCbtIds
-            // is populated before the student ever opens the Assigned tab.
+            // CHANGED: setupRecentTests() is NO LONGER auto-invoked. It runs
+            // only when the student clicks "Check Your Recent Tests".
+
+            // Submissions listener still starts immediately so submittedCbtIds
+            // is populated before the student opens the Assigned tab.
             subscribeToSubmissions();
 
             await updateBasicStats(currentStudentId);
@@ -962,6 +936,30 @@ async function initCBTDashboard() {
     if (startQuickTestBtn) startQuickTestBtn.addEventListener('click', startQuickTest);
     if (startJambDrillBtn) startJambDrillBtn.addEventListener('click', startJambDrill);
     if (startWaecNecoDrillBtn) startWaecNecoDrillBtn.addEventListener('click', startWaecNecoDrill);
+
+    // NEW: manual loader for recent tests.
+    if (loadRecentTestsBtn) {
+        loadRecentTestsBtn.addEventListener('click', async () => {
+            if (!currentStudentId) {
+                toast.error('Profile still loading. Please try again in a moment.');
+                return;
+            }
+            loadRecentTestsBtn.disabled = true;
+            loadRecentTestsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+            try {
+                await setupRecentTests(currentStudentId);
+            } catch (err) {
+                console.error('Manual recent tests load failed:', err);
+            } finally {
+                // After setupRecentTests runs, it replaces #recentTestsList's
+                // innerHTML — the button is gone. But guard in case it wasn't.
+                if (loadRecentTestsBtn.isConnected) {
+                    loadRecentTestsBtn.disabled = false;
+                    loadRecentTestsBtn.innerHTML = '<i class="fas fa-history"></i> Check Your Recent Tests';
+                }
+            }
+        });
+    }
 }
 
 initCBTDashboard();
