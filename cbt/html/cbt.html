@@ -151,6 +151,15 @@
       margin-bottom: 1.25rem !important;
     }
 
+    /* NEW: Hide the empty subscription notice — an empty div still renders
+       as a red-tinted strip because of its padding + border. When JS later
+       fills it (e.g. subscription-expired message), :empty stops matching
+       and the notice appears normally. No functionality is lost. */
+    #subscriptionNotice:empty,
+    .subscription-notice:empty {
+      display: none !important;
+    }
+
     /* =========================================================
        WELCOME SECTION
        ========================================================= */
