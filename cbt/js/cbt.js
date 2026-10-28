@@ -31,6 +31,13 @@
 //   • Tabs are now bigger, bolder, more beautiful — Assigned first,
 //     Practice second — styled via JS-injected CSS (no CSS file changes).
 //
+// REMOVED (per cleanup request):
+//   • updateBasicStats() and its call site in initCBTDashboard() — the
+//     stats HTML no longer exists in cbt.html, so the underlying service
+//     call was throwing and triggering a toast on every page load.
+//   • The orphaned DOM refs (completedTests, averageScore, performanceMessage)
+//     that only that function used.
+//
 // All Firestore operations go through service.js where possible.
 
 import { auth, db } from '../../js/firebase-config.js';
@@ -99,9 +106,6 @@ const startQuickTestBtn = getElement('startQuickTestBtn');
 const classSelect = getElement('classSelect');
 const subjectSelect = getElement('subjectSelect');
 const userName = getElement('userName');
-const completedTests = getElement('completedTests');
-const averageScore = getElement('averageScore');
-const performanceMessage = getElement('performanceMessage');
 const additionalSubjectsDiv = getElement('additionalSubjects');
 const startJambDrillBtn = getElement('startJambDrillBtn');
 const waecNecoSubjectSelect = getElement('waecNecoSubjectSelect');
@@ -390,25 +394,6 @@ function renderUnknownTest(test) {
     const total = test.totalQuestions || 0;
     const scoreText = total > 0 ? `${rawScore}/${total}` : 'N/A';
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
-}
-
-// ========== STATISTICS (kept for backward compat, unused when stats HTML is gone) ==========
-async function updateBasicStats(userId) {
-    try {
-        const stats = await service.getTestStatsByUser(userId);
-        if (completedTests) completedTests.textContent = stats.totalTests;
-        if (averageScore) averageScore.textContent = stats.averageScore;
-        const avg = stats.averageScore;
-        let msg = "Start practicing!";
-        if (avg >= 90) msg = "Excellent!";
-        else if (avg >= 80) msg = "Great job!";
-        else if (avg >= 70) msg = "Good work!";
-        else if (avg >= 60) msg = "Keep improving!";
-        if (performanceMessage) performanceMessage.textContent = msg;
-    } catch (err) {
-        console.error('Error updating stats:', err);
-        toast.warning('Unable to update statistics. Please refresh the page.');
-    }
 }
 
 // ========== ASSIGNED TESTS TABLE ==========
@@ -838,7 +823,6 @@ function validateJambSubjectSelection() {
 
 // ========== TAB SYSTEM (iOS-style, Assigned first, Practice redirects) ==========
 
-// Inject modern tab styles once (self-contained — no CSS file edits needed)
 function injectTabStyles() {
     if (document.getElementById('cbt-tab-modern-styles')) return;
     const style = document.createElement('style');
@@ -920,22 +904,18 @@ function createTabs() {
     const assignedSection = document.getElementById('assignedCbtSection');
     if (!assignedSection) return;
 
-    // Inject modern tab styles
     injectTabStyles();
 
-    // Hide practice container — content is removed anyway
     if (practiceContainer) practiceContainer.style.display = 'none';
 
     const tabsContainer = document.createElement('div');
     tabsContainer.className = 'cbt-tabs-modern';
 
-    // ASSIGNED TESTS FIRST (default)
     const assignedTab = document.createElement('button');
     assignedTab.type = 'button';
     assignedTab.className = 'cbt-tab active';
     assignedTab.innerHTML = '<i class="fas fa-clipboard-list"></i> Assigned Tests';
 
-    // PRACTICE TESTS SECOND (external redirect)
     const practiceTab = document.createElement('button');
     practiceTab.type = 'button';
     practiceTab.className = 'cbt-tab';
@@ -944,7 +924,6 @@ function createTabs() {
     tabsContainer.appendChild(assignedTab);
     tabsContainer.appendChild(practiceTab);
 
-    // Insert after welcome section
     const dashboardContainer = document.querySelector('.dashboard-container');
     const welcomeSection = document.querySelector('.welcome-section');
 
@@ -978,13 +957,10 @@ function createTabs() {
     assignedTab.addEventListener('click', showAssigned);
     practiceTab.addEventListener('click', handlePracticeClick);
 
-    // DEFAULT: Assigned Tests
     showAssigned();
 }
 
 // ========== SMARTBRAIN SSO REDIRECT ==========
-// Sends the student to SmartBrain's SSO login page with their identity
-// AND a return URL so SmartBrain can offer a "Return to Acadex" button.
 async function redirectToSmartBrainPractice() {
     try {
         const user = auth.currentUser;
@@ -1011,8 +987,6 @@ async function redirectToSmartBrainPractice() {
 
         const name = currentStudentData.name || user.displayName || 'Student';
 
-        // Return URL — where SmartBrain should send them back to
-        // This is the Acadex student portal at the current origin.
         const returnUrl = window.location.origin + '/student/student-portal.html';
 
         const params = new URLSearchParams({
@@ -1048,7 +1022,11 @@ async function initCBTDashboard() {
             setupJambDrillSubjects();
 
             subscribeToSubmissions();
-            await updateBasicStats(currentStudentId);
+
+            // NOTE: updateBasicStats() has been removed — the stats HTML
+            // no longer exists in cbt.html, so its service call was failing
+            // and triggering an unwanted toast on every page load.
+
             createTabs();
         } else {
             console.error('Missing school or student ID');
