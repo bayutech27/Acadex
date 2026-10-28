@@ -20,6 +20,18 @@
 //   • RECENT_TESTS_PAGE_SIZE = 4 → initial load shows 4 tests, and the
 //     "Load More" button loads 4 more per click.
 //
+// NEW (SmartBrain SSO — practice tests hand-off):
+//   • The "Practice Tests" tab no longer opens Acadex's in-app practice.
+//     Clicking it redirects the student to SmartBrain's SSO login page
+//     with their email, acadexUid, name and schoolId as query params.
+//   • SmartBrain's sso-login.html derives a password from the acadexUid
+//     and signs the student in (or creates the account on first visit).
+//     Same uid → same password → same SmartBrain account every time.
+//   • "Assigned Tests" becomes the default tab (teacher-created tests
+//     still live and are taken inside Acadex).
+//   • The practice-tests HTML block (#practiceTestsContainer) remains in
+//     cbt.html but is hidden by default; no HTML changes were required.
+//
 // All Firestore operations go through service.js where possible.
 
 import { auth, db } from '../../js/firebase-config.js';
@@ -47,11 +59,11 @@ import {
 import * as service from '../../js/service.js';
 import { toast } from '../../js/error-handler.js';
 
-// ========== CONSTANTS (all existing) ==========
+// ========== CONSTANTS ==========
 const WAEC_NECO_QUESTIONS = 50;
 const WAEC_NECO_TIME = 40 * 60;
 const QUESTIONS_TO_FETCH = 20;
-const RECENT_TESTS_PAGE_SIZE = 4;   // CHANGED: 5 → 4
+const RECENT_TESTS_PAGE_SIZE = 4;
 
 const EXAM_TYPE_MAP = {
     'waec': 'WAEC/NECO',
@@ -75,11 +87,11 @@ const ALL_SUBJECTS = [
     { value: 'geography', name: 'Geography' },
     { value: 'ict', name: 'ICT (Computer Studies)' },
     { value: 'marketing', name: 'Marketing' },
-    { value: 'agric', name: 'Agricultural Science'},
-    { value: 'yoruba', name: 'Yoruba'}
+    { value: 'agric', name: 'Agricultural Science' },
+    { value: 'yoruba', name: 'Yoruba' }
 ];
 
-// ========== DOM ELEMENTS (existing) ==========
+// ========== DOM ELEMENTS ==========
 const getElement = (id) => document.getElementById(id);
 const startQuickTestBtn = getElement('startQuickTestBtn');
 const classSelect = getElement('classSelect');
@@ -95,7 +107,7 @@ const startWaecNecoDrillBtn = getElement('startWaecNecoDrillBtn');
 const assignedCbtSection = getElement('assignedCbtSection');
 const assignedTestsWrapper = getElement('assignedTestsTableWrapper');
 const cbtErrorMessage = getElement('cbtErrorMessage');
-const loadRecentTestsBtn = getElement('loadRecentTestsBtn');   // NEW
+const loadRecentTestsBtn = getElement('loadRecentTestsBtn');
 
 // ========== STATE ==========
 let currentStudentData = null;
@@ -105,13 +117,13 @@ let unsubscribeRecentTests = null;
 let lastVisibleRecentDoc = null;
 let unsubscribeAssignedTests = null;
 
-// NEW: per-student submission tracking + module-level listeners snapshots.
-let submittedCbtIds       = new Set();   // cbtIds this student has already submitted
+// Per-student submission tracking + module-level listener snapshots
+let submittedCbtIds       = new Set();
 let unsubscribeSubmissions = null;
-let pendingAssignedTests   = [];         // latest snapshot from 'pending' listener
-let startedAssignedTests   = [];         // latest snapshot from 'started' listener
+let pendingAssignedTests   = [];
+let startedAssignedTests   = [];
 
-// ========== HELPER FUNCTIONS (existing, unchanged) ==========
+// ========== HELPER FUNCTIONS ==========
 function convertTimestamp(value) {
     if (!value) return null;
     if (typeof value.toDate === 'function') return value.toDate();
@@ -183,7 +195,7 @@ async function loadStudentProfile(userId) {
     }
 }
 
-// ========== SUBJECT DROPDOWNS (existing) ==========
+// ========== SUBJECT DROPDOWNS ==========
 function populateQuickTestSubjects() {
     if (!subjectSelect) return;
     subjectSelect.innerHTML = '<option value="" disabled selected>Choose subject</option>';
@@ -206,10 +218,7 @@ function populateWaecNecoSubjects() {
     });
 }
 
-// ========== RECENT TESTS (one-shot getDocs – no live listener) ==========
-// CHANGED: No longer auto-invoked at page load. Triggered only when the
-// student clicks "Check Your Recent Tests". Once the container's innerHTML
-// is replaced, the trigger button disappears on its own.
+// ========== RECENT TESTS (one-shot getDocs — no live listener) ==========
 async function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
@@ -381,7 +390,7 @@ function renderUnknownTest(test) {
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
 }
 
-// ========== STATISTICS (using service.getTestStatsByUser – aggregate) ==========
+// ========== STATISTICS ==========
 async function updateBasicStats(userId) {
     try {
         const stats = await service.getTestStatsByUser(userId);
@@ -524,7 +533,7 @@ function renderAssignedTestsTable() {
     });
 }
 
-// startAssignedTest() — three defence-in-depth guards (unchanged).
+// startAssignedTest() — three defence-in-depth guards.
 async function startAssignedTest(cbtId) {
     try {
         if (submittedCbtIds.has(cbtId)) {
@@ -644,7 +653,7 @@ async function startAssignedTest(cbtId) {
     }
 }
 
-// ========== EXISTING TEST LAUNCHERS (using service.getQuestions) ==========
+// ========== EXISTING TEST LAUNCHERS (used by practice-tests HTML kept hidden) ==========
 async function startQuickTest() {
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
@@ -796,7 +805,7 @@ async function fetchQuestions(examType, subject) {
     }
 }
 
-// ========== JAMB DRILL UI (existing) ==========
+// ========== JAMB DRILL UI ==========
 function setupJambDrillSubjects() {
     if (!additionalSubjectsDiv) return;
     additionalSubjectsDiv.innerHTML = '';
@@ -827,6 +836,8 @@ function validateJambSubjectSelection() {
 }
 
 // ========== TAB SYSTEM ==========
+// Practice Tests → external redirect to SmartBrain CBT (free practice platform)
+// Assigned Tests → stays in Acadex (teacher-created tests)
 function createTabs() {
     const practiceContainer = document.getElementById('practiceTestsContainer');
     const assignedSection = document.getElementById('assignedCbtSection');
@@ -841,27 +852,29 @@ function createTabs() {
     tabsContainer.style.paddingBottom = '0.5rem';
 
     const practiceTab = document.createElement('button');
-    practiceTab.textContent = '📚 Practice Tests';
-    practiceTab.className = 'cbt-tab active';
+    practiceTab.innerHTML = '📚 Practice Tests <i class="fas fa-arrow-up-right-from-square" style="font-size:0.75em;opacity:0.7;margin-left:4px;"></i>';
+    practiceTab.className = 'cbt-tab';
+    practiceTab.type = 'button';
     practiceTab.style.background = 'none';
     practiceTab.style.border = 'none';
     practiceTab.style.fontSize = '1.1rem';
     practiceTab.style.fontWeight = '600';
     practiceTab.style.cursor = 'pointer';
     practiceTab.style.padding = '0.5rem 1rem';
-    practiceTab.style.color = '#6A11CB';
-    practiceTab.style.borderBottom = '3px solid #6A11CB';
+    practiceTab.style.color = '#666';
 
     const assignedTab = document.createElement('button');
     assignedTab.textContent = '📋 Assigned Tests';
-    assignedTab.className = 'cbt-tab';
+    assignedTab.className = 'cbt-tab active';
+    assignedTab.type = 'button';
     assignedTab.style.background = 'none';
     assignedTab.style.border = 'none';
     assignedTab.style.fontSize = '1.1rem';
     assignedTab.style.fontWeight = '600';
     assignedTab.style.cursor = 'pointer';
     assignedTab.style.padding = '0.5rem 1rem';
-    assignedTab.style.color = '#666';
+    assignedTab.style.color = '#6A11CB';
+    assignedTab.style.borderBottom = '3px solid #6A11CB';
 
     tabsContainer.appendChild(practiceTab);
     tabsContainer.appendChild(assignedTab);
@@ -872,17 +885,6 @@ function createTabs() {
         dashboardContainer.insertBefore(tabsContainer, statsSection.nextSibling);
     } else {
         dashboardContainer.appendChild(tabsContainer);
-    }
-
-    function showPractice() {
-        practiceContainer.style.display = 'block';
-        assignedSection.style.display = 'none';
-        practiceTab.classList.add('active');
-        practiceTab.style.color = '#6A11CB';
-        practiceTab.style.borderBottom = '3px solid #6A11CB';
-        assignedTab.classList.remove('active');
-        assignedTab.style.color = '#666';
-        assignedTab.style.borderBottom = 'none';
     }
 
     function showAssigned() {
@@ -899,9 +901,64 @@ function createTabs() {
         }
     }
 
-    practiceTab.addEventListener('click', showPractice);
+    function handlePracticeClick() {
+        redirectToSmartBrainPractice();
+    }
+
+    practiceTab.addEventListener('click', handlePracticeClick);
     assignedTab.addEventListener('click', showAssigned);
-    showPractice();
+
+    // DEFAULT: show Assigned Tests (Practice lives on SmartBrain now)
+    showAssigned();
+}
+
+// ========== SMARTBRAIN SSO REDIRECT ==========
+// Sends the student to SmartBrain's SSO login page with their identity.
+// SmartBrain derives a password from the Acadex UID and signs the student
+// in (or creates the account on first visit). Same URL every time →
+// same SmartBrain account every time.
+async function redirectToSmartBrainPractice() {
+    try {
+        const user = auth.currentUser;
+        if (!user) {
+            toast.error('Your session has expired. Please log in again.');
+            return;
+        }
+
+        if (!currentStudentData) {
+            toast.error('Profile still loading. Please try again in a moment.');
+            return;
+        }
+
+        const email = (currentStudentData.email || user.email || '').trim().toLowerCase();
+        if (!email) {
+            toast.error('Your account is missing an email address. Please contact your school.');
+            return;
+        }
+
+        const schoolId = currentStudentData.schoolId;
+        if (!schoolId) {
+            toast.error('You must be enrolled in a school to access practice tests.');
+            return;
+        }
+
+        const name = currentStudentData.name || user.displayName || 'Student';
+
+        const params = new URLSearchParams({
+            e: email,
+            u: user.uid,
+            n: name,
+            s: schoolId
+        });
+
+        const smartBrainUrl =
+            'https://smartbraincbt.vercel.app/dashboard/sso-login.html?' + params.toString();
+
+        window.location.href = smartBrainUrl;
+    } catch (err) {
+        console.error('SmartBrain SSO redirect error:', err);
+        toast.error('Unable to open practice tests. Please try again.');
+    }
 }
 
 // ========== INITIALIZATION ==========
@@ -917,9 +974,6 @@ async function initCBTDashboard() {
             populateQuickTestSubjects();
             populateWaecNecoSubjects();
             setupJambDrillSubjects();
-
-            // CHANGED: setupRecentTests() is NO LONGER auto-invoked. It runs
-            // only when the student clicks "Check Your Recent Tests".
 
             // Submissions listener still starts immediately so submittedCbtIds
             // is populated before the student opens the Assigned tab.
@@ -937,7 +991,8 @@ async function initCBTDashboard() {
     if (startJambDrillBtn) startJambDrillBtn.addEventListener('click', startJambDrill);
     if (startWaecNecoDrillBtn) startWaecNecoDrillBtn.addEventListener('click', startWaecNecoDrill);
 
-    // NEW: manual loader for recent tests.
+    // Manual loader for recent tests (still available if the practice
+    // HTML is re-enabled later).
     if (loadRecentTestsBtn) {
         loadRecentTestsBtn.addEventListener('click', async () => {
             if (!currentStudentId) {
@@ -951,8 +1006,6 @@ async function initCBTDashboard() {
             } catch (err) {
                 console.error('Manual recent tests load failed:', err);
             } finally {
-                // After setupRecentTests runs, it replaces #recentTestsList's
-                // innerHTML — the button is gone. But guard in case it wasn't.
                 if (loadRecentTestsBtn.isConnected) {
                     loadRecentTestsBtn.disabled = false;
                     loadRecentTestsBtn.innerHTML = '<i class="fas fa-history"></i> Check Your Recent Tests';
