@@ -18,7 +18,6 @@
   <style>
     /* =========================================================
        iOS DESIGN TOKENS — dark variant
-       (header left entirely to cbt.css)
        ========================================================= */
     :root {
       --bg-base:       #16132B;
@@ -64,9 +63,6 @@
       --ios-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
     }
 
-    /* =========================================================
-       DARK BACKGROUND (header untouched)
-       ========================================================= */
     html { background: var(--bg-base) !important; }
     body {
       background: var(--bg-base) !important;
@@ -81,10 +77,7 @@
       color: var(--text-primary) !important;
     }
 
-    /* =========================================================
-       BOOT LOADER — static HTML, visible on first paint.
-       No JS is needed to *show* it. JS only hides it.
-       ========================================================= */
+    /* BOOT LOADER */
     .cbt-boot-loader {
       position: fixed;
       top: 0; right: 0; bottom: 0; left: 0;
@@ -101,32 +94,19 @@
       pointer-events: auto;
       transition: opacity 0.35s ease;
     }
-    .cbt-boot-loader.cbt-boot-fadeout {
-      opacity: 0;
-      pointer-events: none;
-    }
-    .cbt-boot-loader.cbt-boot-gone {
-      display: none;
-    }
-    .cbt-boot-spinner svg {
-      display: block;
-      width: 52px;
-      height: 52px;
-    }
-    .cbt-boot-track {
-      stroke: rgba(10, 132, 255, 0.20);
-    }
+    .cbt-boot-loader.cbt-boot-fadeout { opacity: 0; pointer-events: none; }
+    .cbt-boot-loader.cbt-boot-gone    { display: none; }
+    .cbt-boot-spinner svg { display: block; width: 52px; height: 52px; }
+    .cbt-boot-track { stroke: rgba(10, 132, 255, 0.20); }
     .cbt-boot-ring {
       stroke: #0A84FF;
       animation: cbtBootSpin 0.9s linear infinite;
       transform-origin: center;
     }
-    @keyframes cbtBootSpin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes cbtBootSpin { to { transform: rotate(360deg); } }
     .cbt-boot-label {
       color: rgba(248, 248, 255, 0.85);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      font-family: var(--ios-font);
       font-size: 0.9rem;
       font-weight: 600;
       letter-spacing: -0.005em;
@@ -137,9 +117,7 @@
       .cbt-boot-label { font-size: 0.82rem; }
     }
 
-    /* =========================================================
-       SUBSCRIPTION NOTICE
-       ========================================================= */
+    /* SUBSCRIPTION NOTICE */
     .subscription-notice {
       background: rgba(255, 69, 58, 0.14) !important;
       color: #FF8078 !important;
@@ -150,19 +128,12 @@
       font-size: 0.9rem !important;
       margin-bottom: 1.25rem !important;
     }
-
-    /* NEW: Hide the empty subscription notice — an empty div still renders
-       as a red-tinted strip because of its padding + border. When JS later
-       fills it (e.g. subscription-expired message), :empty stops matching
-       and the notice appears normally. No functionality is lost. */
     #subscriptionNotice:empty,
     .subscription-notice:empty {
       display: none !important;
     }
 
-    /* =========================================================
-       WELCOME SECTION
-       ========================================================= */
+    /* WELCOME SECTION */
     .welcome-section {
       background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-xl) !important;
@@ -191,121 +162,7 @@
     }
     .student-class i { color: var(--ios-blue) !important; }
 
-    /* =========================================================
-       STAT CARDS
-       ========================================================= */
-    .stats-section { margin-bottom: 1.25rem !important; }
-    .stat-card {
-      background: var(--bg-elevated) !important;
-      border-radius: var(--ios-radius-lg) !important;
-      padding: 1.1rem 1.25rem !important;
-      box-shadow: var(--shadow) !important;
-      border: 1px solid var(--border-subtle) !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 1rem !important;
-      color: var(--text-primary) !important;
-      transition: transform 0.22s var(--ios-spring), border-color 0.2s ease !important;
-    }
-    .stat-card:hover {
-      transform: translateY(-2px) !important;
-      border-color: var(--border-default) !important;
-    }
-    .stat-icon {
-      width: 48px !important;
-      height: 48px !important;
-      border-radius: 14px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      font-size: 1.35rem !important;
-      flex-shrink: 0 !important;
-    }
-    .stat-card:nth-child(1) .stat-icon {
-      background: rgba(48, 209, 88, 0.18) !important;
-      color: var(--ios-green) !important;
-    }
-    .stat-card:nth-child(2) .stat-icon {
-      background: rgba(10, 132, 255, 0.20) !important;
-      color: var(--ios-blue) !important;
-    }
-    .stat-card h3 {
-      font-family: var(--ios-font) !important;
-      font-size: 0.72rem !important;
-      font-weight: 600 !important;
-      text-transform: uppercase !important;
-      letter-spacing: 0.05em !important;
-      color: var(--text-secondary) !important;
-      margin: 0 0 2px 0 !important;
-    }
-    .stat-number {
-      font-family: var(--ios-font-display) !important;
-      font-size: 1.9rem !important;
-      font-weight: 700 !important;
-      color: var(--text-primary) !important;
-      letter-spacing: -0.04em !important;
-      line-height: 1.1 !important;
-      font-variant-numeric: tabular-nums !important;
-    }
-    .stat-number .percent {
-      font-size: 1.1rem !important;
-      color: var(--text-secondary) !important;
-      margin-left: 2px !important;
-      font-weight: 600 !important;
-    }
-    .stat-label {
-      font-size: 0.75rem !important;
-      color: var(--text-secondary) !important;
-      margin-top: 2px !important;
-    }
-
-    /* =========================================================
-       TABS — dark iOS pills
-       ========================================================= */
-    .cbt-tabs {
-      display: flex !important;
-      gap: 0.4rem !important;
-      background: var(--fill-subtle) !important;
-      border-radius: 999px !important;
-      padding: 5px !important;
-      margin-bottom: 1.25rem !important;
-      border: 1px solid var(--border-subtle) !important;
-      border-bottom: 1px solid var(--border-subtle) !important;
-      box-shadow: none !important;
-    }
-    .cbt-tab {
-      flex: 1 !important;
-      background: transparent !important;
-      color: var(--text-secondary) !important;
-      border: none !important;
-      border-bottom: none !important;
-      padding: 0.8rem 1rem !important;
-      border-radius: 999px !important;
-      font-family: var(--ios-font) !important;
-      font-size: 0.95rem !important;
-      font-weight: 700 !important;
-      letter-spacing: -0.01em !important;
-      cursor: pointer !important;
-      text-align: center !important;
-      transition: all 0.2s var(--ios-smooth) !important;
-      box-shadow: none !important;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .cbt-tab:hover {
-      color: var(--ios-blue) !important;
-      background: rgba(10, 132, 255, 0.10) !important;
-    }
-    .cbt-tab.active {
-      background: var(--bg-elevated) !important;
-      color: var(--ios-blue) !important;
-      border-bottom: none !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
-      font-weight: 800 !important;
-    }
-
-    /* =========================================================
-       PRACTICE / SECTION CARDS
-       ========================================================= */
+    /* PRACTICE / SECTION CARDS */
     .practice-section {
       background: var(--bg-elevated) !important;
       border-radius: var(--ios-radius-xl) !important;
@@ -335,141 +192,7 @@
       line-height: 1.5 !important;
     }
 
-    /* =========================================================
-       FORM CONTROLS — dark
-       ========================================================= */
-    .form-group label {
-      font-family: var(--ios-font) !important;
-      font-weight: 600 !important;
-      font-size: 0.78rem !important;
-      color: var(--text-secondary) !important;
-      text-transform: uppercase !important;
-      letter-spacing: 0.05em !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 0.4rem !important;
-      margin-bottom: 6px !important;
-    }
-    .form-group label i { color: var(--ios-blue) !important; font-size: 0.8rem !important; }
-
-    .form-select {
-      width: 100% !important;
-      padding: 0.75rem 2.2rem 0.75rem 0.95rem !important;
-      border-radius: var(--ios-radius) !important;
-      border: 1.5px solid var(--border-default) !important;
-      background-color: var(--fill-subtle) !important;
-      color: var(--text-primary) !important;
-      font-family: inherit !important;
-      font-size: 0.95rem !important;
-      transition: all 0.15s var(--ios-smooth) !important;
-      -webkit-appearance: none !important;
-      appearance: none !important;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23B8B8CC' d='M6 8L2 4h8z'/%3E%3C/svg%3E") !important;
-      background-repeat: no-repeat !important;
-      background-position: right 0.95rem center !important;
-    }
-    .form-select:focus {
-      outline: none !important;
-      border-color: var(--ios-blue) !important;
-      background-color: var(--bg-elevated-2) !important;
-      box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
-    }
-    .form-select option {
-      background: var(--bg-elevated) !important;
-      color: var(--text-primary) !important;
-    }
-
-    .checkbox-item label {
-      font-weight: 500 !important;
-      font-size: 0.9rem !important;
-      color: var(--text-primary) !important;
-      text-transform: none !important;
-      letter-spacing: normal !important;
-    }
-    .checkbox-group input[type="checkbox"],
-    .checkbox-item input[type="checkbox"] {
-      accent-color: var(--ios-blue) !important;
-    }
-    #subjectSelectionHint {
-      color: var(--text-secondary) !important;
-      font-size: 0.8rem !important;
-      margin-top: 8px !important;
-    }
-
-    /* Show/Hide JAMB subjects toggle button */
-    #showAllSubjectsBtn {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      gap: 8px !important;
-      padding: 0.7rem 1.35rem !important;
-      background: var(--fill-strong) !important;
-      color: var(--ios-blue) !important;
-      border: 1px solid var(--border-default) !important;
-      border-radius: 999px !important;
-      font-family: var(--ios-font) !important;
-      font-size: 0.85rem !important;
-      font-weight: 700 !important;
-      cursor: pointer !important;
-      transition: all 0.15s var(--ios-smooth) !important;
-      margin-top: 4px !important;
-      margin-bottom: 12px !important;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #showAllSubjectsBtn:hover {
-      background: rgba(10, 132, 255, 0.15) !important;
-      border-color: var(--ios-blue) !important;
-    }
-    #showAllSubjectsBtn:active { transform: scale(0.97) !important; }
-    #showAllSubjectsBtn i {
-      transition: transform 0.25s var(--ios-smooth);
-      font-size: 0.8rem !important;
-      color: var(--ios-blue) !important;
-    }
-    #showAllSubjectsBtn.expanded i { transform: rotate(180deg); }
-
-    /* =========================================================
-       START TEST BUTTONS — dark iOS pills
-       ========================================================= */
-    .start-test-btn {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      gap: 8px !important;
-      padding: 0.85rem 1.6rem !important;
-      border-radius: 999px !important;
-      border: none !important;
-      font-family: var(--ios-font) !important;
-      font-size: 0.95rem !important;
-      font-weight: 700 !important;
-      letter-spacing: -0.005em !important;
-      color: #ffffff !important;
-      cursor: pointer !important;
-      transition: transform 0.15s var(--ios-smooth), filter 0.2s ease !important;
-      -webkit-tap-highlight-color: transparent;
-      white-space: nowrap !important;
-    }
-    #startQuickTestBtn {
-      background: linear-gradient(135deg, var(--ios-blue), var(--ios-indigo)) !important;
-      box-shadow: 0 4px 14px rgba(10, 132, 255, 0.35) !important;
-    }
-    #startJambDrillBtn {
-      background: linear-gradient(135deg, var(--ios-purple), var(--ios-purple-600)) !important;
-      box-shadow: 0 4px 14px rgba(191, 90, 242, 0.35) !important;
-    }
-    #startWaecNecoDrillBtn {
-      background: linear-gradient(135deg, var(--ios-green), var(--ios-green-600)) !important;
-      box-shadow: 0 4px 14px rgba(48, 209, 88, 0.35) !important;
-    }
-    .start-test-btn:hover {
-      transform: translateY(-1px) !important;
-      filter: brightness(1.08) !important;
-    }
-    .start-test-btn:active { transform: scale(0.97) !important; }
-
-    /* =========================================================
-       ASSIGNED TESTS TABLE — dark, fully contained scroll
-       ========================================================= */
+    /* ASSIGNED TESTS TABLE */
     .assigned-tests-table-wrapper {
       background: var(--bg-elevated-2) !important;
       border: 1px solid var(--border-subtle) !important;
@@ -545,7 +268,6 @@
       opacity: 1 !important;
     }
 
-    /* Status badges */
     .status-badge {
       display: inline-block !important;
       padding: 4px 10px !important;
@@ -555,104 +277,11 @@
       text-transform: uppercase !important;
       letter-spacing: 0.04em !important;
     }
-    .status-started {
-      background: rgba(48, 209, 88, 0.18) !important;
-      color: #5CE08A !important;
-    }
-    .status-pending {
-      background: rgba(255, 159, 10, 0.18) !important;
-      color: #FFB84D !important;
-    }
-    .status-expired {
-      background: rgba(255, 69, 58, 0.16) !important;
-      color: #FF8078 !important;
-    }
+    .status-started { background: rgba(48, 209, 88, 0.18) !important; color: #5CE08A !important; }
+    .status-pending { background: rgba(255, 159, 10, 0.18) !important; color: #FFB84D !important; }
+    .status-expired { background: rgba(255, 69, 58, 0.16) !important; color: #FF8078 !important; }
 
-    /* =========================================================
-       RECENT TESTS — dark
-       ========================================================= */
-    .recent-tests-section { margin-top: 0.5rem !important; }
-    .recent-tests {
-      background: var(--bg-elevated) !important;
-      border-radius: var(--ios-radius-xl) !important;
-      padding: 1.4rem 1.6rem !important;
-      box-shadow: var(--shadow) !important;
-      border: 1px solid var(--border-subtle) !important;
-      color: var(--text-primary) !important;
-    }
-    .recent-tests h3 {
-      font-family: var(--ios-font-display) !important;
-      font-size: 1.15rem !important;
-      font-weight: 700 !important;
-      color: var(--text-primary) !important;
-      letter-spacing: -0.02em !important;
-      margin: 0 0 1rem 0 !important;
-    }
-
-    .recent-test-item {
-      background: var(--bg-elevated-2) !important;
-      border-radius: var(--ios-radius) !important;
-      padding: 0.9rem 1rem !important;
-      margin-bottom: 0.6rem !important;
-      border: 1px solid var(--border-subtle) !important;
-      transition: background 0.15s ease, border-color 0.15s ease !important;
-    }
-    .recent-test-item:hover {
-      background: var(--bg-elevated-3) !important;
-      border-color: var(--border-default) !important;
-    }
-    .recent-test-item .test-header {
-      display: flex !important;
-      justify-content: space-between !important;
-      align-items: center !important;
-      margin-bottom: 0.5rem !important;
-    }
-    .recent-test-item .test-type-badge {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      width: 32px !important;
-      height: 32px !important;
-      border-radius: 10px !important;
-      background: rgba(10, 132, 255, 0.18) !important;
-      color: var(--ios-blue) !important;
-      font-size: 0.9rem !important;
-    }
-    .recent-test-item .test-date {
-      font-size: 0.75rem !important;
-      color: var(--text-secondary) !important;
-      font-weight: 500 !important;
-    }
-    .recent-test-item .test-subject {
-      font-weight: 700 !important;
-      color: var(--text-primary) !important;
-      font-size: 0.95rem !important;
-      margin-bottom: 0.3rem !important;
-    }
-    .recent-test-item .test-score {
-      font-size: 0.85rem !important;
-      color: var(--text-secondary) !important;
-    }
-    .recent-test-item .test-score strong {
-      color: var(--ios-blue) !important;
-      font-weight: 700 !important;
-    }
-    .recent-test-item .subject-score-row {
-      display: flex !important;
-      justify-content: space-between !important;
-      font-size: 0.8rem !important;
-      padding: 3px 0 !important;
-    }
-    .recent-test-item .subject-name { color: var(--text-secondary) !important; }
-    .recent-test-item .score-value { color: var(--text-primary) !important; font-weight: 600 !important; }
-    .recent-test-item .test-total-score {
-      margin-top: 0.4rem !important;
-      padding-top: 0.4rem !important;
-      border-top: 1px solid var(--border-subtle) !important;
-      font-size: 0.85rem !important;
-    }
-    .recent-test-item .test-total-score strong { color: var(--ios-blue) !important; }
-
+    /* States */
     .no-tests {
       text-align: center !important;
       padding: 2rem 1rem !important;
@@ -660,61 +289,17 @@
       font-size: 0.9rem !important;
       font-style: italic !important;
     }
-    .error {
-      color: #FF8078 !important;
-      text-align: center !important;
-      padding: 1rem !important;
-      font-size: 0.9rem !important;
-    }
-
-    /* =========================================================
-       LOAD MORE / CHECK RECENT TESTS — dark iOS pill
-       ========================================================= */
-    .load-more-btn {
-      background: var(--fill-strong) !important;
-      color: var(--ios-blue) !important;
-      border: 1px solid var(--border-default) !important;
-      padding: 0.7rem 1.4rem !important;
-      border-radius: 999px !important;
-      font-family: var(--ios-font) !important;
-      font-size: 0.88rem !important;
-      font-weight: 600 !important;
-      cursor: pointer !important;
-      transition: all 0.15s var(--ios-smooth) !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      gap: 6px !important;
-    }
-    .load-more-btn:hover {
-      background: rgba(10, 132, 255, 0.15) !important;
-      border-color: var(--ios-blue) !important;
-    }
-    .load-more-btn:active { transform: scale(0.97) !important; }
-    .load-more-btn:disabled {
-      opacity: 0.65 !important;
-      cursor: wait !important;
-    }
-
-    /* The "Check Your Recent Tests" CTA — slightly more prominent */
-    #loadRecentTestsBtn {
-      padding: 0.85rem 1.6rem !important;
-      font-size: 0.92rem !important;
-      font-weight: 700 !important;
-      background: rgba(10, 132, 255, 0.15) !important;
-      border: 1px solid rgba(10, 132, 255, 0.35) !important;
-      color: var(--ios-blue) !important;
-    }
-    #loadRecentTestsBtn:hover {
-      background: rgba(10, 132, 255, 0.22) !important;
-      border-color: var(--ios-blue) !important;
-    }
-
-    /* Loading + error states */
     .loading {
       color: var(--text-secondary) !important;
       text-align: center !important;
       padding: 2rem 1rem !important;
       font-style: italic !important;
+    }
+    .error {
+      color: #FF8078 !important;
+      text-align: center !important;
+      padding: 1rem !important;
+      font-size: 0.9rem !important;
     }
     .error-message {
       background: rgba(255, 69, 58, 0.12) !important;
@@ -725,9 +310,7 @@
       margin-top: 0.5rem !important;
     }
 
-    /* =========================================================
-       FOOTER — dark
-       ========================================================= */
+    /* FOOTER */
     .dashboard-footer {
       background: transparent !important;
       border-top: 1px solid var(--border-subtle) !important;
@@ -766,9 +349,7 @@
       margin: 0 !important;
     }
 
-    /* =========================================================
-       MOBILE RESPONSIVE
-       ========================================================= */
+    /* MOBILE RESPONSIVE */
     @media (max-width: 768px) {
       .welcome-section {
         padding: 1.1rem 1.2rem !important;
@@ -776,41 +357,11 @@
       }
       .user-welcome h1 { font-size: 1.25rem !important; }
 
-      .practice-section,
-      .recent-tests {
+      .practice-section {
         padding: 1.1rem 1.15rem !important;
         border-radius: var(--ios-radius-lg) !important;
       }
       .section-header h2 { font-size: 1rem !important; }
-
-      .stat-number { font-size: 1.5rem !important; }
-      .stat-icon { width: 40px !important; height: 40px !important; font-size: 1.15rem !important; }
-      .stat-card { padding: 0.95rem 1rem !important; gap: 0.75rem !important; }
-
-      .cbt-tabs { padding: 4px !important; gap: 4px !important; }
-      .cbt-tab {
-        padding: 0.7rem 0.6rem !important;
-        font-size: 0.82rem !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.015em !important;
-      }
-
-      .start-test-btn {
-        padding: 0.8rem 1.2rem !important;
-        font-size: 0.88rem !important;
-        width: 100% !important;
-      }
-
-      .form-select {
-        font-size: 0.9rem !important;
-        padding: 0.7rem 2.2rem 0.7rem 0.9rem !important;
-      }
-
-      .practice-form .form-row {
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 12px !important;
-      }
 
       .assigned-tests-table th,
       .assigned-tests-table td {
@@ -821,49 +372,23 @@
         padding: 6px 12px !important;
         font-size: 0.72rem !important;
       }
-
-      #loadRecentTestsBtn {
-        padding: 0.75rem 1.25rem !important;
-        font-size: 0.85rem !important;
-        width: 100% !important;
-      }
     }
 
     @media (max-width: 480px) {
-      .cbt-tab {
-        padding: 0.65rem 0.4rem !important;
-        font-size: 0.76rem !important;
-        letter-spacing: -0.02em !important;
-      }
-
       .section-header h2 { font-size: 0.92rem !important; }
       .section-subtitle { font-size: 0.78rem !important; }
-
-      .stat-number { font-size: 1.35rem !important; }
-      .stat-card { padding: 0.85rem 0.9rem !important; }
-      .stat-label { font-size: 0.7rem !important; }
-
-      .start-test-btn { padding: 0.75rem 1rem !important; font-size: 0.85rem !important; }
-
       .assigned-tests-table th,
       .assigned-tests-table td {
         padding: 8px 6px !important;
         font-size: 0.74rem !important;
       }
       .take-test-btn { padding: 6px 10px !important; font-size: 0.7rem !important; }
-
-      .recent-test-item .test-subject { font-size: 0.88rem !important; }
-
-      #showAllSubjectsBtn {
-        font-size: 0.8rem !important;
-        padding: 0.65rem 1.1rem !important;
-      }
     }
   </style>
 </head>
 <body>
 <script>
-// Acadex session validation – must have schoolId and studentId
+// Acadex session validation
 (function() {
   const schoolId = localStorage.getItem('userSchoolId');
   const studentId = localStorage.getItem('studentId');
@@ -885,10 +410,7 @@ if ('serviceWorker' in navigator) {
 }
 </script>
 
-<!-- ============================================================
-     BOOT LOADER — visible on first paint, no JS required to show.
-     Static HTML + CSS. JS only hides it when the dashboard is ready.
-     ============================================================ -->
+<!-- BOOT LOADER -->
 <div id="cbtBootLoader" class="cbt-boot-loader" role="status" aria-live="polite">
   <div class="cbt-boot-spinner">
     <svg viewBox="0 0 40 40">
@@ -900,13 +422,6 @@ if ('serviceWorker' in navigator) {
 </div>
 
 <script>
-/* Boot loader hide logic.
-   - Runs as a plain (non-module) script so it never depends on ES imports.
-   - Hides the loader once one of the two "ready" signals fires:
-       • #assignedTestsTableWrapper no longer shows "Loading assigned tests..."
-       • #userName has been populated
-   - 900 ms minimum visible time so fast networks don't skip the loader.
-   - 15 s failsafe force-hides the loader if neither signal ever fires. */
 (function () {
   var loader = document.getElementById('cbtBootLoader');
   if (!loader) return;
@@ -1011,7 +526,7 @@ if ('serviceWorker' in navigator) {
     <!-- Subscription notice -->
     <div id="subscriptionNotice" class="subscription-notice"></div>
 
-    <!-- Welcome Section (Student name and class only) -->
+    <!-- Welcome Section -->
     <section class="welcome-section">
       <div class="welcome-content" style="justify-content: flex-start;">
         <div class="user-welcome">
@@ -1021,39 +536,12 @@ if ('serviceWorker' in navigator) {
       </div>
     </section>
 
-    <!-- Basic Stats Cards (Completed Tests & Average Score) -->
-    <section class="stats-section">
-      <div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fas fa-check-circle"></i>
-          </div>
-          <div class="stat-content">
-            <h3>Completed Tests</h3>
-            <div class="stat-number" id="completedTests">0</div>
-            <div class="stat-label">tests taken</div>
-          </div>
-        </div>
-        
-        <div class="stat-card">
-          <div class="stat-icon">
-            <i class="fas fa-chart-line"></i>
-          </div>
-          <div class="stat-content">
-            <h3>Average Score</h3>
-            <div class="stat-number" id="averageScore">0<span class="percent">%</span></div>
-            <div class="stat-label" id="performanceMessage">Start practicing!</div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- TABS injected here by JS: Assigned Tests | Practice Tests ↗ -->
 
-    <!-- TABS will be inserted here by JavaScript (Practice Tests / Assigned Tests) -->
-
-    <!-- ASSIGNED CBT TESTS SECTION (shown when "Assigned Tests" tab is active) -->
-    <section class="practice-section" id="assignedCbtSection" style="display: none;">
+    <!-- ASSIGNED CBT TESTS SECTION (default visible) -->
+    <section class="practice-section" id="assignedCbtSection">
       <div class="section-header">
-        <h2><i class="fas fa-clock"></i> Assigned CBT Tests</h2>
+        <h2><i class="fas fa-clipboard-list"></i> Assigned CBT Tests</h2>
         <p class="section-subtitle">Tests created by your teachers</p>
       </div>
       <div id="assignedTestsTableWrapper" class="assigned-tests-table-wrapper">
@@ -1062,115 +550,8 @@ if ('serviceWorker' in navigator) {
       <div id="cbtErrorMessage" class="error-message" style="display:none;"></div>
     </section>
 
-    <!-- PRACTICE TESTS SECTION (shown when "Practice Tests" tab is active) -->
-    <div id="practiceTestsContainer">
-      <!-- QUICK TEST SECTION -->
-      <section class="practice-section" id="quickTestSection">
-        <div class="section-header">
-          <h2><i class="fas fa-bolt"></i> Quick Test (20 questions, 20 mins)</h2>
-          <p class="section-subtitle">Select your exam and subject to begin</p>
-        </div>
-        
-        <form class="practice-form" id="quickTestForm">
-          <div class="form-row">
-            <div class="form-group">
-              <label for="classSelect"><i class="fas fa-graduation-cap"></i> Select Exam</label>
-              <select id="classSelect" class="form-select" required>
-                <option value="" disabled selected>Choose your exam</option>
-                <option value="waec">WAEC/NECO</option>
-                <option value="jamb">JAMB</option>
-              </select>
-            </div>
-            
-            <div class="form-group">
-              <label for="subjectSelect"><i class="fas fa-book"></i> Select Subject</label>
-              <select id="subjectSelect" class="form-select" required>
-                <option value="" disabled selected>Choose subject</option>
-              </select>
-            </div>
-            
-            <button type="button" id="startQuickTestBtn" class="start-test-btn">
-              <i class="fas fa-play-circle"></i> Start Quick Test
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <!-- JAMB DRILL SECTION -->
-      <section class="practice-section" id="jambDrillSection">
-        <div class="section-header">
-          <h2><i class="fas fa-graduation-cap"></i> JAMB Drill (4 Subjects, 120 mins, scored /400)</h2>
-          <p class="section-subtitle">English is compulsory. Choose 3 additional subjects.</p>
-        </div>
-
-        <form class="practice-form" id="jambDrillForm">
-          <div class="form-group">
-            <label><i class="fas fa-book"></i> English (Compulsory)</label>
-            <div class="checkbox-item" style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
-              <input type="checkbox" id="subjectEnglish" value="english" checked disabled style="width: 18px; height: 18px;">
-              <label for="subjectEnglish" style="margin: 0; font-weight: 500;">English Language (60 questions)</label>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label><i class="fas fa-book"></i> Choose 3 Additional Subjects</label>
-            <div class="checkbox-group" id="additionalSubjects" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 12px; margin-top: 10px;">
-            </div>
-            <small id="subjectSelectionHint" style="color: #666; display: block; margin-top: 8px;">Select exactly 3 subjects</small>
-          </div>
-
-          <div style="margin-top: 20px;">
-            <button type="button" id="startJambDrillBtn" class="start-test-btn" style="background: linear-gradient(135deg, #9C27B0, #6A11CB);">
-              <i class="fas fa-play-circle"></i> Start JAMB Drill
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <!-- WAEC/NECO DRILL SECTION -->
-      <section class="practice-section" id="waecNecoDrillSection">
-        <div class="section-header">
-          <h2><i class="fas fa-school"></i> WAEC/NECO Drill (50 questions, 40 mins)</h2>
-          <p class="section-subtitle">Select a subject to start practicing WAEC/NECO style questions</p>
-        </div>
-
-        <form class="practice-form" id="waecNecoDrillForm">
-          <div class="form-row">
-            <div class="form-group">
-              <label for="waecNecoSubjectSelect"><i class="fas fa-book"></i> Select Subject</label>
-              <select id="waecNecoSubjectSelect" class="form-select" required>
-                <option value="" disabled selected>Choose subject</option>
-              </select>
-            </div>
-
-            <button type="button" id="startWaecNecoDrillBtn" class="start-test-btn">
-              <i class="fas fa-play-circle"></i> Start WAEC/NECO Drill
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <!-- Recent Tests Section -->
-      <section class="recent-tests-section">
-        <div id="recentTestsContainer" class="recent-tests">
-          <h3>Recent Tests</h3>
-
-          <!-- NEW: Button lives inside #recentTestsList so it auto-disappears
-               the moment setupRecentTests() replaces the container's innerHTML. -->
-          <div id="recentTestsList">
-            <button id="loadRecentTestsBtn" class="load-more-btn">
-              <i class="fas fa-history"></i> Check Your Recent Tests
-            </button>
-          </div>
-
-          <div id="recentTestsMore" class="load-more-container" style="display:none; text-align: center; margin-top: 1rem;">
-            <button id="loadMoreRecentBtn" class="load-more-btn">
-              <i class="fas fa-chevron-down"></i> Load More
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
+    <!-- PRACTICE TESTS CONTAINER — empty. Clicking the Practice Tests tab redirects to SmartBrain CBT. -->
+    <div id="practiceTestsContainer" style="display:none;"></div>
 
     <!-- Dashboard Footer -->
     <footer class="dashboard-footer">
@@ -1190,40 +571,6 @@ if ('serviceWorker' in navigator) {
 
 <script type="module" src="../js/script.js"></script>
 <script type="module" src="../js/cbt.js"></script>
-
-<!-- ============================================================
-     Show/Hide subjects toggle for JAMB Drill (unchanged)
-     ============================================================ -->
-<script>
-  (function () {
-    const container = document.getElementById('additionalSubjects');
-    if (!container) return;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'showAllSubjectsBtn';
-    btn.setAttribute('aria-expanded', 'false');
-    btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show All Subjects';
-
-    container.parentNode.insertBefore(btn, container);
-    container.style.display = 'none';
-
-    btn.addEventListener('click', function () {
-      const isCollapsed = container.style.display === 'none';
-      if (isCollapsed) {
-        container.style.display = 'grid';
-        btn.innerHTML = '<i class="fas fa-chevron-down"></i> Hide Subjects';
-        btn.classList.add('expanded');
-        btn.setAttribute('aria-expanded', 'true');
-      } else {
-        container.style.display = 'none';
-        btn.innerHTML = '<i class="fas fa-chevron-down"></i> Show All Subjects';
-        btn.classList.remove('expanded');
-        btn.setAttribute('aria-expanded', 'false');
-      }
-    });
-  })();
-</script>
 
 <script>
   if ('serviceWorker' in navigator) {
