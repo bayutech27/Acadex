@@ -16,21 +16,20 @@
 //   • The student clicks "Check Your Recent Tests" (id: loadRecentTestsBtn)
 //     inside #recentTestsList, which calls setupRecentTests(). Once the
 //     container's innerHTML is replaced by the loaded tests, the button
-//     disappears naturally — no extra code needed.
+//     disappears naturally.
 //   • RECENT_TESTS_PAGE_SIZE = 4 → initial load shows 4 tests, and the
 //     "Load More" button loads 4 more per click.
 //
 // NEW (SmartBrain SSO — practice tests hand-off):
 //   • The "Practice Tests" tab no longer opens Acadex's in-app practice.
 //     Clicking it redirects the student to SmartBrain's SSO login page
-//     with their email, acadexUid, name and schoolId as query params.
+//     with their email, acadexUid, name, schoolId and a return URL (`r`).
 //   • SmartBrain's sso-login.html derives a password from the acadexUid
 //     and signs the student in (or creates the account on first visit).
-//     Same uid → same password → same SmartBrain account every time.
 //   • "Assigned Tests" becomes the default tab (teacher-created tests
 //     still live and are taken inside Acadex).
-//   • The practice-tests HTML block (#practiceTestsContainer) remains in
-//     cbt.html but is hidden by default; no HTML changes were required.
+//   • Tabs are now bigger, bolder, more beautiful — Assigned first,
+//     Practice second — styled via JS-injected CSS (no CSS file changes).
 //
 // All Firestore operations go through service.js where possible.
 
@@ -64,6 +63,9 @@ const WAEC_NECO_QUESTIONS = 50;
 const WAEC_NECO_TIME = 40 * 60;
 const QUESTIONS_TO_FETCH = 20;
 const RECENT_TESTS_PAGE_SIZE = 4;
+
+// SmartBrain production URL — change here if the domain moves.
+const SMARTBRAIN_SSO_URL = 'https://smartbraincbt.vercel.app/dashboard/sso-login.html';
 
 const EXAM_TYPE_MAP = {
     'waec': 'WAEC/NECO',
@@ -166,7 +168,7 @@ function escapeHtml(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// ========== STUDENT DATA (using service) ==========
+// ========== STUDENT DATA ==========
 async function loadStudentProfile(userId) {
     try {
         const student = await service.getStudentById(userId);
@@ -218,7 +220,7 @@ function populateWaecNecoSubjects() {
     });
 }
 
-// ========== RECENT TESTS (one-shot getDocs — no live listener) ==========
+// ========== RECENT TESTS (kept for backward compat) ==========
 async function setupRecentTests(userId) {
     if (unsubscribeRecentTests) unsubscribeRecentTests();
     const recentTestsList = document.getElementById('recentTestsList');
@@ -390,7 +392,7 @@ function renderUnknownTest(test) {
     return `<div class="test-main"><div class="test-subject">${escapeHtml(test.subject || 'Test')}</div><div class="test-score">Score: <strong>${scoreText}</strong></div></div>`;
 }
 
-// ========== STATISTICS ==========
+// ========== STATISTICS (kept for backward compat, unused when stats HTML is gone) ==========
 async function updateBasicStats(userId) {
     try {
         const stats = await service.getTestStatsByUser(userId);
@@ -454,7 +456,6 @@ function subscribeToAssignedTests() {
     unsubscribeAssignedTests = () => { unsubPending(); unsubStarted(); };
 }
 
-// Real-time listener for this student's cbt submissions.
 function subscribeToSubmissions() {
     if (!currentSchoolId || !currentStudentId) return;
     if (unsubscribeSubmissions) unsubscribeSubmissions();
@@ -533,7 +534,6 @@ function renderAssignedTestsTable() {
     });
 }
 
-// startAssignedTest() — three defence-in-depth guards.
 async function startAssignedTest(cbtId) {
     try {
         if (submittedCbtIds.has(cbtId)) {
@@ -653,7 +653,7 @@ async function startAssignedTest(cbtId) {
     }
 }
 
-// ========== EXISTING TEST LAUNCHERS (used by practice-tests HTML kept hidden) ==========
+// ========== EXISTING TEST LAUNCHERS (dormant — practice HTML removed) ==========
 async function startQuickTest() {
     const selectedExam = classSelect.value;
     const selectedSubject = subjectSelect.value;
@@ -805,7 +805,7 @@ async function fetchQuestions(examType, subject) {
     }
 }
 
-// ========== JAMB DRILL UI ==========
+// ========== JAMB DRILL UI (dormant — practice HTML removed) ==========
 function setupJambDrillSubjects() {
     if (!additionalSubjectsDiv) return;
     additionalSubjectsDiv.innerHTML = '';
@@ -826,6 +826,7 @@ function setupJambDrillSubjects() {
 function validateJambSubjectSelection() {
     const checkboxes = document.querySelectorAll('.jamb-subject-checkbox:checked');
     const hint = document.getElementById('subjectSelectionHint');
+    if (!hint) return;
     if (checkboxes.length === 3) {
         hint.innerHTML = '✅ 3 subjects selected. Ready to start.';
         hint.style.color = '#28a745';
@@ -835,129 +836,200 @@ function validateJambSubjectSelection() {
     }
 }
 
-// ========== TAB SYSTEM ==========
-// Practice Tests → external redirect to SmartBrain CBT (free practice platform)
-// Assigned Tests → stays in Acadex (teacher-created tests)
+// ========== TAB SYSTEM (iOS-style, Assigned first, Practice redirects) ==========
+
+// Inject modern tab styles once (self-contained — no CSS file edits needed)
+function injectTabStyles() {
+    if (document.getElementById('cbt-tab-modern-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'cbt-tab-modern-styles';
+    style.textContent = `
+        .cbt-tabs-modern {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 1.5rem;
+        }
+        .cbt-tabs-modern .cbt-tab {
+            flex: 1 1 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 18px 28px;
+            border-radius: 18px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+            font-size: 1.08rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            cursor: pointer;
+            transition: all 0.28s cubic-bezier(0.25, 0.8, 0.35, 1);
+            -webkit-tap-highlight-color: transparent;
+            border: 2px solid rgba(106, 17, 203, 0.18);
+            background: #ffffff;
+            color: #6A11CB;
+            box-shadow: 0 2px 10px rgba(106, 17, 203, 0.06);
+            min-height: 64px;
+            white-space: nowrap;
+        }
+        .cbt-tabs-modern .cbt-tab i {
+            font-size: 1.15rem;
+        }
+        .cbt-tabs-modern .cbt-tab:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 22px rgba(106, 17, 203, 0.18);
+            border-color: rgba(106, 17, 203, 0.4);
+        }
+        .cbt-tabs-modern .cbt-tab:active {
+            transform: scale(0.98);
+        }
+        .cbt-tabs-modern .cbt-tab.active {
+            background: linear-gradient(135deg, #6A11CB 0%, #9D4EDD 100%);
+            color: #ffffff;
+            border-color: transparent;
+            box-shadow: 0 10px 26px rgba(106, 17, 203, 0.38);
+        }
+        .cbt-tabs-modern .cbt-tab.active:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(106, 17, 203, 0.45);
+        }
+        .cbt-tabs-modern .cbt-tab-external-icon {
+            font-size: 0.7em;
+            opacity: 0.75;
+            margin-left: 2px;
+        }
+        @media (max-width: 640px) {
+            .cbt-tabs-modern {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .cbt-tabs-modern .cbt-tab {
+                flex: 1 1 auto;
+                width: 100%;
+                padding: 18px 22px;
+                font-size: 1.02rem;
+                min-height: 60px;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 function createTabs() {
     const practiceContainer = document.getElementById('practiceTestsContainer');
     const assignedSection = document.getElementById('assignedCbtSection');
-    if (!practiceContainer || !assignedSection) return;
+    if (!assignedSection) return;
+
+    // Inject modern tab styles
+    injectTabStyles();
+
+    // Hide practice container — content is removed anyway
+    if (practiceContainer) practiceContainer.style.display = 'none';
 
     const tabsContainer = document.createElement('div');
-    tabsContainer.className = 'cbt-tabs';
-    tabsContainer.style.display = 'flex';
-    tabsContainer.style.gap = '1rem';
-    tabsContainer.style.marginBottom = '1.5rem';
-    tabsContainer.style.borderBottom = '2px solid #ddd';
-    tabsContainer.style.paddingBottom = '0.5rem';
+    tabsContainer.className = 'cbt-tabs-modern';
 
-    const practiceTab = document.createElement('button');
-    practiceTab.innerHTML = '📚 Practice Tests <i class="fas fa-arrow-up-right-from-square" style="font-size:0.75em;opacity:0.7;margin-left:4px;"></i>';
-    practiceTab.className = 'cbt-tab';
-    practiceTab.type = 'button';
-    practiceTab.style.background = 'none';
-    practiceTab.style.border = 'none';
-    practiceTab.style.fontSize = '1.1rem';
-    practiceTab.style.fontWeight = '600';
-    practiceTab.style.cursor = 'pointer';
-    practiceTab.style.padding = '0.5rem 1rem';
-    practiceTab.style.color = '#666';
-
+    // ASSIGNED TESTS FIRST (default)
     const assignedTab = document.createElement('button');
-    assignedTab.textContent = '📋 Assigned Tests';
-    assignedTab.className = 'cbt-tab active';
     assignedTab.type = 'button';
-    assignedTab.style.background = 'none';
-    assignedTab.style.border = 'none';
-    assignedTab.style.fontSize = '1.1rem';
-    assignedTab.style.fontWeight = '600';
-    assignedTab.style.cursor = 'pointer';
-    assignedTab.style.padding = '0.5rem 1rem';
-    assignedTab.style.color = '#6A11CB';
-    assignedTab.style.borderBottom = '3px solid #6A11CB';
+    assignedTab.className = 'cbt-tab active';
+    assignedTab.innerHTML = '<i class="fas fa-clipboard-list"></i> Assigned Tests';
 
-    tabsContainer.appendChild(practiceTab);
+    // PRACTICE TESTS SECOND (external redirect)
+    const practiceTab = document.createElement('button');
+    practiceTab.type = 'button';
+    practiceTab.className = 'cbt-tab';
+    practiceTab.innerHTML = '<i class="fas fa-bolt"></i> Practice Tests <i class="fas fa-arrow-up-right-from-square cbt-tab-external-icon"></i>';
+
     tabsContainer.appendChild(assignedTab);
+    tabsContainer.appendChild(practiceTab);
 
+    // Insert after welcome section
     const dashboardContainer = document.querySelector('.dashboard-container');
-    const statsSection = document.querySelector('.stats-section');
-    if (statsSection && statsSection.nextSibling) {
-        dashboardContainer.insertBefore(tabsContainer, statsSection.nextSibling);
+    const welcomeSection = document.querySelector('.welcome-section');
+
+    if (welcomeSection && welcomeSection.parentNode) {
+        welcomeSection.parentNode.insertBefore(tabsContainer, welcomeSection.nextSibling);
     } else {
         dashboardContainer.appendChild(tabsContainer);
     }
 
     function showAssigned() {
-        practiceContainer.style.display = 'none';
+        if (practiceContainer) practiceContainer.style.display = 'none';
         assignedSection.style.display = 'block';
         assignedTab.classList.add('active');
-        assignedTab.style.color = '#6A11CB';
-        assignedTab.style.borderBottom = '3px solid #6A11CB';
         practiceTab.classList.remove('active');
-        practiceTab.style.color = '#666';
-        practiceTab.style.borderBottom = 'none';
         if (currentSchoolId && currentStudentId && currentStudentData && !unsubscribeAssignedTests) {
             subscribeToAssignedTests();
         }
     }
 
-    function handlePracticeClick() {
-        redirectToSmartBrainPractice();
+    async function handlePracticeClick() {
+        const originalHTML = practiceTab.innerHTML;
+        practiceTab.disabled = true;
+        practiceTab.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening Smart Brain…';
+        const ok = await redirectToSmartBrainPractice();
+        if (!ok) {
+            practiceTab.disabled = false;
+            practiceTab.innerHTML = originalHTML;
+        }
     }
 
-    practiceTab.addEventListener('click', handlePracticeClick);
     assignedTab.addEventListener('click', showAssigned);
+    practiceTab.addEventListener('click', handlePracticeClick);
 
-    // DEFAULT: show Assigned Tests (Practice lives on SmartBrain now)
+    // DEFAULT: Assigned Tests
     showAssigned();
 }
 
 // ========== SMARTBRAIN SSO REDIRECT ==========
-// Sends the student to SmartBrain's SSO login page with their identity.
-// SmartBrain derives a password from the Acadex UID and signs the student
-// in (or creates the account on first visit). Same URL every time →
-// same SmartBrain account every time.
+// Sends the student to SmartBrain's SSO login page with their identity
+// AND a return URL so SmartBrain can offer a "Return to Acadex" button.
 async function redirectToSmartBrainPractice() {
     try {
         const user = auth.currentUser;
         if (!user) {
             toast.error('Your session has expired. Please log in again.');
-            return;
+            return false;
         }
-
         if (!currentStudentData) {
             toast.error('Profile still loading. Please try again in a moment.');
-            return;
+            return false;
         }
 
         const email = (currentStudentData.email || user.email || '').trim().toLowerCase();
         if (!email) {
             toast.error('Your account is missing an email address. Please contact your school.');
-            return;
+            return false;
         }
 
         const schoolId = currentStudentData.schoolId;
         if (!schoolId) {
             toast.error('You must be enrolled in a school to access practice tests.');
-            return;
+            return false;
         }
 
         const name = currentStudentData.name || user.displayName || 'Student';
+
+        // Return URL — where SmartBrain should send them back to
+        // This is the Acadex student portal at the current origin.
+        const returnUrl = window.location.origin + '/student/student-portal.html';
 
         const params = new URLSearchParams({
             e: email,
             u: user.uid,
             n: name,
-            s: schoolId
+            s: schoolId,
+            r: returnUrl
         });
 
-        const smartBrainUrl =
-            'https://smartbraincbt.vercel.app/dashboard/sso-login.html?' + params.toString();
-
-        window.location.href = smartBrainUrl;
+        const url = SMARTBRAIN_SSO_URL + '?' + params.toString();
+        window.location.href = url;
+        return true;
     } catch (err) {
         console.error('SmartBrain SSO redirect error:', err);
         toast.error('Unable to open practice tests. Please try again.');
+        return false;
     }
 }
 
@@ -975,10 +1047,7 @@ async function initCBTDashboard() {
             populateWaecNecoSubjects();
             setupJambDrillSubjects();
 
-            // Submissions listener still starts immediately so submittedCbtIds
-            // is populated before the student opens the Assigned tab.
             subscribeToSubmissions();
-
             await updateBasicStats(currentStudentId);
             createTabs();
         } else {
@@ -991,8 +1060,6 @@ async function initCBTDashboard() {
     if (startJambDrillBtn) startJambDrillBtn.addEventListener('click', startJambDrill);
     if (startWaecNecoDrillBtn) startWaecNecoDrillBtn.addEventListener('click', startWaecNecoDrill);
 
-    // Manual loader for recent tests (still available if the practice
-    // HTML is re-enabled later).
     if (loadRecentTestsBtn) {
         loadRecentTestsBtn.addEventListener('click', async () => {
             if (!currentStudentId) {
