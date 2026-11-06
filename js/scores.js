@@ -1,16 +1,20 @@
 // scores.js - Teacher score entry with direct Firestore subscription check
-// FIXED: checkSubscription() now mirrors the FULL server-side isSubscriptionActive()
-//        rule (status, locked===false, endDate present, endDate in future,
-//        term===expectedTerm, session===expectedSession) so the teacher sees the
-//        ACTUAL reason for a permission-denied error. STRICT — does NOT soften
-//        the rule. If the school's subscription has a missing "locked" field,
-//        the client refuses (matching the server's strict `locked == false`).
-// NEW:   On permission-denied at save time, the client fetches the actual
-//        student doc from Firestore to report WHICH students are not unlocked
-//        (explicit locked:false required).
-// NEW:   Guarantees only one score record per student/subject/term/session.
-// NEW:   Session input is locked to the current academic session only.
-// NEW:   CA and Exam input values are clamped to the school's current grading.
+//
+// UPDATED (this version):
+//   • checkSubscription() now mirrors the FULL server-side isSubscriptionActive()
+//     rule (status, locked === false, endDate present, endDate future,
+//     term === expectedTerm, session === expectedSession).
+//     STRICT — does NOT soften any rule. Missing `locked` → refuses to save.
+//   • saveScores() error handler now diagnoses the exact cause when the write
+//     is denied:
+//       – Refreshes the subscription state and shows the specific blocker.
+//       – If subscription is fine, verifies each student's `locked` field
+//         in Firestore and lists those that are NOT exactly `false`.
+//       – If all students are unlocked, prints the exact subject/class IDs
+//         in users/{uid} vs teachers/{uid} so the admin can pinpoint the
+//         mismatch in the teacher's assignments.
+//   • All other functionality (score upsert, deduplication, notifications,
+//     grading limits, session locking) is unchanged.
 
 import { auth } from './firebase-config.js';
 import {
@@ -29,7 +33,7 @@ let teacherId = null;
 let teacherSubjectIds = [];
 let teacherClassIds = [];
 let subjectsMap = new Map();
-let classesMap = new Map();
+let classesMap = new Map();          // classId -> { name, level }
 let studentsList = [];
 let selectedClassId = null;
 let selectedSubjectId = null;
@@ -39,9 +43,10 @@ let currentGrading = { ca: 40, exam: 60 };
 let isScoreEntryAllowed = false;
 let subscriptionIssue = null;
 
-// Mirror of the server's expectedTerm()/expectedSession() in firestore.rules.
+// ------------------- Mirror of server expectedTerm() / expectedSession() -------------------
+// Must stay identical to those helpers in firestore.rules.
 function computeExpectedTerm() {
-  const m = new Date().getMonth() + 1;
+  const m = new Date().getMonth() + 1; // JS months are 0-11; rules use 1-12
   if (m >= 9) return 'First Term';
   if (m >= 5) return 'Third Term';
   return 'Second Term';
@@ -61,7 +66,7 @@ function toDateOrNull(v) {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// ------------------- Subscription check (STRICT — mirrors the server rule) -------------------
+// ------------------- STRICT subscription check (mirrors server rule) -------------------
 async function checkSubscription() {
   subscriptionIssue = null;
   try {
@@ -82,13 +87,12 @@ async function checkSubscription() {
     }
 
     // STRICT: server requires `locked == false` exactly. If the field is
-    // missing, `undefined == false` is false → server denies. We surface
-    // that here rather than silently passing.
+    // missing (undefined) or any non-false value, the server denies.
     if (subData.locked !== false) {
       isScoreEntryAllowed = false;
       subscriptionIssue = subData.locked === true
         ? 'Your school\'s subscription is locked. Please contact your administrator.'
-        : 'Your school\'s subscription record is missing the "locked" field. Please ask your administrator to set it to false (or false by default) in the subscription settings.';
+        : 'Your school\'s subscription record is missing the "locked" field. Please ask your administrator to set it to false in the subscription settings.';
       updateSubscriptionUI();
       return false;
     }
@@ -155,12 +159,14 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
       return;
     }
     const classLevel = classData.level;
+
     const scoringConfigs = await service.getScoringConfig(currentSchoolId, classLevel);
     let grading = null;
     if (scoringConfigs && scoringConfigs.length > 0) {
       const data = scoringConfigs[0];
       grading = data.grading || `${data.caWeight}/${data.examWeight}`;
     }
+
     if (!grading) {
       const fallbackConfigs = await service.getScoringConfig(currentSchoolId);
       if (fallbackConfigs && fallbackConfigs.length > 0) {
@@ -168,9 +174,11 @@ async function loadGradingSettingByClassLevel(classId, session, term) {
         grading = data.grading || `${data.caWeight}/${data.examWeight}`;
       }
     }
+
     if (grading) {
       const [ca, exam] = grading.split('/').map(Number);
       currentGrading = { ca, exam };
+      console.log(`Grading loaded for level ${classLevel}: CA=${ca}, Exam=${exam}`);
     } else {
       currentGrading = { ca: 40, exam: 60 };
     }
@@ -208,6 +216,7 @@ async function loadAllSubjects() {
       const d = docSnap.data();
       if (d.name) subjectsMap.set(docSnap.id, d.name);
     });
+    console.log(`Loaded ${subjectsMap.size} subjects directly from Firestore.`);
   } catch (err) {
     console.error('Load subjects error:', err);
     toast.error('Unable to load subjects. Please refresh the page.');
@@ -233,6 +242,8 @@ async function loadTeacherAssignedSubjectsAndClasses() {
       const teacher = teacherDocSnap.data();
       teacherSubjectIds = teacher.subjectIds || [];
       teacherClassIds = teacher.classIds || [];
+      console.log("Teacher assigned subjects (fresh):", teacherSubjectIds);
+      console.log("Teacher assigned classes (fresh):", teacherClassIds);
     } else {
       console.warn("Teacher document not found for UID:", teacherId);
     }
@@ -299,7 +310,7 @@ async function loadStudentsForClass(classId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Score upsert helpers
+// Score upsert helpers (duplicate-safe)
 // ─────────────────────────────────────────────────────────────────────────────
 function _scoreDateMs(score) {
   const candidates = [score.updatedAt, score.createdAt];
@@ -353,7 +364,10 @@ async function saveAllScores(scoresData) {
 
   for (const score of scoresData) {
     const allExisting = await getAllExistingScoreDocs(
-      score.studentId, score.subjectId, selectedTerm, selectedSession
+      score.studentId,
+      score.subjectId,
+      selectedTerm,
+      selectedSession
     );
 
     const subjectName = subjectsMap.get(score.subjectId) || '';
@@ -407,10 +421,12 @@ function updateSubscriptionUI() {
       saveBtn.style.opacity = '0.5';
       saveBtn.title = subscriptionIssue || 'Subscription inactive – cannot save scores';
     }
+
     const bannerHtml = `
       <strong>⚠️ Score Entry Blocked</strong><br>
       ${escapeHtml(subscriptionIssue || 'Your school subscription is inactive.')}
     `;
+
     if (container && !existingBanner) {
       const banner = document.createElement('div');
       banner.id = 'subscriptionBanner';
@@ -421,6 +437,7 @@ function updateSubscriptionUI() {
     } else if (existingBanner) {
       existingBanner.innerHTML = bannerHtml;
     }
+
     document.querySelectorAll('.ca-input, .exam-input').forEach(input => input.disabled = true);
   } else {
     if (saveBtn) {
@@ -445,11 +462,13 @@ async function renderScoreTable() {
     container.innerHTML = '<p>Select class and subject</p>';
     return;
   }
+
   await loadStudentsForClass(selectedClassId);
   if (studentsList.length === 0) {
     container.innerHTML = '<p>No students in this class</p>';
     return;
   }
+
   const caMax   = Number(currentGrading.ca)   || 0;
   const examMax = Number(currentGrading.exam) || 0;
 
@@ -458,6 +477,7 @@ async function renderScoreTable() {
       <tr><th>Student Name</th><th>CA (${caMax})</th><th>Exam (${examMax})</th><th>Total</th><th>Status</th></tr>
     </thead>
     <tbody>`;
+
   for (const student of studentsList) {
     const existing = await fetchExistingScores(student.id, selectedSubjectId, selectedTerm, selectedSession);
     const ca = existing?.ca ?? '';
@@ -466,6 +486,7 @@ async function renderScoreTable() {
     const isLocked = student.locked === true;
     const disabledAttr = (!isScoreEntryAllowed || isLocked) ? 'disabled' : '';
     const statusText = isLocked ? '🔒 Not Approved' : '✅ Approved';
+
     tableHtml += `<tr data-student-id="${student.id}" data-locked="${isLocked}" data-student-name="${escapeHtml(student.name)}">
       <td>${escapeHtml(student.name)}</td>
       <td><input type="number" class="score-input ca-input" value="${ca}" min="0" max="${caMax}" data-max="${caMax}" ${disabledAttr}></td>
@@ -474,6 +495,7 @@ async function renderScoreTable() {
       <td class="status-cell">${statusText}</td>
     </tr>`;
   }
+
   tableHtml += `</tbody></table>`;
   container.innerHTML = `<div class="table-responsive-wrapper">${tableHtml}</div>`;
 
@@ -497,8 +519,11 @@ async function renderScoreTable() {
         const examInput = row.querySelector('.exam-input');
         const totalCell = row.querySelector('.total-cell');
         if (!caInput || !examInput || !totalCell) return;
-        totalCell.textContent = (parseInt(caInput.value) || 0) + (parseInt(examInput.value) || 0);
+        const ca = parseInt(caInput.value) || 0;
+        const exam = parseInt(examInput.value) || 0;
+        totalCell.textContent = ca + exam;
       });
+
       input.addEventListener('change', function() {
         const max = Number(this.dataset.max) || 0;
         let v = parseInt(this.value, 10);
@@ -579,6 +604,7 @@ async function saveScores() {
   showLoader();
   try {
     await saveAllScores(unlockedScores);
+
     if (unlockedScores.length > 0) {
       try {
         const subjectName = subjectsMap.get(selectedSubjectId) || '';
@@ -595,50 +621,89 @@ async function saveScores() {
         console.error('Failed to create score notifications:', notifErr);
       }
     }
+
     toast.success(`Scores saved successfully for ${unlockedScores.length} student(s).`);
     await renderScoreTable();
   } catch (err) {
     console.error("Full error object:", err);
-    if (err.code === 'permission-denied') {
-      // Re-run subscription check with STRICT client-side mirror of the rule.
-      const stillOk = await checkSubscription();
-      if (!stillOk) {
-        toast.error(subscriptionIssue || 'Unable to save. Subscription is not valid for the current term.');
-        return;
+
+    if (err.code !== 'permission-denied') {
+      if (err.message === 'subscription_inactive') {
+        toast.error(subscriptionIssue || 'School subscription is inactive. Please renew to save scores.');
+      } else {
+        toast.error('Failed to save scores. Please try again.');
       }
-      // Subscription IS fine → verify each student's locked field in Firestore
-      const blockedStudents = [];
-      for (const score of unlockedScores) {
-        try {
-          const sDoc = await getDoc(doc(db, 'students', score.studentId));
-          if (!sDoc.exists()) {
-            blockedStudents.push(`${score.studentName} (record missing)`);
-          } else {
-            const d = sDoc.data();
-            if (d.locked !== false) {
-              blockedStudents.push(`${score.studentName} (locked=${d.locked === undefined ? 'missing' : String(d.locked)})`);
-            }
-          }
-        } catch (e) {
-          blockedStudents.push(`${score.studentName} (unable to verify)`);
-        }
-      }
-      if (blockedStudents.length) {
-        toast.error(`Unable to save scores. These students are not unlocked (need locked:false): ${blockedStudents.join(', ')}. Please ask your administrator.`);
-        return;
-      }
-      // Subscription OK + all students appear unlocked → must be teacher assignment mismatch
-      toast.error(
-        'Unable to save scores. Subscription is active and all students appear unlocked. ' +
-        'This is most likely a teacher-assignment mismatch: your subject/class assignments ' +
-        'in the user record do not match what the rules expect. Please ask your administrator ' +
-        'to verify your teacher account assignments.'
-      );
-    } else if (err.message === 'subscription_inactive') {
-      toast.error(subscriptionIssue || 'School subscription is inactive. Please renew to save scores.');
-    } else {
-      toast.error('Failed to save scores. Please try again.');
+      return;
     }
+
+    // === Diagnose permission-denied by re-checking each condition ===
+    const stillOk = await checkSubscription();
+    if (!stillOk) {
+      toast.error(subscriptionIssue || 'Unable to save. Subscription is not valid for the current term.');
+      return;
+    }
+
+    // Subscription is fine — check students' locked flags
+    const blockedStudents = [];
+    for (const score of unlockedScores) {
+      try {
+        const sDoc = await getDoc(doc(db, 'students', score.studentId));
+        if (!sDoc.exists()) {
+          blockedStudents.push(`${score.studentName} (student doc not found)`);
+        } else {
+          const v = sDoc.data().locked;
+          if (v !== false) {
+            blockedStudents.push(`${score.studentName} (locked=${v === undefined ? 'missing' : JSON.stringify(v)})`);
+          }
+        }
+      } catch (e) {
+        blockedStudents.push(`${score.studentName} (unable to verify)`);
+      }
+    }
+    if (blockedStudents.length) {
+      toast.error(`Unable to save. These students are not unlocked (must have locked:false): ${blockedStudents.join(', ')}`);
+      return;
+    }
+
+    // Subscription OK + all students unlocked — check teacher assignment
+    const uid = auth.currentUser.uid;
+    let usersData = null;
+    let teachersData = null;
+    try {
+      const uDoc = await getDoc(doc(db, 'users', uid));
+      usersData = uDoc.exists() ? uDoc.data() : null;
+      const tDoc = await getDoc(doc(db, 'teachers', uid));
+      teachersData = tDoc.exists() ? tDoc.data() : null;
+    } catch (e) { /* non-fatal */ }
+
+    const uSubs = (usersData?.subjectIds || []);
+    const uCls = (usersData?.classIds || []);
+    const tSubs = (teachersData?.subjectIds || []);
+    const tCls = (teachersData?.classIds || []);
+
+    const subjOk =
+      (uSubs.length === 0 && tSubs.length === 0) ||
+      uSubs.includes(selectedSubjectId) ||
+      tSubs.includes(selectedSubjectId);
+    const clsOk =
+      (uCls.length === 0 && tCls.length === 0) ||
+      uCls.includes(selectedClassId) ||
+      tCls.includes(selectedClassId);
+
+    if (!subjOk || !clsOk) {
+      toast.error(
+        `Unable to save. Teacher assignment mismatch. ` +
+        `Subject: users=[${uSubs.join(',') || '∅'}] / teachers=[${tSubs.join(',') || '∅'}] → ${subjOk ? 'MATCH' : 'NO MATCH'}. ` +
+        `Class: users=[${uCls.join(',') || '∅'}] / teachers=[${tCls.join(',') || '∅'}] → ${clsOk ? 'MATCH' : 'NO MATCH'}. ` +
+        `Please ask your administrator to update your teacher record.`
+      );
+      return;
+    }
+
+    toast.error(
+      'Save was denied by security rules despite all checks passing. ' +
+      'Please contact support with the console log from this attempt.'
+    );
   } finally {
     hideLoader();
   }
@@ -707,12 +772,14 @@ async function initScoresPage() {
       }
     });
   }
+
   if (subjectSelect) {
     subjectSelect.addEventListener('change', () => {
       selectedSubjectId = subjectSelect.value;
       renderScoreTable();
     });
   }
+
   if (sessionSelect) {
     sessionSelect.addEventListener('change', async () => {
       selectedSession = sessionSelect.value;
@@ -725,6 +792,7 @@ async function initScoresPage() {
       renderScoreTable();
     });
   }
+
   if (termSelect) {
     termSelect.addEventListener('change', async (e) => {
       selectedTerm = e.target.value;
