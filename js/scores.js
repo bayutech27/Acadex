@@ -2,12 +2,11 @@
 // FIXED: Duplicate scores – bypass cache for fetching existing scores and saving.
 // UPDATED: Subjects and teacher assignments now loaded directly from Firestore
 //          to bypass any stale client-side cache and ensure new subjects appear.
-// All other operations (students, grading) still use service.js.
-// All user-facing errors now show clear, friendly messages without technical jargon.
+// UPDATED: checkSubscription() now mirrors the full server-side isSubscriptionActive()
+//          check (status, locked, endDate, term, session) so the teacher gets the
+//          REAL reason for a permission-denied error instead of the misleading
+//          "not assigned / not unlocked" message.
 // NEW: Guarantees only one score record per student/subject/term/session.
-//      New scores are created with a deterministic document ID.
-//      Edited scores are updated in place with the current date/time in updatedAt.
-//      Any existing duplicate score documents are deleted automatically.
 // NEW: Session input is locked to the current academic session only.
 // NEW: CA and Exam input values are clamped to the school's current grading
 //      system (e.g. 40/60) both on input and again at save time.
@@ -41,18 +40,95 @@ let selectedTerm = '1';
 let selectedSession = '';
 let currentGrading = { ca: 40, exam: 60 };
 let isScoreEntryAllowed = false;
+let subscriptionIssue = null;        // NEW: specific reason subscription is blocking saves
+
+// ------------------- Mirror of the server-side term/session computation -------------------
+// Must stay identical to expectedTerm() / expectedSession() in firestore.rules.
+function computeExpectedTerm() {
+  const m = new Date().getMonth() + 1; // JS months are 0-11, rules use 1-12
+  if (m >= 9) return 'First Term';
+  if (m >= 5) return 'Third Term';
+  return 'Second Term';
+}
+function computeExpectedSession() {
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  const y = now.getFullYear();
+  return m >= 9 ? `${y}/${y + 1}` : `${y - 1}/${y}`;
+}
+function toDateOrNull(v) {
+  if (!v) return null;
+  if (typeof v.toDate === 'function') return v.toDate();
+  if (typeof v.seconds === 'number') return new Date(v.seconds * 1000);
+  if (v instanceof Date && !isNaN(v.getTime())) return v;
+  const parsed = new Date(v);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
 
 // ------------------- Direct subscription check (via service) -------------------
+// Mirrors the full server-side isSubscriptionActive() rule so that the teacher
+// gets an accurate message BEFORE attempting to save.
 async function checkSubscription() {
+  subscriptionIssue = null;
   try {
     const subData = await service.getSubscription(currentSchoolId);
-    isScoreEntryAllowed = subData ? (subData.status === 'active' && subData.locked !== true) : false;
+
+    if (!subData) {
+      isScoreEntryAllowed = false;
+      subscriptionIssue = 'No subscription record found for this school. Please contact your administrator.';
+      updateSubscriptionUI();
+      return false;
+    }
+
+    if (subData.status !== 'active') {
+      isScoreEntryAllowed = false;
+      subscriptionIssue = `Your school's subscription is currently "${subData.status}". Please contact your administrator to renew.`;
+      updateSubscriptionUI();
+      return false;
+    }
+
+    if (subData.locked === true) {
+      isScoreEntryAllowed = false;
+      subscriptionIssue = 'Your school\'s subscription is locked. Please contact your administrator.';
+      updateSubscriptionUI();
+      return false;
+    }
+
+    const endDate = toDateOrNull(subData.endDate);
+    if (!endDate) {
+      isScoreEntryAllowed = false;
+      subscriptionIssue = 'Your school\'s subscription has no expiry date set. Please contact your administrator.';
+      updateSubscriptionUI();
+      return false;
+    }
+    if (endDate <= new Date()) {
+      isScoreEntryAllowed = false;
+      subscriptionIssue = `Your school's subscription expired on ${endDate.toLocaleDateString()}. Please contact your administrator to renew.`;
+      updateSubscriptionUI();
+      return false;
+    }
+
+    const expectedTerm = computeExpectedTerm();
+    const expectedSession = computeExpectedSession();
+    if (subData.term !== expectedTerm || subData.session !== expectedSession) {
+      isScoreEntryAllowed = false;
+      subscriptionIssue =
+        `Your school's subscription is registered for "${subData.term || '—'} ${subData.session || '—'}", ` +
+        `but the current term is "${expectedTerm} ${expectedSession}". ` +
+        `Please ask your administrator to renew for the current term.`;
+      updateSubscriptionUI();
+      return false;
+    }
+
+    // All checks passed
+    isScoreEntryAllowed = true;
     updateSubscriptionUI();
-    return isScoreEntryAllowed;
+    return true;
   } catch (err) {
     console.error('Subscription check error:', err);
     toast.error('Unable to verify subscription status. Please refresh the page.');
     isScoreEntryAllowed = false;
+    subscriptionIssue = 'Unable to verify subscription status. Please refresh the page.';
     updateSubscriptionUI();
     return false;
   }
@@ -136,7 +212,6 @@ async function loadGradingSetting(session, term) {
 }
 
 // ------------------- Data loading via service -------------------
-// Direct Firestore query to bypass cache for subjects
 async function loadAllSubjects() {
   try {
     const q = query(
@@ -171,7 +246,6 @@ async function loadAllClasses() {
   }
 }
 
-// Direct Firestore getDoc for teacher to bypass cache
 async function loadTeacherAssignedSubjectsAndClasses() {
   if (!teacherId) return;
   try {
@@ -253,11 +327,6 @@ async function loadStudentsForClass(classId) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers for duplicate-safe score handling
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Convert a Firestore timestamp or JavaScript Date value to milliseconds.
- * Returns 0 when no valid date is found.
- */
 function _scoreDateMs(score) {
   const candidates = [score.updatedAt, score.createdAt];
   for (const val of candidates) {
@@ -272,23 +341,10 @@ function _scoreDateMs(score) {
   return 0;
 }
 
-/**
- * Sanitize a session string for use in a Firestore document ID.
- */
 function sanitizeForDocId(value) {
   return String(value || '').replace(/[^\w-]/g, '_');
 }
 
-/**
- * Return every score document that matches the student, subject, term and session.
- * This deliberately bypasses the service cache.
- *
- * NOTE: We deliberately do NOT filter by classId here. A student's score is
- * identified by (studentId, subjectId, schoolId, term, session). This lets us
- * fetch a score later even if the student has moved class, become inactive,
- * or graduated — the score remains tied to the class/term/session that was
- * in effect at save time (stored inside the record itself).
- */
 async function getAllExistingScoreDocs(studentId, subjectId, term, session) {
   try {
     const q = query(
@@ -301,8 +357,6 @@ async function getAllExistingScoreDocs(studentId, subjectId, term, session) {
     );
     const snap = await getDocs(q);
     const docs = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-
-    // Put the newest document first, so [0] is always the canonical score.
     docs.sort((a, b) => _scoreDateMs(b) - _scoreDateMs(a));
     return docs;
   } catch (err) {
@@ -312,10 +366,6 @@ async function getAllExistingScoreDocs(studentId, subjectId, term, session) {
   }
 }
 
-/**
- * Return only the newest existing score document for a student/subject/term/session,
- * or null when none exists.
- */
 async function fetchExistingScores(studentId, subjectId, term, session) {
   const allExisting = await getAllExistingScoreDocs(studentId, subjectId, term, session);
   return allExisting.length > 0 ? allExisting[0] : null;
@@ -323,10 +373,6 @@ async function fetchExistingScores(studentId, subjectId, term, session) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // saveAllScores – duplicate‑safe score upsert
-// Each record stores:
-//   studentId, studentName, subjectId, subjectName,
-//   schoolId, classId (at time of saving), term, session,
-//   ca, exam, createdAt, updatedAt
 // ─────────────────────────────────────────────────────────────────────────────
 async function saveAllScores(scoresData) {
   if (!isScoreEntryAllowed) throw new Error('subscription_inactive');
@@ -344,9 +390,8 @@ async function saveAllScores(scoresData) {
 
     const subjectName = subjectsMap.get(score.subjectId) || '';
     const className   = classesMap.get(selectedClassId)?.name || '';
-    const now = new Date(); // current date and time, used for every updated record
+    const now = new Date();
 
-    // The identity fields that persist with the score for later retrieval.
     const identityFields = {
       studentId:   score.studentId,
       studentName: score.studentName || '',
@@ -364,8 +409,6 @@ async function saveAllScores(scoresData) {
     let scoreRef;
 
     if (allExisting.length === 0) {
-      // No existing score. Use a deterministic document ID so the same
-      // student/subject/term/session can never exist twice.
       const deterministicId = `${score.studentId}_${score.subjectId}_${selectedTerm}_${sanitizeForDocId(selectedSession)}`;
       scoreRef = doc(db, 'scores', deterministicId);
       batch.set(scoreRef, {
@@ -374,8 +417,6 @@ async function saveAllScores(scoresData) {
         updatedAt: now
       });
     } else {
-      // One or more existing scores. Keep the newest as the canonical record
-      // and update it in place. Delete any older duplicates.
       const canonical = allExisting[0];
       const extras = allExisting.slice(1);
 
@@ -393,8 +434,6 @@ async function saveAllScores(scoresData) {
   }
 
   await batch.commit();
-
-  // Invalidate scores cache so that any cached reads see the updated data
   service.invalidateScores();
 }
 
@@ -408,7 +447,7 @@ function updateSubscriptionUI() {
     if (saveBtn) {
       saveBtn.disabled = true;
       saveBtn.style.opacity = '0.5';
-      saveBtn.title = 'Subscription inactive – cannot save scores';
+      saveBtn.title = subscriptionIssue || 'Subscription inactive – cannot save scores';
     }
     if (container && !existingBanner) {
       const banner = document.createElement('div');
@@ -417,10 +456,18 @@ function updateSubscriptionUI() {
       banner.style.cssText = 'background: #fee2e2; color: #991b1b; padding: 12px; margin-bottom: 16px; border-radius: 8px;';
       banner.innerHTML = `
         <strong>⚠️ Subscription Required</strong><br>
-        Your school subscription is inactive. You cannot add or edit student scores. 
-        Please contact your school administrator to renew.
+        ${escapeHtml(subscriptionIssue || 'Your school subscription is inactive. You cannot add or edit student scores. Please contact your school administrator to renew.')}
       `;
       container.prepend(banner);
+    } else if (existingBanner) {
+      // Refresh the reason if it changed between calls
+      const strongEl = existingBanner.querySelector('strong');
+      if (strongEl) {
+        existingBanner.innerHTML = `
+          <strong>⚠️ Subscription Required</strong><br>
+          ${escapeHtml(subscriptionIssue || 'Your school subscription is inactive. You cannot add or edit student scores. Please contact your school administrator to renew.')}
+        `;
+      }
     }
     document.querySelectorAll('.ca-input, .exam-input').forEach(input => input.disabled = true);
   } else {
@@ -453,7 +500,6 @@ async function renderScoreTable() {
     return;
   }
 
-  // IMPORTANT: inputs are hard-capped to the current grading system.
   const caMax   = Number(currentGrading.ca)   || 0;
   const examMax = Number(currentGrading.exam) || 0;
 
@@ -485,11 +531,10 @@ async function renderScoreTable() {
 
   if (isScoreEntryAllowed) {
     document.querySelectorAll('.ca-input:not([disabled]), .exam-input:not([disabled])').forEach(input => {
-      // Clamp on input: prevent typing or pasting values above the grading max.
       input.addEventListener('input', function() {
         const max = Number(this.dataset.max) || 0;
         if (this.value === '') {
-          // allow empty so the user can clear and retype
+          // allow empty
         } else {
           let v = parseInt(this.value, 10);
           if (Number.isNaN(v)) v = 0;
@@ -512,7 +557,6 @@ async function renderScoreTable() {
         totalCell.textContent = ca + exam;
       });
 
-      // Also clamp on blur/change for cases where input event isn't fired
       input.addEventListener('change', function() {
         const max = Number(this.dataset.max) || 0;
         let v = parseInt(this.value, 10);
@@ -532,7 +576,7 @@ async function renderScoreTable() {
 async function saveScores() {
   const active = await checkSubscription();
   if (!active) {
-    toast.error('School subscription is inactive. Cannot save scores. Please contact your school administrator to renew.');
+    toast.error(subscriptionIssue || 'School subscription is inactive. Cannot save scores.');
     return;
   }
 
@@ -573,7 +617,6 @@ async function saveScores() {
     const ca = parseInt(caInput.value) || 0;
     const exam = parseInt(examInput.value) || 0;
 
-    // Hard cap check at save time (defensive – UI already clamps).
     if (ca > caMax || exam > examMax) {
       toast.error(`Invalid scores for ${studentName}. CA max = ${caMax}, Exam max = ${examMax}`);
       return;
@@ -584,7 +627,6 @@ async function saveScores() {
       continue;
     }
 
-    // Include studentName so it's persisted with the score record.
     unlockedScores.push({
       studentId,
       studentName,
@@ -627,9 +669,22 @@ async function saveScores() {
   } catch (err) {
     console.error("Full error object:", err);
     if (err.code === 'permission-denied') {
-      toast.error('Permission denied. Make sure you are assigned to this subject and class, and that the students are approved (unlocked).');
+      // Refresh the subscription state so the teacher (and the banner) see the
+      // REAL reason the write was rejected — could be expired endDate, term/
+      // session mismatch, stale teacher assignment in /users/{uid}, or a
+      // student whose `locked` field isn't exactly boolean false.
+      const stillOk = await checkSubscription();
+      if (!stillOk) {
+        toast.error(subscriptionIssue || 'Unable to save scores. Your school subscription is not valid for the current term.');
+      } else {
+        toast.error(
+          'Unable to save scores. Your school subscription is active, so this is likely a data issue. ' +
+          'Check that (a) each student\'s record has locked === false, and (b) your teacher account has the right subject/class assignments. ' +
+          'If the problem persists, ask your administrator to review your teacher profile.'
+        );
+      }
     } else if (err.message === 'subscription_inactive') {
-      toast.error('School subscription is inactive. Please renew to save scores.');
+      toast.error(subscriptionIssue || 'School subscription is inactive. Please renew to save scores.');
     } else {
       toast.error('Failed to save scores. Please try again.');
     }
@@ -672,8 +727,6 @@ async function initScoresPage() {
   const termMap          = { 'First Term': '1', 'Second Term': '2', 'Third Term': '3' };
   const defaultTermNum   = termMap[currentTermName] || '1';
 
-  // FIXED: Session selector is locked to the current session only.
-  // No past or future sessions are populated.
   const sessionSelect = document.getElementById('sessionSelect');
   if (sessionSelect) {
     sessionSelect.innerHTML = `<option value="${currentSession}">${currentSession}</option>`;
@@ -711,8 +764,6 @@ async function initScoresPage() {
     });
   }
 
-  // Session change listener is kept for safety, but the input is disabled,
-  // so this will rarely (if ever) fire. It still works if unlocked elsewhere.
   if (sessionSelect) {
     sessionSelect.addEventListener('change', async () => {
       selectedSession = sessionSelect.value;
@@ -742,7 +793,6 @@ async function initScoresPage() {
   const saveBtn = document.getElementById('saveScoresBtn');
   if (saveBtn) saveBtn.addEventListener('click', saveScores);
 
-  // Set state defaults to the locked current session.
   selectedSession = currentSession;
   selectedTerm    = defaultTermNum;
 
